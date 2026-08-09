@@ -1,0 +1,267 @@
+create tell_your_story : Application
+
+    context:
+        purpose: a mobile app for ordinary people to tell their stories
+        domain: mobile_app
+        audience: everyone who has a story
+        vibe_brief: warm inviting simple human
+
+    structure:
+        app
+            onboarding
+                welcome_screen
+                tutorial_cards
+                permission_request
+            home
+                story_feed
+                story_composer
+                story_player
+                microphone_control
+                    record_button
+                    waveform_indicator
+                    transcript_preview
+            profile
+                my_stories
+                settings
+                privacy_controls
+            notifications
+                badge
+                banner
+            archive
+                saved_stories
+                drafts
+
+    cognitive:
+        app.intake = voice_first
+        story_composer.capture = audio_with_transcription
+        story_player.playback = synchronized_audio_text
+        microphone_control.activation = on_user_intent
+        microphone_control.recording = capture_audio
+        microphone_control.transcription = transcribe_audio
+        microphone_control.preservation = retain_original
+        transcript_preview.edit = user_correctable
+        privacy_controls.scope = user_determined
+        archive.retention = user_controlled
+
+    vibe:
+        app.color_character = warm_amber
+        app.form_character = organic
+        app.tone = warm
+        app.aesthetic = human_inviting
+        app.intensity = subdued
+        welcome_screen.tone = inviting
+        story_composer.tone = encouraging
+        microphone_control.color_character = amber_glow
+        microphone_control.activation_signal = steady_glow
+        microphone_control.tone = calm
+        microphone_control.form_character = organic
+        notifications.tone = gentle
+
+    spatial:
+        onboarding located_in app
+        home located_in app
+        profile located_in app
+        notifications located_in app
+        archive located_in app
+        story_feed located_in home
+        story_composer located_in home
+        story_player located_in home
+        microphone_control located_in home
+        record_button located_in microphone_control
+        waveform_indicator located_in microphone_control
+        transcript_preview located_in microphone_control
+
+    temporal:
+        onboarding → home on completion
+        composer_capture → transcription on recording_stop
+        transcription → preview on transcribe_complete
+        preview → archive on user_save
+        archive → feed on publish
+
+    relational:
+        record_button feeds microphone_control
+        microphone_control feeds story_composer
+        story_composer feeds transcript_preview
+        transcript_preview feeds archive
+        archive feeds story_feed
+        story_feed feeds story_player
+        privacy_controls feeds archive
+        notifications feeds badge
+
+    conditional:
+        microphone_control activates on record_button_press
+        microphone_control activates on voice_command
+        microphone_control deactivates on record_button_release
+        story_composer activates on new_story_intent
+        transcription begins when recording stops
+        original_audio retained always (unconditional preservation)
+        notifications activate on new_story_from_followed
+        archive retained when user_saves
+
+    behavior:
+        microphone_control behaves_as organic_toggle
+        microphone_control responds_to activation_intent with steady_glow_ramp
+        microphone_control responds_to deactivation_intent with slow_glow_fade
+        microphone_control transitions from idle to active on activation_intent
+        microphone_control transitions from active to recording on device_microphone_ack
+        microphone_control transitions from recording to processing on user_stop_signal
+        microphone_control transitions from processing to idle on transcription_complete
+        microphone_control lifecycle: idle -> active -> recording -> processing -> idle
+        story_composer transitions from empty to recording on record_start
+        story_composer transitions from recording to editing on transcription_complete
+        story_composer lifecycle: empty -> recording -> editing -> saving -> saved
+        app transitions from onboarding to home on onboarding_complete
+        app lifecycle: launched -> onboarding -> home -> active -> background -> foreground
+
+    calibrate:
+        calibrate amber_glow for vibe:
+            maps_to color_hue
+            threshold: hue in [25, 45]
+            signal: css_color_value
+
+        calibrate calm for vibe:
+            maps_to motion_intensity
+            threshold: animation_duration >= 600ms
+            signal: transition_timing_function
+
+        calibrate warm for vibe:
+            maps_to color_temperature
+            threshold: kelvin <= 3500
+            signal: color_palette
+
+        calibrate steady_glow for vibe:
+            maps_to luminance_ramp
+            threshold: ramp_duration >= 800ms
+            signal: box_shadow_animation
+
+        calibrate human_inviting for vibe:
+            maps_to typographic_and_motion_character
+            threshold: composite
+            signal: font_family + easing_curve
+            note: proxy calibration
+
+        calibrate subdued for vibe:
+            maps_to saturation_and_contrast
+            threshold: saturation <= 0.6
+            signal: color_palette
+
+    equilibrium:
+        warm_vs_readable:
+            when vibe.warm is active AND cognitive.transcription is active
+            preserve both
+            resolution: warm palette with high contrast transcript
+            rationale: warmth must not impair legibility
+
+        calm_vs_capture:
+            when vibe.calm is active AND cognitive.recording is active
+            preserve both
+            resolution: route urgency through glow not pulse
+            rationale: calm does not mean no signal
+
+        human_vs_technical:
+            when vibe.human is active AND cognitive.transcription is active
+            preserve both
+            resolution: technical accuracy with human presentation
+            rationale: technology should feel humane
+
+        inviting_vs_private:
+            when vibe.inviting is active AND cognitive.privacy is active
+            preserve both
+            resolution: inviting surface private defaults
+            rationale: invite participation protect identity
+
+        simplicity_vs_capability:
+            when vibe.simple is active AND cognitive.capture is active
+            preserve both
+            resolution: simple surface capable substrate
+            rationale: hide complexity expose capability
+
+        organic_vs_precise:
+            when vibe.organic is active AND cognitive.edit is active
+            preserve both
+            resolution: organic motion precise text editing
+            rationale: organic is for motion precise is for content
+
+        gentle_vs_alerting:
+            when vibe.gentle is active AND cognitive.notifications is active
+            preserve both
+            resolution: gentle notifications with meaningful escalation
+            rationale: do not startle
+
+        preservation_overrides_convenience:
+            when cognitive.preservation is active
+            preserve unconditionally
+            resolution: original audio retained even if transcription succeeds
+            rationale: original voice is irreplaceable
+
+        aesthetic_preserves_functional_clarity:
+            when vibe.aesthetic is active AND cognitive.recording is active
+            preserve both
+            resolution: aesthetic affects color motion font only
+            rationale: aesthetic may soften must not obscure
+
+        urgency_routes_through_alternate_signal:
+            when vibe.calm is active AND conditional.recording is active
+            preserve both
+            resolution: express recording state through glow not alarm
+            rationale: preserve calm preserve signal
+
+        edit_preserves_original:
+            when cognitive.edit is active AND cognitive.preservation is active
+            preserve both
+            resolution: edits create new version original retained
+            rationale: editing does not destroy source
+
+        retention_respects_user_control:
+            when cognitive.retention is active AND cognitive.privacy is active
+            preserve both
+            resolution: retention scope follows user privacy settings
+            rationale: user controls their story
+
+    degrade:
+        require full for cognitive on activation_logic
+        require full for cognitive on recording_capture
+        require full for cognitive on transcription_pipeline
+        require full for cognitive on audio_preservation
+        require full for cognitive on privacy_controls
+        require faithful for vibe on color_character
+        require faithful for vibe on form_character
+        tolerate faithful for vibe on tone
+        tolerate proxy for vibe on aesthetic
+        tolerate proxy for vibe on activation_signal
+        require full for spatial on home_placement
+        require full for temporal on recording_to_transcription_sequence
+        require full for relational on button_to_microphone_link
+        require full for behavioral on lifecycle_completeness
+
+    realize:
+        target: mobile_interface (Swift)
+            capabilities: layout, color, motion, event_handling, device_microphone
+            can_express: spatial, vibe, conditional, behavioral, temporal
+            needs_bridge: transcription_service, audio_storage
+            cannot_express: vibe.aesthetic
+            preservation_score: 0.88
+
+        target: transcription_service (Python)
+            capabilities: speech_to_text, audio_input
+            can_express: cognitive.transcription
+            cannot_express: vibe, spatial, behavioral, relational
+            preservation_score: 1.0
+
+        target: audio_storage (Python)
+            capabilities: write, retain, retrieve
+            can_express: cognitive.preservation
+            cannot_express: vibe, spatial, behavioral, relational
+            preservation_score: 1.0
+
+        target: notification_service (Python)
+            capabilities: detect_event, write
+            can_express: conditional, cognitive.notifications
+            cannot_express: vibe, spatial
+            preservation_score: 1.0
+
+        target: archive_service (Python)
+            capabilities: write, retain, retrieve
+            can_express: cognitive.retention, cognitive.privacy
+            cannot_express: vibe, spatial
+            preservation_score: 1.0

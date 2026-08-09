@@ -1,0 +1,196 @@
+create greenhouse_controller : Device
+
+    context:
+        purpose: an iot greenhouse controller with safety hierarchy
+        domain: iot_hardware
+        audience: greenhouse operators and plants
+
+    structure:
+        greenhouse
+            climate_zone
+                temperature_sensor
+                humidity_sensor
+                co2_sensor
+                heater
+                humidifier
+                ventilator
+                co2_injector
+            light_zone
+                light_sensor
+                grow_lights
+                shade_curtain
+            water_zone
+                soil_moisture_sensor
+                drip_system
+                misting_system
+            safety_zone
+                emergency_vent
+                alarm
+                failover_pump
+            control_panel
+                status_display
+                manual_override
+
+    cognitive:
+        greenhouse.monitoring = continuous
+        temperature_sensor.reading = celsius
+        humidity_sensor.reading = percent
+        co2_sensor.reading = ppm
+        heater.actuation = modulated
+        ventilator.actuation = staged
+        grow_lights.schedule = photoperiod
+        drip_system.flow = regulated
+        emergency_vent.safety = highest_priority
+        manual_override.authority = overrides_all
+
+    vibe:
+        greenhouse.tone = calm
+        greenhouse.color_character = green
+        greenhouse.form_character = organic
+        greenhouse.intensity = subdued
+        control_panel.tone = professional
+        alarm.tone = urgent
+
+    spatial:
+        temperature_sensor located_in climate_zone
+        humidity_sensor located_in climate_zone
+        co2_sensor located_in climate_zone
+        heater located_in climate_zone
+        humidifier located_in climate_zone
+        ventilator located_in climate_zone
+        co2_injector located_in climate_zone
+        grow_lights located_in light_zone
+        shade_curtain located_in light_zone
+        drip_system located_in water_zone
+        misting_system located_in water_zone
+        emergency_vent located_in safety_zone
+        alarm located_in safety_zone
+        failover_pump located_in safety_zone
+
+    temporal:
+        monitoring → reading on continuous_loop
+        reading → actuation on threshold_cross
+        emergency → actuation on immediate
+        manual_override → actuation on user_action
+
+    conditional:
+        heater activates on temperature_below_low
+        ventilator activates on temperature_above_high
+        humidifier activates on humidity_below_low
+        co2_injector activates on co2_below_low
+        grow_lights activates on photoperiod_start
+        drip_system activates on moisture_below_threshold
+        misting_system activates on humidity_below_low
+        emergency_vent activates on co2_above_critical
+        alarm activates on any_safety_event
+        failover_pump activates on primary_pump_failure
+        manual_override activates on user_input
+
+    behavior:
+        greenhouse behaves_as autonomous_system
+        greenhouse transitions from monitoring to actuating on threshold_cross
+        greenhouse transitions from actuating to monitoring on threshold_normalized
+        greenhouse lifecycle: monitoring -> actuating -> verifying -> monitoring
+        emergency_vent transitions from closed to open on co2_above_critical
+        alarm transitions from silent to sounding on any_safety_event
+        manual_override transitions from inactive to active on user_input
+
+    equilibrium:
+        safety_overrides_comfort:
+            when cognitive.safety is active AND cognitive.actuation is active
+            preserve both
+            resolution: safety wins on conflict
+            rationale: plant comfort never trumps safety
+
+        calm_vs_alarm:
+            when vibe.calm is active AND vibe.urgent is active
+            preserve both
+            resolution: calm baseline with alarm overlay
+            rationale: alarm is exceptional not constant
+
+        efficiency_vs_safety:
+            when cognitive.efficiency is active AND cognitive.safety is active
+            preserve both
+            resolution: efficiency bounded by safety
+            rationale: never optimize past safety margin
+
+        automation_vs_manual:
+            when cognitive.actuation is active AND cognitive.authority is active
+            preserve both
+            resolution: manual override always wins
+            rationale: human authority is final
+
+        humidity_vs_temperature:
+            when cognitive.humidifier is active AND cognitive.ventilator is active
+            preserve both
+            resolution: coordinate to avoid fighting
+            rationale: ventilating dries humidifying warms
+
+        light_vs_heat:
+            when cognitive.grow_lights is active AND cognitive.heater is active
+            preserve both
+            resolution: schedule lights to minimize heat load
+            rationale: lights add heat
+
+        co2_injection_vs_ventilation:
+            when cognitive.co2_injector is active AND cognitive.ventilator is active
+            preserve both
+            resolution: pause injection during ventilation
+            rationale: ventilating flushes co2
+
+        misting_vs_drip:
+            when cognitive.misting_system is active AND cognitive.drip_system is active
+            preserve both
+            resolution: mist for leaves drip for roots
+            rationale: different water purposes
+
+        monitoring_vs_actuation:
+            when cognitive.monitoring is active AND cognitive.actuation is active
+            preserve both
+            resolution: monitoring continues during actuation
+            rationale: feedback loop must close
+
+        primary_vs_failover:
+            when cognitive.flow is active AND cognitive.safety is active
+            preserve both
+            resolution: failover engages when primary fails
+            rationale: redundancy is a safety contract
+
+    realize:
+        target: embedded_controller (C)
+            capabilities: gpio, sensor_reading, timer, pwm
+            can_express: cognitive, conditional, behavioral, temporal
+            needs_bridge: cloud_telemetry
+            cannot_express: vibe
+            preservation_score: 0.79
+
+        target: control_panel_interface (HTML/CSS/JS)
+            capabilities: layout, color, motion, event_handling
+            can_express: spatial, vibe, conditional, behavioral
+            needs_bridge: backend_telemetry
+            cannot_express: cognitive.actuation
+            preservation_score: 0.83
+
+        target: cloud_telemetry_service (Python)
+            capabilities: write, retrieve, parse
+            can_express: cognitive.monitoring, relational
+            cannot_express: vibe, spatial, behavioral
+            preservation_score: 0.95
+
+        target: alert_pipeline (Python)
+            capabilities: detect_threshold, write
+            can_express: conditional, cognitive.safety
+            cannot_express: vibe, spatial
+            preservation_score: 1.0
+
+        target: schedule_service (Python)
+            capabilities: timer, retrieve
+            can_express: cognitive.schedule, temporal
+            cannot_express: vibe, spatial
+            preservation_score: 1.0
+
+        target: archive_storage (Python)
+            capabilities: write, retain, retrieve
+            can_express: cognitive.retention
+            cannot_express: vibe, spatial
+            preservation_score: 1.0

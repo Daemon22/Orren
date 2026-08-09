@@ -1,0 +1,111 @@
+create news_researcher : Application
+
+    context:
+        purpose: an agent that researches and curates news
+        domain: information_agent
+        audience: journalists and analysts
+
+    structure:
+        research_desk
+            source_feed
+            article_queue
+            fact_checker
+            summarizer
+            bias_analyzer
+            archive
+            editor_view
+            reader_view
+            alert_panel
+
+    cognitive:
+        news_researcher.intake = continuous
+        source_feed.ingestion = pull_and_subscribe
+        article_queue.triage = priority_scored
+        fact_checker.verification = cross_reference
+        summarizer.extraction = key_claims_first
+        bias_analyzer.detection = framing_analysis
+        archive.retention = permanent
+        editor_view.curation = human_approved
+
+    vibe:
+        news_researcher.tone = measured
+        news_researcher.color_character = slate_blue
+        news_researcher.form_character = editorial
+        news_researcher.aesthetic = "calm newsroom"
+        alert_panel.tone = urgent
+
+    conditional:
+        article_queue activates on new_article
+        fact_checker activates on unverified_claim
+        bias_analyzer activates on flagged_framing
+        alert_panel activates on breaking_news
+        archive retained always (unconditional preservation)
+
+    equilibrium:
+        urgency_vs_measurdness:
+            when vibe.urgent is active AND vibe.measured is active
+            preserve both
+            resolution: route urgency through alert_panel only
+            rationale: do not let urgency infect the editorial voice
+
+        speed_vs_accuracy:
+            when cognitive.triage is active AND cognitive.verification is active
+            preserve both
+            resolution: parallelize triage and verification
+            rationale: speed without accuracy is noise
+
+        editorial_vs_algorithmic:
+            when cognitive.curation is active AND cognitive.detection is active
+            preserve both
+            resolution: bias analysis informs but does not override editor
+            rationale: human judgment retains final say
+
+        retention_overrides_storage:
+            when cognitive.retention is active
+            preserve unconditionally
+            resolution: archive retained even if storage constrained
+            rationale: archival is a hard contract
+
+        alert_vs_archive:
+            when conditional.breaking_news is active AND conditional.retained is active
+            preserve both
+            resolution: alert immediate, archive permanent
+            rationale: alerting and archiving serve different purposes
+
+        aesthetic_preserves_function:
+            when vibe.aesthetic is active AND cognitive.intake is active
+            preserve both
+            resolution: aesthetic affects surfaces only
+            rationale: do not let aesthetic soften the news
+
+    realize:
+        target: web_interface (HTML/CSS/JS)
+            capabilities: layout, color, motion, event_handling
+            can_express: spatial, vibe, conditional, behavioral
+            needs_bridge: source_feed
+            cannot_express: cognitive.verification
+            preservation_score: 0.82
+
+        target: backend_service (Python)
+            capabilities: write, retrieve, audio_input
+            can_express: cognitive, relational, temporal
+            cannot_express: vibe, spatial
+            preservation_score: 0.91
+
+        target: alert_pipeline (Python)
+            capabilities: detect_breaking_news, write
+            can_express: conditional, cognitive
+            cannot_express: vibe, spatial, behavioral
+            preservation_score: 1.0
+
+        target: archive_storage (Python)
+            capabilities: write, retain, retrieve
+            can_express: cognitive.retention
+            cannot_express: vibe, spatial, behavioral, relational
+            preservation_score: 1.0
+
+        target: fact_check_service (Python)
+            capabilities: cross_reference, retrieve
+            can_express: cognitive.verification
+            cannot_express: vibe, spatial, behavioral
+            preservation_score: 1.0

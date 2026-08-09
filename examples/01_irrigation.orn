@@ -1,0 +1,76 @@
+create irrigation_system : Application
+
+    context:
+        purpose: smart irrigation that responds to soil conditions
+        domain: agriculture
+
+    structure:
+        zones
+            zone_a
+                moisture_sensor_a
+                valve_a
+            zone_b
+                moisture_sensor_b
+                valve_b
+
+    cognitive:
+        irrigation_system.monitoring = continuous
+        moisture_sensor_a.reading = soil_moisture_percentage
+        valve_a.actuation = open_or_close
+        irrigation_system.scheduling = time_windowed
+
+    vibe:
+        irrigation_system.tone = calm
+        irrigation_system.color_character = green
+        irrigation_system.form_character = organic
+
+    conditional:
+        valve_a activates on moisture_below_threshold
+        valve_a deactivates on moisture_above_threshold
+        irrigation_system activates on scheduled_time
+        irrigation_system deactivated on rain_detected
+
+    equilibrium:
+        semantic_overrides_timing:
+            when cognitive.scheduling is active AND conditional.rain_detected is active
+            preserve both
+            resolution: skip scheduled irrigation when rain detected
+            rationale: real conditions override planned timing
+
+        moisture_conservation:
+            when cognitive.reading is active AND conditional.moisture_above_threshold is active
+            preserve both
+            resolution: close valve immediately
+            rationale: do not waste water
+
+        safety_overrides_convenience:
+            when cognitive.actuation is active AND conditional.moisture_below_threshold is active
+            preserve both
+            resolution: open valve even outside schedule
+            rationale: plant safety overrides schedule
+
+        calmness_preserves_alertness:
+            when vibe.calm is active AND cognitive.actuation is active
+            preserve both
+            resolution: route alerts through steady indicator
+            rationale: calm does not mean unresponsive
+
+    realize:
+        target: embedded_controller (C)
+            capabilities: gpio, sensor_reading, timer
+            can_express: cognitive, conditional, temporal
+            needs_bridge: valve_hardware
+            cannot_express: vibe
+            preservation_score: 0.78
+
+        target: dashboard_interface (HTML/CSS/JS)
+            capabilities: layout, color, event_handling
+            can_express: spatial, vibe, conditional
+            cannot_express: cognitive.actuation
+            preservation_score: 0.85
+
+        target: logging_service (Python)
+            capabilities: write, retrieve
+            can_express: cognitive.monitoring
+            cannot_express: vibe, spatial, behavioral
+            preservation_score: 1.0

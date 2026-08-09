@@ -1,0 +1,224 @@
+create master_builder_book : Document
+
+    context:
+        purpose: a printed book on the craft of building
+        domain: pdf_document
+        audience: builders architects and craftspeople
+        vibe_brief: timeless weighty considered
+
+    structure:
+        book
+            front_matter
+                title_page
+                copyright_page
+                dedication
+                table_of_contents
+                preface
+            part_one_foundations
+                chapter_01_what_is_building
+                chapter_02_materials
+                chapter_03_tools
+            part_two_practice
+                chapter_04_planning
+                chapter_05_laying_foundations
+                chapter_06_raising_walls
+                chapter_07_roofing
+            part_three_wisdom
+                chapter_08_patience
+                chapter_09_repair
+                chapter_10_legacy
+            back_matter
+                glossary
+                index
+                colophon
+
+    cognitive:
+        book.reading = sequential
+        book.toc = generated
+        book.index = generated
+        book.pagination = roman_then_arabic
+        book.cross_references = resolved
+        title_page.typography = display_weight
+        chapter_01.tone = foundational
+        chapter_05.tone = instructional
+        chapter_08.tone = reflective
+        colophon.typography = metadata_weight
+
+    vibe:
+        book.color_character = cream_paper
+        book.form_character = classic
+        book.tone = timeless
+        book.aesthetic = considered_craft
+        book.intensity = subdued
+        title_page.color_character = black_ink
+        title_page.form_character = centered
+        chapter_01.color_character = dark_text
+        chapter_01.form_character = justified
+        part_one_foundations.color_character = deep_red
+        part_two_practice.color_character = deep_blue
+        part_three_wisdom.color_character = deep_green
+        colophon.color_character = grey_ink
+
+    spatial:
+        title_page located_in front_matter
+        copyright_page located_in front_matter
+        dedication located_in front_matter
+        table_of_contents located_in front_matter
+        preface located_in front_matter
+        chapter_01_what_is_building located_in part_one_foundations
+        chapter_02_materials located_in part_one_foundations
+        chapter_03_tools located_in part_one_foundations
+        chapter_04_planning located_in part_two_practice
+        chapter_05_laying_foundations located_in part_two_practice
+        chapter_06_raising_walls located_in part_two_practice
+        chapter_07_roofing located_in part_two_practice
+        chapter_08_patience located_in part_three_wisdom
+        chapter_09_repair located_in part_three_wisdom
+        chapter_10_legacy located_in part_three_wisdom
+        glossary located_in back_matter
+        index located_in back_matter
+        colophon located_in back_matter
+
+    temporal:
+        front_matter → part_one on first_chapter
+        part_one → part_two on chapter_completion
+        part_two → part_three on chapter_completion
+        part_three → back_matter on chapter_completion
+        reading → bookmark on user_pause
+
+    relational:
+        table_of_contents feeds chapter_navigation
+        index feeds chapter_navigation
+        chapter_navigation feeds page_lookup
+        cross_references feeds page_lookup
+        bookmark feeds reading_position
+
+    conditional:
+        title_page activates on book_open
+        table_of_contents activates on toc_request
+        chapter_01 activates on first_read
+        chapter_05 activates on user_choice
+        index activates on lookup_request
+        glossary activates on term_lookup
+        pagination changes when front_matter_to_body
+        cross_references resolved when compiled
+        book retained always (unconditional preservation)
+
+    behavior:
+        book behaves_as sequential_narrative
+        book transitions from closed to open on book_open
+        book transitions from open to reading on first_page
+        book transitions from reading to closed on book_close
+        book lifecycle: closed -> open -> reading -> paused -> reading -> closed
+        chapter_01 transitions from unread to read on chapter_completion
+        chapter_01 lifecycle: unread -> reading -> read
+        bookmark transitions from inactive to active on user_pause
+        bookmark transitions from active to inactive on reading_resume
+
+    calibrate:
+        calibrate cream_paper for vibe:
+            maps_to background_color
+            threshold: rgb approximately 245 235 215
+            signal: pdf_background
+
+        calibrate timeless for vibe:
+            maps_to typographic_choice
+            threshold: serif_font stable_layout
+            signal: font_family
+
+        calibrate considered_craft for vibe:
+            maps_to layout_and_typography
+            threshold: composite
+            signal: font_family + margin_ratio + line_height
+            note: proxy calibration
+
+        calibrate subdued for vibe:
+            maps_to saturation
+            threshold: saturation <= 0.3
+            signal: color_palette
+
+        calibrate deep_red for vibe:
+            maps_to color_rgb
+            threshold: rgb approximately 120 30 30
+            signal: pdf_text_color
+
+        calibrate deep_blue for vibe:
+            maps_to color_rgb
+            threshold: rgb approximately 30 50 110
+            signal: pdf_text_color
+
+        calibrate deep_green for vibe:
+            maps_to color_rgb
+            threshold: rgb approximately 40 80 50
+            signal: pdf_text_color
+
+    equilibrium:
+        timeless_vs_readable:
+            when vibe.timeless is active AND cognitive.reading is active
+            preserve both
+            resolution: timeless typography with modern legibility
+            rationale: classic form modern function
+
+        aesthetic_vs_navigation:
+            when vibe.aesthetic is active AND cognitive.toc is active
+            preserve both
+            resolution: toc in aesthetic style with clear hierarchy
+            rationale: navigation must not break aesthetic
+
+        color_vs_legibility:
+            when vibe.deep_red is active AND cognitive.reading is active
+            preserve both
+            resolution: deep colors for headings black for body
+            rationale: chapter color for identity body text for reading
+
+        classic_vs_modern:
+            when vibe.classic is active AND cognitive.pagination is active
+            preserve both
+            resolution: roman for front matter arabic for body
+            rationale: classic convention modern readability
+
+        subdued_vs_distinct:
+            when vibe.subdued is active AND vibe.deep_red is active
+            preserve both
+            resolution: subdued overall palette with deep color accents
+            rationale: restraint with identity
+
+        sequential_vs_reference:
+            when cognitive.reading is active AND cognitive.index is active
+            preserve both
+            resolution: sequential reading with parallel reference access
+            rationale: book serves two reading modes
+
+        front_matter_vs_body:
+            when cognitive.pagination is active AND conditional.front_matter_to_body is active
+            preserve both
+            resolution: roman then arabic pagination
+            rationale: classic convention signals structural transition
+
+        retention_overrides_format:
+            when cognitive.retention is active
+            preserve unconditionally
+            resolution: book content retained in source form
+            rationale: source is a contract
+
+    degrade:
+        require full for cognitive on pagination
+        require full for cognitive on cross_references
+        require full for cognitive on toc
+        require full for cognitive on index
+        require full for spatial on chapter_placement
+        require full for temporal on reading_sequence
+        require faithful for vibe on color_character
+        require faithful for vibe on form_character
+        tolerate faithful for vibe on tone
+        tolerate proxy for vibe on aesthetic
+        require full for behavioral on lifecycle_completeness
+        require full for conditional on front_matter_to_body
+
+    realize:
+        target: pdf_document (LaTeX)
+            capabilities: typography, layout, color, pagination, cross_references
+            can_express: spatial, vibe, cognitive, conditional, behavioral, temporal
+            needs_bridge: none
+            cannot_express: none
+            preservation_score: 1.0

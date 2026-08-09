@@ -1,0 +1,179 @@
+create farm_management_system : Application
+
+    context:
+        purpose: a full farm management system with multiple subsystems
+        domain: full_application
+        audience: farm owners and managers
+
+    structure:
+        farm_system
+            dashboard
+                overview_panel
+                alerts_panel
+            fields
+                field_north
+                field_south
+                field_east
+                field_west
+            crops
+                crop_planner
+                rotation_tracker
+            inventory
+                supply_store
+                equipment_log
+
+create crop_planner : Subsystem
+
+    context:
+        purpose: plan seasonal crops and rotations
+
+    cognitive:
+        crop_planner.scheduling = seasonal
+        crop_planner.rotation = enabled
+        crop_planner.yield_prediction = enabled
+
+    vibe:
+        crop_planner.tone = calm
+        crop_planner.color_character = green
+
+    equilibrium:
+        schedule_vs_weather:
+            when cognitive.scheduling is active AND cognitive.forecast is active
+            preserve both
+            resolution: adjust schedule around weather windows
+            rationale: planning must respect reality
+
+create irrigation_controller : Subsystem
+
+    cognitive:
+        irrigation_controller.flow = regulated
+        irrigation_controller.safety = enforced
+        irrigation_controller.efficiency = optimized
+
+    vibe:
+        irrigation_controller.tone = calm
+
+    equilibrium:
+        safety_vs_efficiency:
+            when cognitive.safety is active AND cognitive.efficiency is active
+            preserve both
+            resolution: safety gates efficiency
+            rationale: never optimize past safety
+
+create market_tracker : Subsystem
+
+    cognitive:
+        market_tracker.prices = daily
+        market_tracker.trends = weekly
+        market_tracker.alerts = threshold_based
+
+    vibe:
+        market_tracker.tone = neutral
+
+    equilibrium:
+        alert_vs_noise:
+            when cognitive.alerts is active AND cognitive.prices is active
+            preserve both
+            resolution: alert only on meaningful threshold crossings
+            rationale: alert fatigue helps no one
+
+create system_equilibrium : Equilibrium
+
+    equilibrium:
+        water_vs_crops:
+            when cognitive.flow is active AND cognitive.scheduling is active
+            preserve both
+            resolution: schedule irrigation around crop windows
+            rationale: subsystems must not conflict
+
+        urgency_vs_calmness:
+            when vibe.urgent is active AND vibe.calm is active
+            preserve both
+            resolution: route urgency through alerts_panel only
+            rationale: calm subsystems should not absorb urgency
+
+        profit_vs_sustainability:
+            when cognitive.prices is active AND cognitive.efficiency is active
+            preserve both
+            resolution: prioritize sustainability in tradeoffs
+            rationale: long term viability over short term gain
+
+        inventory_vs_operations:
+            when cognitive.supply_store is active AND cognitive.flow is active
+            preserve both
+            resolution: gate operations on inventory availability
+            rationale: cannot irrigate without supply
+
+        retention_overrides_convenience:
+            when cognitive.retention is active
+            preserve unconditionally
+            resolution: farm records retained permanently
+            rationale: audit trail is a hard contract
+
+        forecast_vs_experience:
+            when cognitive.yield_prediction is active AND cognitive.rotation is active
+            preserve both
+            resolution: prediction informs rotation not overrides it
+            rationale: farmer experience is data too
+
+        alerts_vs_focus:
+            when cognitive.alerts is active AND cognitive.scheduling is active
+            preserve both
+            resolution: alerts surface but do not interrupt planning
+            rationale: planning requires sustained attention
+
+        safety_vs_productivity:
+            when cognitive.safety is active AND cognitive.yield_prediction is active
+            preserve both
+            resolution: safety constrains yield targets
+            rationale: never sacrifice safety for yield
+
+        equipment_vs_labour:
+            when cognitive.equipment_log is active AND cognitive.scheduling is active
+            preserve both
+            resolution: schedule considers equipment availability
+            rationale: equipment is a real constraint
+
+    realize:
+        target: web_interface (HTML/CSS/JS)
+            capabilities: layout, color, motion, event_handling
+            can_express: spatial, vibe, conditional, behavioral
+            needs_bridge: backend_data
+            cannot_express: cognitive.safety
+            preservation_score: 0.84
+
+        target: backend_service (Python)
+            capabilities: write, retrieve
+            can_express: cognitive, relational, temporal
+            cannot_express: vibe, spatial
+            preservation_score: 0.93
+
+        target: crop_planner_service (Python)
+            capabilities: compute, retrieve
+            can_express: cognitive.scheduling, cognitive.rotation
+            cannot_express: vibe, spatial
+            preservation_score: 1.0
+
+        target: irrigation_controller_service (Python)
+            capabilities: detect_flow, write
+            can_express: cognitive.flow, cognitive.safety
+            cannot_express: vibe, spatial
+            preservation_score: 1.0
+
+        target: market_data_hook (Python)
+            capabilities: retrieve, parse
+            can_express: cognitive.prices, cognitive.trends
+            cannot_express: vibe, spatial
+            preservation_score: 1.0
+
+        target: alert_pipeline (Python)
+            capabilities: detect_threshold, write
+            can_express: cognitive.alerts, conditional
+            cannot_express: vibe, spatial
+            preservation_score: 1.0
+
+        target: archive_storage (Python)
+            capabilities: write, retain, retrieve
+            can_express: cognitive.retention
+            cannot_express: vibe, spatial
+            preservation_score: 1.0

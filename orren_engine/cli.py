@@ -5,7 +5,8 @@ Usage:
     orren sir FILE                Parse + build SIR; print node summary.
     orren resolve FILE            Parse + SIR + equilibrium; print report.
     orren realize FILE [--out D]  Full pipeline; write generated artifacts to D.
-    orren validate FILE           Run the validation suite against FILE.
+    orren validate FILE           Run basic checks against FILE.
+    orren validate-suite          Run the canonical 48-test validation suite.
     orren hash FILE               Print a content hash of the SIR (reproducibility).
     orren --version
 
@@ -51,6 +52,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return _cmd_realize(args)
     if args.command == "validate":
         return _cmd_validate(args)
+    if args.command == "validate-suite":
+        return _cmd_validate_suite(args)
     if args.command == "hash":
         return _cmd_hash(args)
     parser.print_help()
@@ -66,6 +69,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         sp.add_argument("file", help="path to .orn source file")
         if cmd == "realize":
             sp.add_argument("--out", default="orren_out", help="output directory")
+    sub.add_parser("validate-suite", help="run the 48-test validation suite against the bundled examples")
     return p
 
 
@@ -177,6 +181,21 @@ def _cmd_validate(args) -> int:
         marker = "PASS" if ok else "FAIL"
         print(f"  [{marker}] {name}")
     return 0 if passed == total else 1
+
+
+def _cmd_validate_suite(args) -> int:
+    """Run the canonical 48-test validation suite against the bundled
+    7 example files. No FILE argument required — uses the examples/
+    directory shipped with the package."""
+    from .validate import run_all, print_report
+    examples_dir = os.path.join(os.path.dirname(__file__), "..", "examples")
+    examples_dir = os.path.abspath(examples_dir)
+    if not os.path.isdir(examples_dir):
+        print(f"ERROR: examples directory not found: {examples_dir}", file=sys.stderr)
+        return 2
+    p1, p2, all_passed = run_all(examples_dir, verbose=False)
+    print_report(p1, p2)
+    return 0 if all_passed else 1
 
 
 def _cmd_hash(args) -> int:

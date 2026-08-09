@@ -1,0 +1,129 @@
+create farmer_dashboard : Application
+
+    context:
+        purpose: a web dashboard for smallholder farmers
+        domain: web_page
+        audience: african smallholder farmers
+        vibe_brief: youthful african professional symbolic
+
+    structure:
+        dashboard
+            header
+            crop_summary
+            weather_panel
+            market_prices
+            advisory_feed
+            action_buttons
+            footer
+
+    cognitive:
+        dashboard.refresh = hourly
+        crop_summary.aggregation = per_field
+        weather_panel.forecast = seven_day
+        market_prices.update = daily
+        advisory_feed.curation = context_aware
+
+    vibe:
+        dashboard.color_character = warm_earth
+        dashboard.form_character = rounded
+        dashboard.tone = hopeful
+        dashboard.aesthetic = youthful_african
+        header.tone = professional
+        action_buttons.tone = inviting
+
+    spatial:
+        dashboard located_in page
+        header located_in dashboard
+        crop_summary located_in dashboard
+        weather_panel located_in dashboard
+        market_prices located_in dashboard
+        advisory_feed located_in dashboard
+        action_buttons located_in dashboard
+        footer located_in dashboard
+
+    conditional:
+        weather_panel activates on forecast_change
+        market_prices activates on price_spike
+        advisory_feed activates on new_advisory
+        dashboard retained always (unconditional preservation)
+
+    equilibrium:
+        youth_vs_professional:
+            when vibe.youthful is active AND vibe.professional is active
+            preserve both
+            resolution: youth in color and motion, professional in typography
+            rationale: not either or
+
+        african_vs_universal:
+            when vibe.african is active AND vibe.professional is active
+            preserve both
+            resolution: african in symbolic imagery, universal in layout structure
+            rationale: local roots global usability
+
+        hopeful_vs_realistic:
+            when vibe.hopeful is active AND cognitive.forecast is active
+            preserve both
+            resolution: hope in tone, realism in data
+            rationale: farmers deserve both
+
+        symbolic_vs_literacy:
+            when vibe.symbolic is active AND vibe.professional is active
+            preserve both
+            resolution: symbols accompany text not replace it
+            rationale: symbols lower barrier text preserves precision
+
+        color_warmth_vs_readability:
+            when vibe.warm_earth is active AND vibe.professional is active
+            preserve both
+            resolution: warm palette with high contrast text
+            rationale: warmth without sacrifice of legibility
+
+        motion_vs_focus:
+            when vibe.youthful is active AND cognitive.aggregation is active
+            preserve both
+            resolution: motion on hover only not on data load
+            rationale: motion for delight not distraction
+
+        advisory_vs_autonomy:
+            when cognitive.curation is active AND conditional.new_advisory is active
+            preserve both
+            resolution: advisory surfaces but does not interrupt
+            rationale: farmer retains decision authority
+
+        retention_overrides_refresh:
+            when cognitive.retention is active
+            preserve unconditionally
+            resolution: dashboard snapshot retained for audit
+            rationale: historical record is a contract
+
+    realize:
+        target: web_interface (HTML/CSS/JS)
+            capabilities: layout, color, motion, event_handling, typography
+            can_express: spatial, vibe, conditional, behavioral, temporal
+            needs_bridge: weather_data, market_data
+            cannot_express: cognitive.curation
+            preservation_score: 0.85
+
+        target: backend_service (Python)
+            capabilities: write, retrieve
+            can_express: cognitive, relational
+            cannot_express: vibe, spatial
+            preservation_score: 0.92
+
+        target: weather_data_hook (Python)
+            capabilities: retrieve, parse
+            can_express: cognitive.forecast
+            cannot_express: vibe, spatial
+            preservation_score: 1.0
+
+        target: market_data_hook (Python)
+            capabilities: retrieve, parse
+            can_express: cognitive.update
+            cannot_express: vibe, spatial
+            preservation_score: 1.0
+
+        target: archive_snapshot (Python)
+            capabilities: write, retain
+            can_express: cognitive.retention
+            cannot_express: vibe, spatial
+            preservation_score: 1.0

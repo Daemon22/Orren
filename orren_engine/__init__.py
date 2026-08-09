@@ -9,6 +9,8 @@ Public API:
     Engine              — orchestrates the whole pipeline
 """
 
+__version__ = "0.3.1"
+
 from .data_model import (
     BehavioralStatement,
     CalibrationEntry,
@@ -46,8 +48,7 @@ from .realization_coordinator import RealizationCoordinator
 from .semantic_editor import SemanticEditor
 from .codegen import generate as generate_code
 from .engine import Engine
-
-__version__ = "0.3.0"
+from .validate import run_all as run_validation_suite
 
 __all__ = [
     "CoParser",
