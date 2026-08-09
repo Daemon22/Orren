@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orren Preview: news_researcher</title>
+<style>
+
+:root {
+  --bg: #0f172a;
+  --fg: #e2e8f0;
+  --accent: #4a5568;
+  --panel-bg: #1e293b;
+  --panel-border: #334155;
+  --muted: #94a3b8;
+  --eq-color: #f59e0b;
+  --proxy-color: #ef4444;
+  --bridge-color: #8b5cf6;
+  --good-color: #10b981;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.5;
+  font-size: 14px;
+}
+.app-header {
+  background: linear-gradient(135deg, var(--panel-bg), var(--bg));
+  border-bottom: 2px solid var(--accent);
+  padding: 24px 32px;
+}
+.app-header h1 {
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--fg);
+}
+.app-header .purpose {
+  color: var(--muted);
+  font-size: 15px;
+  margin-bottom: 4px;
+  max-width: 80ch;
+}
+.app-header .vibe-brief {
+  color: var(--accent);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.meta-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.badge-info {
+  background: rgba(59, 130, 246, 0.2);
+  color: #93c5fd;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+.badge-score {
+  background: rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+.layout {
+  display: grid;
+  grid-template-columns: 280px 1fr 360px;
+  gap: 16px;
+  padding: 16px;
+  min-height: calc(100vh - 200px);
+}
+.panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 16px;
+  overflow-y: auto;
+  max-height: calc(100vh - 120px);
+}
+.panel h2 {
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--panel-border);
+}
+.panel .hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+.structure-panel .tree {
+  list-style: none;
+  font-size: 13px;
+}
+.structure-panel .tree ul {
+  list-style: none;
+  padding-left: 16px;
+  border-left: 1px solid var(--panel-border);
+  margin-left: 4px;
+}
+.structure-panel .tree li {
+  padding: 4px 0;
+}
+.structure-panel .entity-label {
+  color: var(--fg);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.structure-panel .entity-label:hover {
+  color: var(--accent);
+}
+.structure-panel .kind {
+  font-size: 11px;
+  color: var(--muted);
+  background: rgba(148, 163, 184, 0.15);
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 4px;
+}
+.structure-panel .dim-count {
+  font-size: 11px;
+  color: var(--accent);
+  margin-left: 4px;
+}
+.canvas-panel {
+  display: flex;
+  flex-direction: column;
+}
+.canvas-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  align-content: start;
+}
+.entity-card {
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,0.15);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  min-height: 100px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: transform 0.15s, box-shadow 0.15s;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+.entity-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.card-label {
+  font-size: 15px;
+  font-weight: 600;
+}
+.card-path {
+  font-size: 11px;
+  opacity: 0.7;
+  font-family: monospace;
+}
+.card-badges {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.dim-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(0,0,0,0.4);
+  font-weight: 600;
+}
+.card-vibes {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  font-size: 10px;
+}
+.eq-badge {
+  background: rgba(245, 158, 11, 0.3);
+  color: #fbbf24;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.deg-badge {
+  background: rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.deg-badge.deg-proxy { background: rgba(239, 68, 68, 0.3); color: #fca5a5; }
+.deg-badge.deg-documented { background: rgba(168, 85, 247, 0.3); color: #c4b5fd; }
+.deg-badge.deg-optional { background: rgba(100, 116, 139, 0.3); color: #cbd5e1; }
+.vibe-details {
+  font-size: 11px;
+  border-top: 1px solid rgba(255,255,255,0.2);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+.vibe-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+}
+.vibe-aspect { opacity: 0.8; }
+.vibe-term { font-weight: 500; }
+.expand-btn {
+  align-self: flex-start;
+  background: rgba(0,0,0,0.3);
+  border: 1px solid rgba(255,255,255,0.2);
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  margin-top: auto;
+}
+.expand-btn:hover {
+  background: rgba(0,0,0,0.5);
+}
+.info-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.sub-panel {
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 12px;
+}
+.sub-panel h3 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.eq-item {
+  padding: 8px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  border-left: 3px solid;
+  background: rgba(30, 41, 59, 0.6);
+}
+.eq-item.eq-fired {
+  border-color: var(--good-color);
+}
+.eq-item.eq-not-fired {
+  border-color: var(--muted);
+  opacity: 0.6;
+}
+.eq-name {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.eq-status {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.eq-detail {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.rz-item {
+  padding: 8px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: rgba(30, 41, 59, 0.6);
+  border-left: 3px solid var(--accent);
+}
+.rz-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+.rz-lang {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: monospace;
+}
+.rz-score {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 4px 0;
+}
+.score-high { background: rgba(16, 185, 129, 0.3); color: #6ee7b7; }
+.score-mid { background: rgba(245, 158, 11, 0.3); color: #fbbf24; }
+.score-low { background: rgba(239, 68, 68, 0.3); color: #fca5a5; }
+.rz-detail {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.deg-summary {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 10px;
+  padding: 6px;
+  background: rgba(30, 41, 59, 0.6);
+  border-radius: 4px;
+  text-align: center;
+}
+.deg-group {
+  margin-bottom: 12px;
+}
+.deg-group h4 {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.deg-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 3px 0;
+  font-size: 11px;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.4);
+}
+.deg-aspect {
+  flex: 1;
+  color: var(--fg);
+}
+.deg-level {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.deg-level.deg-proxy { background: rgba(239,68,68,0.3); color: #fca5a5; }
+.deg-level.deg-documented { background: rgba(168,85,247,0.3); color: #c4b5fd; }
+.deg-level.deg-optional { background: rgba(100,116,139,0.3); color: #cbd5e1; }
+.deg-source {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(139,92,246,0.3);
+  color: #c4b5fd;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.deg-node {
+  font-family: monospace;
+  font-size: 10px;
+  color: var(--muted);
+}
+.empty {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 12px;
+}
+footer {
+  padding: 12px 32px;
+  border-top: 1px solid var(--panel-border);
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+}
+@media (max-width: 1024px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+  .panel {
+    max-height: none;
+  }
+}
+
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="header-content">
+    <h1>News Researcher</h1>
+    <p class="purpose">an agent that researches and curates news</p>
+    
+    <div class="meta-row">
+      <span class="badge badge-info">11 entities</span>
+      <span class="badge badge-info">6 equilibrium rules</span>
+      <span class="badge badge-info">5 realization targets</span>
+      <span class="badge badge-score">avg preservation: 0.98</span>
+    </div>
+  </div>
+</header>
+<main class="layout">
+  <aside class="panel structure-panel">
+    <h2>Structure</h2>
+    <ul class='tree'><li><span class='entity-label' data-path='news_researcher'>news researcher</span> <span class='kind'>root</span><span class='dim-count'>4d</span><ul><li><span class='entity-label' data-path='news_researcher.research_desk'>research desk</span> <ul><li><span class='entity-label' data-path='news_researcher.research_desk.source_feed'>source feed</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='news_researcher.research_desk.article_queue'>article queue</span> <span class='dim-count'>2d</span></li><li><span class='entity-label' data-path='news_researcher.research_desk.fact_checker'>fact checker</span> <span class='dim-count'>2d</span></li><li><span class='entity-label' data-path='news_researcher.research_desk.summarizer'>summarizer</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='news_researcher.research_desk.bias_analyzer'>bias analyzer</span> <span class='dim-count'>2d</span></li><li><span class='entity-label' data-path='news_researcher.research_desk.archive'>archive</span> <span class='dim-count'>3d</span></li><li><span class='entity-label' data-path='news_researcher.research_desk.editor_view'>editor view</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='news_researcher.research_desk.reader_view'>reader view</span> </li><li><span class='entity-label' data-path='news_researcher.research_desk.alert_panel'>alert panel</span> <span class='dim-count'>2d</span></li></ul></li></ul></li></ul>
+  </aside>
+  <section class="panel canvas-panel">
+    <h2>Interface Preview</h2>
+    <p class="hint">Each card represents an entity. Colors and shapes come from vibe dimensions. Hover for details.</p>
+    <div class='canvas-grid'>
+<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="news_researcher.research_desk.source_feed">
+  <div class="card-header">
+    <span class="card-label">Source Feed</span>
+    <span class="card-path">source_feed</span>
+  </div>
+  <div class="card-badges">
+    <span class='dim-badge dim-cognitive' title='cognitive: 1 entries'>C1</span>
+  </div>
+  
+  
+  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+</div>
+<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="news_researcher.research_desk.article_queue">
+  <div class="card-header">
+    <span class="card-label">Article Queue</span>
+    <span class="card-path">article_queue</span>
+  </div>
+  <div class="card-badges">
+    <span class='dim-badge dim-cognitive' title='cognitive: 1 entries'>C1</span><span class='dim-badge dim-conditional' title='conditional: 1 entries'>C1</span>
+  </div>
+  
+  
+  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+</div>
+<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="news_researcher.research_desk.fact_checker">
+  <div class="card-header">
+    <span class="card-label">Fact Checker</span>
+    <span class="card-path">fact_checker</span>
+  </div>
+  <div class="card-badges">
+    <span class='dim-badge dim-cognitive' title='cognitive: 1 entries'>C1</span><span class='dim-badge dim-conditional' title='conditional: 1 entries'>C1</span>
+  </div>
+  
+  
+  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+</div>
+<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="news_researcher.research_desk.summarizer">
+  <div class="card-header">
+    <span class="card-label">Summarizer</span>
+    <span class="card-path">summarizer</span>
+  </div>
+  <div class="card-badges">
+    <span class='dim-badge dim-cognitive' title='cognitive: 1 entries'>C1</span>
+  </div>
+  
+  
+  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+</div>
+<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="news_researcher.research_desk.bias_analyzer">
+  <div class="card-header">
+    <span class="card-label">Bias Analyzer</span>
+    <span class="card-path">bias_analyzer</span>
+  </div>
+  <div class="card-badges">
+    <span class='dim-badge dim-cognitive' title='cognitive: 1 entries'>C1</span><span class='dim-badge dim-conditional' title='conditional: 1 entries'>C1</span>
+  </div>
+  
+  
+  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+</div>
+<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="news_researcher.research_desk.archive">
+  <div class="card-header">
+    <span class="card-label">Archive</span>
+    <span class="card-path">archive</span>
+  </div>
+  <div class="card-badges">
+    <span class='dim-badge dim-cognitive' title='cognitive: 1 entries'>C1</span><span class='dim-badge dim-conditional' title='conditional: 1 entries'>C1</span>
+  </div>
+  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;retention_overrides_storage&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;archive retained even if storage constrained&#x27;, &#x27;rationale&#x27;: &#x27;archival is a hard contract&#x27;}'>⚖ retention_overrides_storage</span> </div>
+  
+  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+</div>
+<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="news_researcher.research_desk.editor_view">
+  <div class="card-header">
+    <span class="card-label">Editor View</span>
+    <span class="card-path">editor_view</span>
+  </div>
+  <div class="card-badges">
+    <span class='dim-badge dim-cognitive' title='cognitive: 1 entries'>C1</span>
+  </div>
+  
+  
+  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+</div>
+<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="news_researcher.research_desk.alert_panel">
+  <div class="card-header">
+    <span class="card-label">Alert Panel</span>
+    <span class="card-path">alert_panel</span>
+  </div>
+  <div class="card-badges">
+    <span class='dim-badge dim-vibe' title='vibe: 1 entries'>V1</span><span class='dim-badge dim-conditional' title='conditional: 1 entries'>C1</span>
+  </div>
+  
+  <div class='vibe-details' hidden><div class='vibe-item'><span class='vibe-aspect'>tone</span>: <span class='vibe-term'>urgent</span></div></div>
+  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+</div></div>
+  </section>
+  <aside class="panel info-panel">
+    
+<div class="sub-panel">
+  <h3>Equilibrium (6 rules)</h3>
+  
+<div class="eq-item eq-not-fired">
+  <div class="eq-name">⚖ urgency_vs_measurdness</div>
+  <div class="eq-status">not fired</div>
+  <div class="eq-detail"><strong>Preserve:</strong> both</div>
+  <div class="eq-detail"><strong>Resolution:</strong> route urgency through alert_panel only</div>
+</div>
+<div class="eq-item eq-not-fired">
+  <div class="eq-name">⚖ speed_vs_accuracy</div>
+  <div class="eq-status">not fired</div>
+  <div class="eq-detail"><strong>Preserve:</strong> both</div>
+  <div class="eq-detail"><strong>Resolution:</strong> parallelize triage and verification</div>
+</div>
+<div class="eq-item eq-not-fired">
+  <div class="eq-name">⚖ editorial_vs_algorithmic</div>
+  <div class="eq-status">not fired</div>
+  <div class="eq-detail"><strong>Preserve:</strong> both</div>
+  <div class="eq-detail"><strong>Resolution:</strong> bias analysis informs but does not override editor</div>
+</div>
+<div class="eq-item eq-fired">
+  <div class="eq-name">⚖ retention_overrides_storage</div>
+  <div class="eq-status">fired</div>
+  <div class="eq-detail"><strong>Preserve:</strong> unconditionally</div>
+  <div class="eq-detail"><strong>Resolution:</strong> archive retained even if storage constrained</div>
+</div>
+<div class="eq-item eq-not-fired">
+  <div class="eq-name">⚖ alert_vs_archive</div>
+  <div class="eq-status">not fired</div>
+  <div class="eq-detail"><strong>Preserve:</strong> both</div>
+  <div class="eq-detail"><strong>Resolution:</strong> alert immediate, archive permanent</div>
+</div>
+<div class="eq-item eq-fired">
+  <div class="eq-name">⚖ aesthetic_preserves_function</div>
+  <div class="eq-status">fired</div>
+  <div class="eq-detail"><strong>Preserve:</strong> both</div>
+  <div class="eq-detail"><strong>Resolution:</strong> aesthetic affects surfaces only</div>
+</div>
+</div>
+    
+<div class="sub-panel">
+  <h3>Realization (5 targets)</h3>
+  
+<div class="rz-item">
+  <div class="rz-name">web_interface</div>
+  <div class="rz-lang">HTML/CSS/JS</div>
+  <div class="rz-score score-high">0.93</div>
+  <div class="rz-detail"><strong>Capabilities:</strong> layout, color, motion, event_handling</div>
+  <div class="rz-detail"><strong>Output files:</strong> 3</div>
+  <div class="rz-detail"><strong>Degradation rows:</strong> 15</div>
+</div>
+<div class="rz-item">
+  <div class="rz-name">backend_service</div>
+  <div class="rz-lang">Python</div>
+  <div class="rz-score score-high">1.00</div>
+  <div class="rz-detail"><strong>Capabilities:</strong> write, retrieve, audio_input</div>
+  <div class="rz-detail"><strong>Output files:</strong> 1</div>
+  <div class="rz-detail"><strong>Degradation rows:</strong> 15</div>
+</div>
+<div class="rz-item">
+  <div class="rz-name">alert_pipeline</div>
+  <div class="rz-lang">Python</div>
+  <div class="rz-score score-high">1.00</div>
+  <div class="rz-detail"><strong>Capabilities:</strong> detect_breaking_news, write</div>
+  <div class="rz-detail"><strong>Output files:</strong> 1</div>
+  <div class="rz-detail"><strong>Degradation rows:</strong> 15</div>
+</div>
+<div class="rz-item">
+  <div class="rz-name">archive_storage</div>
+  <div class="rz-lang">Python</div>
+  <div class="rz-score score-high">1.00</div>
+  <div class="rz-detail"><strong>Capabilities:</strong> write, retain, retrieve</div>
+  <div class="rz-detail"><strong>Output files:</strong> 1</div>
+  <div class="rz-detail"><strong>Degradation rows:</strong> 15</div>
+</div>
+<div class="rz-item">
+  <div class="rz-name">fact_check_service</div>
+  <div class="rz-lang">Python</div>
+  <div class="rz-score score-high">1.00</div>
+  <div class="rz-detail"><strong>Capabilities:</strong> cross_reference, retrieve</div>
+  <div class="rz-detail"><strong>Output files:</strong> 1</div>
+  <div class="rz-detail"><strong>Degradation rows:</strong> 15</div>
+</div>
+</div>
+    
+<div class="sub-panel">
+  <h3>Degradation Map</h3>
+  <div class='deg-summary'>PROXY: 37 · BRIDGE: 0 · OUT_OF_SCOPE: 0</div>
+  <div class='deg-group'><h4>Proxy / Documented (37)</h4><div class='deg-row'><span class='deg-aspect'>default</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>news_researcher</span></div><div class='deg-row'><span class='deg-aspect'>intake</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>news_researcher</span></div><div class='deg-row'><span class='deg-aspect'>ingestion</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>source_feed</span></div><div class='deg-row'><span class='deg-aspect'>triage</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>article_queue</span></div><div class='deg-row'><span class='deg-aspect'>verification</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>fact_checker</span></div><div class='deg-row'><span class='deg-aspect'>extraction</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>summarizer</span></div><div class='deg-row'><span class='deg-aspect'>detection</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>bias_analyzer</span></div><div class='deg-row'><span class='deg-aspect'>retention</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>archive</span></div><div class='deg-row'><span class='deg-aspect'>curation</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>editor_view</span></div><div class='deg-row'><span class='deg-aspect'>default</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>news_researcher</span></div><div class='deg-row'><span class='deg-aspect'>tone</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>news_researcher</span></div><div class='deg-row'><span class='deg-aspect'>color_character</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>news_researcher</span></div><div class='deg-row'><span class='deg-aspect'>form_character</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>news_researcher</span></div><div class='deg-row'><span class='deg-aspect'>aesthetic</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>news_researcher</span></div><div class='deg-row'><span class='deg-aspect'>activates</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>article_queue</span></div></div>
+  
+</div>
+  </aside>
+</main>
+<footer>
+  <span>Orren Engine v0.3.1</span>
+  <span>11 nodes · 6 equilibrium rules · 5 targets</span>
+</footer>
+<script>
+
+document.querySelectorAll('.entity-label').forEach(el => {
+  el.addEventListener('click', () => {
+    const path = el.dataset.path;
+    const card = document.querySelector(`.entity-card[data-path="${path}"]`);
+    if (card) {
+      card.scrollIntoView({behavior: 'smooth', block: 'center'});
+      card.style.outline = '3px solid #3b82f6';
+      setTimeout(() => card.style.outline = '', 1500);
+    }
+  });
+});
+
+</script>
+</body>
+</html>

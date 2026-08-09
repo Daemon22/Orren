@@ -54,8 +54,9 @@ orren parse app.orn
 orren sir app.orn
 orren resolve app.orn
 orren realize app.orn --out ./out
+orren preview app.orn              # generates self-contained HTML preview
 orren validate app.orn
-orren validate-suite       # runs the canonical 48-test suite against bundled examples
+orren validate-suite               # runs the canonical 48-test suite
 orren hash app.orn
 ```
 
@@ -96,7 +97,7 @@ orren hash app.orn   # SHA-256 of the SIR signature
 ## Test suite
 
 ```bash
-pytest tests/ -v          # 272 tests across 10 phases
+pytest tests/ -v          # 568 tests across 12 phases
 orren validate-suite      # canonical 48-test validation against bundled examples
 ```
 
@@ -112,6 +113,50 @@ orren validate-suite      # canonical 48-test validation against bundled example
 | 8 | CLI + reproducible builds          | 21    |
 | 9 | Integration tests                  | 30    |
 | 10 | Validation suite (48 canonical)    | 18    |
+| 11 | Adversarial natural-language       | 96    |
+| 12 | Preview quality                    | 120   |
+
+## Adversarial testing
+
+6 adversarial `.orn` files in `examples/adversarial/` were written as
+natural-language descriptions — not designed around the grammar. They
+cover domains the engine had never seen:
+
+1. **Rain Composition** — music + emotion detection
+2. **Assistive Arm** — medical device + robotics
+3. **Revenue Contract** — financial + legal
+4. **Lighthouse** — interactive fiction + narrative (41 nodes, 5 endings)
+5. **Sign Bridge** — accessibility + cross-modality
+6. **Still Water** — meditation + vibe-dominant
+
+These surfaced two real engine bugs (both fixed in v0.3.2):
+- **SIR builder only built the first top-level structure node** —
+  multi-root structures (e.g. `arm` + `control_unit` + `interface`)
+  silently dropped all but the first subtree. Fixed: all top-level
+  nodes are now built.
+- **Conditional parser only accepted `activates|begins|deactivates on`** —
+  natural-language conditionals like `intensifies when user_sad` or
+  `never displays timer` were silently dropped. Fixed: the parser now
+  accepts any verb + `on`/`when`, plus `never` and `blocked when` forms.
+
+## Displayable previews
+
+`orren preview FILE` generates a single self-contained HTML file with
+inline CSS + JS — no external dependencies. Open it in any browser to
+see a visual mockup of the described interface:
+
+- **Header**: app name, purpose, vibe brief, summary badges
+- **Structure panel**: navigable entity tree with dimension counts
+- **Canvas panel**: each entity rendered as a card with applied vibe
+  colors and form characteristics; click to expand dimension details
+- **Equilibrium panel**: every rule listed with fired/not-fired status,
+  preserve list, and resolution text
+- **Realization panel**: each target with preservation score, capabilities,
+  output file count
+- **Degradation map**: all PROXY/BRIDGE/OUT_OF_SCOPE entries visible as
+  colored badges
+
+13 preview files are pre-generated in `download/previews/`.
 
 ## Validation suite
 

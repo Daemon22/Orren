@@ -1,0 +1,175 @@
+create rain_composition : Application
+
+    context:
+        purpose: something that feels like rain on a tin roof but the rain should get heavier when the user is sad and lighter when they're happy and the whole thing should sound like it's coming from inside a wooden cabin not a concert hall
+        audience: people who use music to feel their feelings
+        vibe_brief: melancholy but not depressing warm but not cozy
+
+    structure:
+        studio
+            rain_layer
+            emotion_detector
+            cabin_acoustic
+            intensity_dial
+            play_button
+
+    cognitive:
+        rain_composition.synthesis = procedural_audio
+        emotion_detector.inference = facial_plus_vocal
+        rain_layer.density = modulated_by_emotion
+        cabin_acoustic.convolution = wooden_room_impulse
+        intensity_dial.range = sparse_to_downpour
+        play_button.state = toggles_performance
+
+    vibe:
+        rain_composition.color_character = slate_grey_with_amber_warmth
+        rain_composition.tone = melancholy_not_depressing
+        rain_composition.aesthetic = "rain on a tin roof inside a wooden cabin"
+        rain_composition.intensity = subdued_but_present
+        rain_composition.form_character = organic
+        rain_layer.texture = granular
+        emotion_detector.tone = invisible
+        cabin_acoustic.tone = woody
+        intensity_dial.form_character = analog
+        play_button.tone = inviting
+
+    spatial:
+        rain_layer located_in studio
+        emotion_detector located_in studio
+        cabin_acoustic located_in studio
+        intensity_dial located_in studio
+        play_button located_in studio
+
+    temporal:
+        play_button_press → emotion_detection on user_intent
+        emotion_detection → rain_modulation on emotion_change
+        rain_modulation → density_adjustment on continuous_loop
+        density_adjustment → cabin_acoustic on every_change
+
+    relational:
+        emotion_detector feeds rain_layer
+        rain_layer feeds cabin_acoustic
+        cabin_acoustic feeds output
+        intensity_dial feeds rain_layer
+
+    conditional:
+        rain_layer intensifies when user_sad
+        rain_layer lightens when user_happy
+        rain_layer holds_steady when user_neutral
+        cabin_acoustic activates always
+        emotion_detector activates on play_button_press
+        rain_composition retained always for the user's emotional archive
+
+    behavior:
+        rain_composition behaves_as living_organism
+        rain_composition transitions from silent to breathing on play
+        rain_composition transitions from breathing to weeping when user_sad
+        rain_composition transitions from breathing to hopeful when user_happy
+        rain_composition lifecycle: silent -> breathing -> responding -> settling -> silent
+        emotion_detector transitions from idle to watching on play_button_press
+        emotion_detector transitions from watching to inferring on face_detected
+        emotion_detector lifecycle: idle -> watching -> inferring -> idle
+        intensity_dial transitions from sparse to dense on sadness_increase
+        intensity_dial transitions from dense to sparse on happiness_increase
+
+    calibrate:
+        calibrate melancholy_not_depressing for vibe:
+            maps_to musical_key_and_tempo
+            threshold: minor_key AND tempo_in [60, 80] BPM
+            signal: audio_synthesis_parameters
+
+        calibrate subdued_but_present for vibe:
+            maps_to dynamic_range
+            threshold: peak_loudness <= -12 dBFS RMS
+            signal: audio_master_levels
+
+        calibrate woody for vibe:
+            maps_to impulse_response_character
+            threshold: reverb_decay_in [200, 400] ms with高频 rolloff
+            signal: convolution_ir_parameters
+
+        calibrate "rain on a tin roof inside a wooden cabin" for vibe:
+            maps_to composite_audio_character
+            threshold: composite
+            signal: noise_spectrum + impulse_response + density
+            note: proxy — no single signal captures this
+
+        calibrate sparse_to_downpour for cognitive:
+            maps_to grain_density
+            threshold: grains_per_second in [5, 200]
+            signal: synth_parameter
+
+    equilibrium:
+        sadness_does_not_become_depression:
+            when vibe.melancholy is active AND conditional.user_sad is active
+            preserve both
+            resolution: route sadness through density not through dissonance
+            rationale: sadness in density is recoverable in dissonance is not
+
+        warmth_does_not_become_cozy:
+            when vibe.warm is active AND cognitive.synthesis is active
+            preserve both
+            resolution: warmth in cabin_acoustic only not in tonal_center
+            rationale: warmth in tone would sweeten the melancholy
+
+        emotion_does_not_override_user_control:
+            when cognitive.inference is active AND cognitive.range is active
+            preserve both
+            resolution: emotion modulates within user_set_range
+            rationale: user retains authority over their emotional expression
+
+        aesthetic_preserves_functional_clarity:
+            when vibe.aesthetic is active AND cognitive.synthesis is active
+            preserve both
+            resolution: aesthetic affects timbre only not structure
+            rationale: structure must remain intelligible
+
+        retention_overrides_storage:
+            when cognitive.retention is active
+            preserve unconditionally
+            resolution: sessions retained even if storage constrained
+            rationale: the user's emotional archive is sacred
+
+        invisible_detection_preserves_dignity:
+            when vibe.invisible is active AND cognitive.inference is active
+            preserve both
+            resolution: detection never surfaces as visible UI
+            rationale: the user must not feel observed
+
+    degrade:
+        require full for cognitive on synthesis
+        require full for cognitive on inference
+        tolerate faithful for vibe on color_character
+        tolerate faithful for vibe on tone
+        tolerate proxy for vibe on aesthetic
+        tolerate proxy for vibe on intensity
+        require full for spatial on studio_placement
+        require full for temporal on play_to_modulation_sequence
+        require full for behavioral on lifecycle_completeness
+        require full for conditional on emotion_to_density_mapping
+
+    realize:
+        target: web_interface (HTML/CSS/JS)
+            capabilities: layout, color, motion, event_handling, web_audio
+            can_express: spatial, vibe, conditional, behavioral
+            needs_bridge: emotion_detection_backend, audio_synthesis_backend
+            cannot_express: vibe.aesthetic fully
+            preservation_score: 0.78
+
+        target: audio_engine (Python)
+            capabilities: procedural_audio, convolution, signal_processing
+            can_express: cognitive.synthesis, cognitive.convolution
+            cannot_express: vibe, spatial, behavioral
+            preservation_score: 0.95
+
+        target: emotion_backend (Python)
+            capabilities: facial_analysis, vocal_analysis
+            can_express: cognitive.inference
+            cannot_express: vibe, spatial, behavioral
+            preservation_score: 1.0
+
+        target: session_archive (Python)
+            capabilities: write, retain, retrieve
+            can_express: cognitive.retention
+            cannot_express: vibe, spatial, behavioral
+            preservation_score: 1.0

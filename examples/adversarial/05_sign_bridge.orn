@@ -1,0 +1,319 @@
+create sign_bridge : Application
+
+    context:
+        purpose: an accessibility tool that takes any audio the microphone hears and turns it into something a deaf person can perceive visually and through haptics without losing the emotional content of the original sound
+        domain: accessibility
+        audience: deaf and hard_of_hearing users
+        vibe_brief: clear warm respectful not_clinical not_pitying
+
+    structure:
+        sign_bridge
+            input
+                microphone
+                audio_buffer
+                voice_activity_detector
+            translation
+                speech_to_text
+                speaker_identification
+                emotion_recognition
+                sound_classification
+            output
+                visual_panel
+                    text_display
+                    speaker_label
+                    emotion_indicator
+                    sound_source_indicator
+                haptic_unit
+                    rhythm_engine
+                    intensity_engine
+                    pattern_library
+            control
+                sensitivity_dial
+                haptic_toggle
+                privacy_mode
+            archive
+                session_log
+                emotion_history
+
+    cognitive:
+        sign_bridge.translation = real_time_continuous
+        speech_to_text.inference = streaming
+        speaker_identification.inference = voice_fingerprinted
+        emotion_recognition.inference = prosodic_plus_vocal
+        sound_classification.inference = environmental_classifier
+        visual_panel.rendering = low_latency
+        haptic_unit.actuation = rhythmic_patterned
+        privacy_mode.action = local_only_no_cloud
+        session_log.retention = user_controlled
+        emotion_history.retention = user_controlled
+
+    vibe:
+        sign_bridge.color_character = warm_cream_with_blue_accents
+        sign_bridge.tone = clear
+        sign_bridge.form_character = rounded
+        sign_bridge.aesthetic = "a window not a machine"
+        sign_bridge.intensity = calm_even_when_busy
+        visual_panel.tone = legible
+        visual_panel.color_character = high_contrast_warm
+        text_display.form_character = generous_line_height
+        emotion_indicator.color_character = warm_spectrum
+        sound_source_indicator.color_character = positional_blue
+        haptic_unit.tone = gentle
+        haptic_unit.intensity = subtle
+        microphone.tone = invisible
+        privacy_mode.color_character = trust_green
+        privacy_mode.activation_signal = steady_glow
+
+    spatial:
+        input located_in sign_bridge
+        translation located_in sign_bridge
+        output located_in sign_bridge
+        control located_in sign_bridge
+        archive located_in sign_bridge
+        microphone located_in input
+        audio_buffer located_in input
+        voice_activity_detector located_in input
+        speech_to_text located_in translation
+        speaker_identification located_in translation
+        emotion_recognition located_in translation
+        sound_classification located_in translation
+        visual_panel located_in output
+        text_display located_in visual_panel
+        speaker_label located_in visual_panel
+        emotion_indicator located_in visual_panel
+        sound_source_indicator located_in visual_panel
+        haptic_unit located_in output
+        rhythm_engine located_in haptic_unit
+        intensity_engine located_in haptic_unit
+        pattern_library located_in haptic_unit
+        sensitivity_dial located_in control
+        haptic_toggle located_in control
+        privacy_mode located_in control
+        session_log located_in archive
+        emotion_history located_in archive
+
+    temporal:
+        audio_received → voice_activity_check on continuous
+        voice_activity_check → translation_pipeline on voice_detected
+        translation_pipeline → visual_render on text_ready
+        translation_pipeline → haptic_render on emotion_ready
+        visual_render → display_update on immediate
+        haptic_render → haptic_actuation on immediate
+        speaker_change → speaker_label_update on fingerprint_match
+        emotion_shift → emotion_indicator_update on prosodic_change
+        sound_event → sound_source_indicator_update on classified
+
+    relational:
+        microphone feeds audio_buffer
+        audio_buffer feeds voice_activity_detector
+        voice_activity_detector feeds speech_to_text
+        voice_activity_detector feeds emotion_recognition
+        voice_activity_detector feeds speaker_identification
+        audio_buffer feeds sound_classification
+        speech_to_text feeds text_display
+        speaker_identification feeds speaker_label
+        emotion_recognition feeds emotion_indicator
+        emotion_recognition feeds haptic_unit
+        sound_classification feeds sound_source_indicator
+        sound_classification feeds haptic_unit
+        text_display feeds visual_panel
+        speaker_label feeds visual_panel
+        emotion_indicator feeds visual_panel
+        sound_source_indicator feeds visual_panel
+        rhythm_engine feeds haptic_unit
+        intensity_engine feeds haptic_unit
+        sensitivity_dial feeds microphone
+        sensitivity_dial feeds haptic_unit
+        haptic_toggle feeds haptic_unit
+        privacy_mode feeds speech_to_text
+        privacy_mode feeds emotion_recognition
+
+    conditional:
+        translation_pipeline activates on voice_detected
+        sound_classification activates on non_voice_audio
+        haptic_unit activates when haptic_toggle_on
+        haptic_unit deactivates when haptic_toggle_off
+        privacy_mode activates on user_choice
+        cloud_processing blocked when privacy_mode_on
+        emotion_indicator updates on emotion_shift
+        speaker_label updates on speaker_change
+        session_log retained when user_opted_in
+        session_log purged when user_opted_out
+        emotion_history retained when user_opted_in
+        sign_bridge retained always in safe_state when not_active
+
+    behavior:
+        sign_bridge behaves_as attentive_interpreter
+        sign_bridge transitions from idle to listening on user_activate
+        sign_bridge transitions from listening to translating on voice_detected
+        sign_bridge transitions from translating to displaying on text_ready
+        sign_bridge transitions from translating to displaying on emotion_ready
+        sign_bridge transitions from displaying to listening on continued_audio
+        sign_bridge transitions from any_state to idle on user_deactivate
+        sign_bridge lifecycle: idle -> listening -> translating -> displaying -> listening -> idle
+        haptic_unit transitions from inactive to active on haptic_toggle_on
+        haptic_unit transitions from active to inactive on haptic_toggle_off
+        haptic_unit transitions from active to pulsing on emotion_strong
+        haptic_unit transitions from pulsing to active on emotion_normal
+        haptic_unit lifecycle: inactive -> active -> pulsing -> active -> inactive
+        privacy_mode transitions from off to on on user_choice
+        privacy_mode transitions from on to off on user_choice
+        privacy_mode lifecycle: off -> on -> off
+
+    calibrate:
+        calibrate clear for vibe:
+            maps_to typographic_legibility
+            threshold: contrast_ratio >= 7.0 AND font_size >= 18px
+            signal: ui_style_spec
+
+        calibrate "a window not a machine" for vibe:
+            maps_to interface_transparency
+            threshold: ui_elements_minimal AND focus_on_content
+            signal: layout_metric
+            note: proxy — interface quality is emergent
+
+        calibrate warm_cream_with_blue_accents for vibe:
+            maps_to color_palette
+            threshold: cream_rgb approximately 250 240 220 AND blue_rgb approximately 70 110 160
+            signal: ui_color_palette
+
+        calibrate calm_even_when_busy for vibe:
+            maps_to motion_intensity
+            threshold: animation_duration >= 400ms AND no_flash
+            signal: transition_timing
+
+        calibrate gentle for vibe:
+            maps_to haptic_intensity
+            threshold: peak_acceleration <= 1.5 g
+            signal: haptic_actuator_command
+
+        calibrate legible for vibe:
+            maps_to text_readability
+            threshold: words_per_minute_readable >= 180
+            signal: text_display_test
+
+        calibrate real_time_continuous for cognitive:
+            maps_to latency
+            threshold: end_to_end_latency <= 300ms
+            signal: timing_measurement
+
+        calibrate streaming for cognitive:
+            maps_to partial_result_emission
+            threshold: emit_on_word_boundary
+            signal: stt_engine_config
+
+    equilibrium:
+        clarity_vs_emotion:
+            when vibe.clear is active AND cognitive.emotion is active
+            preserve both
+            resolution: clarity in text emotion in color and haptic
+            rationale: text must stay clear emotion must not be lost
+
+        warmth_vs_clinical:
+            when vibe.warm is active AND cognitive.medical is active
+            preserve both
+            resolution: warm in surface clinical in accuracy
+            rationale: accessibility without pity
+
+        respect_vs_intrusion:
+            when vibe.respectful is active AND cognitive.continuous is active
+            preserve both
+            resolution: continuous but user_controllable
+            rationale: user controls their own accessibility
+
+        visual_vs_haptic:
+            when cognitive.visual is active AND cognitive.haptic is active
+            preserve both
+            resolution: both channels carry distinct_information
+            rationale: redundancy is not duplication
+
+        privacy_vs_capability:
+            when cognitive.privacy is active AND cognitive.cloud is active
+            preserve both
+            resolution: local_only_mode when privacy_on
+            rationale: privacy is not negotiable
+
+        emotion_preservation_vs_compression:
+            when cognitive.emotion is active AND cognitive.compression is active
+            preserve both
+            resolution: compress audio preserve prosody
+            rationale: emotion lives in prosody
+
+        retention_vs_user_control:
+            when cognitive.retention is active AND cognitive.user_control is active
+            preserve both
+            resolution: retention follows user_opt_in
+            rationale: the user owns their accessibility history
+
+        real_time_vs_accuracy:
+            when cognitive.real_time is active AND cognitive.accuracy is active
+            preserve both
+            resolution: streaming partial results final accurate
+            rationale: speed and accuracy are not enemies
+
+        calm_vs_alerting:
+            when vibe.calm is active AND conditional.emotion_strong is active
+            preserve both
+            resolution: alert through haptic not through visual flash
+            rationale: do not startle the user
+
+        dignity_vs_observability:
+            when vibe.respectful is active AND cognitive.recognition is active
+            preserve both
+            resolution: recognition serves the user never surveys them
+            rationale: identification is for the user not about them
+
+    degrade:
+        require full for cognitive on translation
+        require full for cognitive on emotion_recognition
+        require full for cognitive on sound_classification
+        require full for cognitive on privacy
+        require full for spatial on panel_layout
+        require full for temporal on translation_to_display_sequence
+        require full for relational on audio_to_output_links
+        require full for behavioral on lifecycle_completeness
+        require full for conditional on privacy_mode_blocking
+        require faithful for vibe on color_character
+        require faithful for vibe on tone
+        require faithful for vibe on form_character
+        tolerate proxy for vibe on aesthetic
+        require full for vibe on activation_signal
+        require faithful for vibe on intensity
+
+    realize:
+        target: web_interface (HTML/CSS/JS)
+            capabilities: layout, color, motion, event_handling, web_audio, vibration_api
+            can_express: spatial, vibe, conditional, behavioral, temporal
+            needs_bridge: stt_backend, emotion_backend, haptic_backend
+            cannot_express: vibe.aesthetic fully
+            preservation_score: 0.84
+
+        target: stt_backend (Python)
+            capabilities: streaming_stt, retrieve
+            can_express: cognitive.inference
+            cannot_express: vibe, spatial
+            preservation_score: 0.97
+
+        target: emotion_backend (Python)
+            capabilities: prosodic_analysis, vocal_analysis
+            can_express: cognitive.emotion_recognition
+            cannot_express: vibe, spatial
+            preservation_score: 1.0
+
+        target: sound_classifier (Python)
+            capabilities: environmental_classification
+            can_express: cognitive.sound_classification
+            cannot_express: vibe, spatial
+            preservation_score: 1.0
+
+        target: haptic_backend (Python)
+            capabilities: pattern_generation, actuator_control
+            can_express: cognitive.haptic
+            cannot_express: vibe, spatial
+            preservation_score: 1.0
+
+        target: archive_storage (Python)
+            capabilities: write, retain, retrieve
+            can_express: cognitive.retention
+            cannot_express: vibe, spatial
+            preservation_score: 1.0

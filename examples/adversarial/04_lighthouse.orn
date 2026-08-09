@@ -1,0 +1,346 @@
+create the_lighthouse : Application
+
+    context:
+        purpose: an interactive fiction game where the player keeps a lighthouse running through a long stormy night and the choices they make about the light the radio and the door shape which of five endings they reach
+        domain: interactive_fiction
+        audience: people who like quiet stories with weight
+        vibe_brief: melancholy hopeful isolated not_lonely atmospheric
+
+    structure:
+        game
+            opening_scene
+                dock_arrival
+                lighthouse_door
+            lighthouse_interior
+                ground_floor
+                    fuel_store
+                    tool_bench
+                stairwell
+                    middle_landing
+                    top_landing
+                lamp_room
+                    main_lamp
+                    reserve_lamp
+                    lamp_log
+                radio_room
+                    radio_set
+                    log_book
+                    distress_signal
+            outside
+                cliff_edge
+                boat_house
+                wreck_site
+            characters
+                keeper
+                visitor
+                voice_on_radio
+            state
+                lamp_state
+                radio_state
+                door_state
+                keeper_state
+                weather_state
+                time_state
+            endings
+                ending_rescue
+                ending_loss
+                ending_quiet
+                ending_visitor
+                ending_dawn
+
+    cognitive:
+        the_lighthouse.narrative = branching_with_state
+        the_lighthouse.persistence = through_save
+        keeper_state.energy = diminishing_through_night
+        keeper_state.courage = affected_by_choices
+        lamp_state.fuel = depleting
+        lamp_state.brightness = user_adjustable
+        radio_state.contact = attempted_periodically
+        door_state.locked = user_choice
+        weather_state.storm = escalating
+        time_state.phase = night_to_dawn
+        ending_reached = determined_by_state_at_dawn
+
+    vibe:
+        the_lighthouse.color_character = deep_blue_with_amber_lamp
+        the_lighthouse.tone = melancholy_hopeful
+        the_lighthouse.aesthetic = "the smell of salt and old wood"
+        the_lighthouse.intensity = atmospheric
+        the_lighthouse.form_character = literary
+        lamp_room.color_character = warm_amber
+        lamp_room.activation_signal = steady_beam
+        radio_room.tone = scratchy_distant
+        radio_room.color_character = cold_blue
+        outside.tone = hostile
+        outside.color_character = storm_grey
+        keeper.tone = weary_determined
+        visitor.tone = uncertain
+        voice_on_radio.tone = desperate
+        ending_rescue.tone = relief
+        ending_loss.tone = grief
+        ending_quiet.tone = peace
+        ending_visitor.tone = companionship
+        ending_dawn.tone = survival
+
+    spatial:
+        opening_scene located_in game
+        lighthouse_interior located_in game
+        outside located_in game
+        characters located_in game
+        state located_in game
+        endings located_in game
+        dock_arrival located_in opening_scene
+        lighthouse_door located_in opening_scene
+        ground_floor located_in lighthouse_interior
+        stairwell located_in lighthouse_interior
+        lamp_room located_in lighthouse_interior
+        radio_room located_in lighthouse_interior
+        fuel_store located_in ground_floor
+        tool_bench located_in ground_floor
+        middle_landing located_in stairwell
+        top_landing located_in stairwell
+        main_lamp located_in lamp_room
+        reserve_lamp located_in lamp_room
+        lamp_log located_in lamp_room
+        radio_set located_in radio_room
+        log_book located_in radio_room
+        distress_signal located_in radio_room
+        cliff_edge located_in outside
+        boat_house located_in outside
+        wreck_site located_in outside
+        keeper located_in characters
+        visitor located_in characters
+        voice_on_radio located_in characters
+        lamp_state located_in state
+        radio_state located_in state
+        door_state located_in state
+        keeper_state located_in state
+        weather_state located_in state
+        time_state located_in state
+        ending_rescue located_in endings
+        ending_loss located_in endings
+        ending_quiet located_in endings
+        ending_visitor located_in endings
+        ending_dawn located_in endings
+
+    temporal:
+        dock_arrival → lighthouse_door on player_advance
+        lighthouse_door → ground_floor on door_chosen_open
+        lighthouse_door → ending_quiet on door_chosen_locked
+        ground_floor → stairwell on player_climb
+        stairwell → lamp_room on reach_top
+        stairwell → radio_room on player_divert
+        lamp_room → main_lamp on tend_lamp
+        radio_room → radio_set on answer_radio
+        night → dawn on time_advance
+        storm → calm on dawn_break
+        any_scene → ending_rescue on rescue_achieved
+        any_scene → ending_loss on lamp_failed_and_boat_wrecked
+        any_scene → ending_quiet on door_never_opened_and_dawn
+        any_scene → ending_visitor on visitor_admitted_and_dawn
+        any_scene → ending_dawn on lamp_maintained_and_dawn
+
+    relational:
+        main_lamp feeds visibility
+        visibility feeds boat_safety
+        radio_set feeds voice_on_radio
+        voice_on_radio feeds keeper_choice
+        door_state feeds visitor_admittance
+        visitor_admittance feeds ending_visitor
+        keeper_state.energy feeds action_capacity
+        weather_state.storm feeds lamp_failure_risk
+        lamp_failure_risk feeds ending_loss
+        fuel_store feeds main_lamp
+        tool_bench feeds lamp_repair
+        log_book feeds player_understanding
+        distress_signal feeds rescue_attempt
+
+    conditional:
+        main_lamp activates on player_tending
+        main_lamp fails when fuel_depleted and not_refueled
+        main_lamp fails when storm_severe and not_repaired
+        reserve_lamp activates on main_lamp_failure
+        radio_set activates on incoming_signal
+        radio_set activates on player_choice
+        door_state opens on player_choice
+        visitor admitted when door_open and visitor_present
+        ending_rescue reached when distress_signal sent and boat_responds
+        ending_loss reached when main_lamp fails and boat_wrecks
+        ending_quiet reached when door never opened and dawn breaks
+        ending_visitor reached when visitor admitted and survives
+        ending_dawn reached when lamp maintained through night
+        keeper_state.energy depletes on every action
+        weather_state.storm escalates on time_advance
+        game retained always (unconditional preservation of save state)
+
+    behavior:
+        the_lighthouse behaves_as branching_narrative
+        the_lighthouse transitions from opening to act_one on door_open
+        the_lighthouse transitions from act_one to act_two on midnight
+        the_lighthouse transitions from act_two to act_three on small_hours
+        the_lighthouse transitions from act_three to climax on dawn_approach
+        the_lighthouse transitions from climax to ending on ending_condition_met
+        the_lighthouse lifecycle: opening -> act_one -> act_two -> act_three -> climax -> ending
+        main_lamp transitions from lit to flickering on fuel_low
+        main_lamp transitions from flickering to dark on fuel_depleted
+        main_lamp transitions from dark to lit on refuel
+        main_lamp lifecycle: lit -> flickering -> dark -> lit
+        keeper transitions from rested to tired on action_taken
+        keeper transitions from tired to weary on continued_action
+        keeper transitions from weary to resolute on courage_choice
+        keeper transitions from weary to broken on courage_failed
+        keeper lifecycle: rested -> tired -> weary -> resolute or broken
+        storm transitions from building to raging on midnight
+        storm transitions from raging to breaking on dawn_approach
+        storm lifecycle: building -> raging -> breaking -> calm
+
+    calibrate:
+        calibrate melancholy_hopeful for vibe:
+            maps_to narrative_tone_and_pacing
+            threshold: prose_density_in [moderate, dense] AND pacing_slow
+            signal: text_generation_parameters
+
+        calibrate "the smell of salt and old wood" for vibe:
+            maps_to sensory_description_density
+            threshold: at_least_one_sensory_reference_per_paragraph
+            signal: prose_quality_metric
+            note: proxy — atmosphere is emergent
+
+        calibrate deep_blue_with_amber_lamp for vibe:
+            maps_to color_palette
+            threshold: blue_in [200, 240] hue AND amber_in [30, 50] hue
+            signal: ui_color_palette
+
+        calibrate steady_beam for vibe:
+            maps_to luminance_stability
+            threshold: variation <= 5 percent over time
+            signal: lamp_animation_parameter
+
+        calibrate weary_determined for vibe:
+            maps_to keeper_dialogue_tone
+            threshold: short_sentences_with_purpose
+            signal: dialogue_generation
+
+        calibrate depleting for cognitive:
+            maps_to numeric_resource
+            threshold: energy_starts_at_100 decreases_by_5_to_15_per_action
+            signal: game_state_variable
+
+        calibrate escalating for cognitive:
+            maps_to storm_intensity
+            threshold: storm_level_in [1, 10] increases_over_night
+            signal: game_state_variable
+
+    equilibrium:
+        melancholy_vs_hopeful:
+            when vibe.melancholy is active AND vibe.hopeful is active
+            preserve both
+            resolution: melancholy in atmosphere hope in keeper_agency
+            rationale: neither overwhelms the other
+
+        isolation_vs_not_lonely:
+            when vibe.isolated is active AND vibe.not_lonely is active
+            preserve both
+            resolution: physical isolation with presence_of_voice_on_radio
+            rationale: alone but not abandoned
+
+        atmosphere_vs_action:
+            when vibe.atmospheric is active AND cognitive.action is active
+            preserve both
+            resolution: action serves atmosphere atmosphere contextualizes action
+            rationale: neither alone is enough
+
+        player_agency_vs_narrative_arc:
+            when cognitive.branching is active AND cognitive.persistence is active
+            preserve both
+            resolution: five distinct endings all coherent with story
+            rationale: choice must matter story must hold
+
+        diminishing_resources_vs_fairness:
+            when keeper_state.energy is active AND weather_state.storm is active
+            preserve both
+            resolution: difficulty_curve_respects_player_skill
+            rationale: hard but not impossible
+
+        ending_dignity:
+            when ending_reached is active
+            preserve unconditionally
+            resolution: every ending is meaningful none is punishment
+            rationale: every story deserves a worthy close
+
+        retention_overrides_storage:
+            when cognitive.retention is active
+            preserve unconditionally
+            resolution: save_state retained across sessions
+            rationale: player investment is sacred
+
+        visitor_admittance_vs_safety:
+            when door_state.open is active AND weather_state.storm is active
+            preserve both
+            resolution: visitor admitted with risk of consequences
+            rationale: kindness is not free
+
+        radio_contact_vs_isolation:
+            when radio_state.contact is active AND vibe.isolated is active
+            preserve both
+            resolution: contact is fragile and intermittent
+            rationale: human connection is precious because rare
+
+        storm_vs_lamp:
+            when weather_state.storm is active AND lamp_state.brightness is active
+            preserve both
+            resolution: storm tests lamp lamp resists storm
+            rationale: the central conflict
+
+        courage_vs_weary:
+            when keeper_state.courage is active AND keeper_state.weary is active
+            preserve both
+            resolution: courage is choosing despite weariness
+            rationale: heroism is not the absence of fatigue
+
+    degrade:
+        require full for cognitive on narrative
+        require full for cognitive on persistence
+        require full for cognitive on ending_logic
+        require full for spatial on scene_structure
+        require full for temporal on scene_transitions
+        require full for relational on state_dependencies
+        require full for behavioral on lifecycle_completeness
+        require full for conditional on ending_conditions
+        require faithful for vibe on color_character
+        require faithful for vibe on tone
+        tolerate proxy for vibe on aesthetic
+        require full for vibe on activation_signal
+
+    realize:
+        target: web_interface (HTML/CSS/JS)
+            capabilities: layout, color, motion, event_handling, text_rendering
+            can_express: spatial, vibe, conditional, behavioral, temporal
+            needs_bridge: narrative_backend, save_backend
+            cannot_express: vibe.aesthetic fully
+            preservation_score: 0.81
+
+        target: narrative_engine (Python)
+            capabilities: text_generation, state_management, branching
+            can_express: cognitive.narrative, cognitive.persistence
+            cannot_express: vibe, spatial
+            preservation_score: 0.94
+
+        target: save_backend (Python)
+            capabilities: write, retain, retrieve
+            can_express: cognitive.retention
+            cannot_express: vibe, spatial
+            preservation_score: 1.0
+
+        target: scene_renderer (HTML/CSS/JS)
+            capabilities: layout, color, motion
+            can_express: spatial, vibe
+            needs_bridge: narrative_engine
+            cannot_express: cognitive
+            preservation_score: 0.85
+
+        target: ambient_audio (WebAudio)
+            capabilities: procedural_audio, looping
+            can_express: vibe.aesthetic, vibe.tone
+            cannot_express: cognitive, spatial
+            preservation_score: 0.88

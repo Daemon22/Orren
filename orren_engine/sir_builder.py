@@ -92,12 +92,15 @@ class SIRBuilder:
             graph.root = expr_node
 
         # Build entity tree from structure section.
-        structure_root = expr.structure_root()
+        # IMPORTANT: build ALL top-level structure nodes, not just the
+        # first. A structure section may declare multiple sibling roots
+        # (e.g. `arm`, `control_unit`, `interface` in a device description).
         entity_nodes: Dict[str, SIRNode] = {expr.name: expr_node}
-        if structure_root is not None:
-            self._build_structure_tree(
-                structure_root, parent=expr_node, graph=graph, registry=entity_nodes
-            )
+        for struct_node in expr.structure:
+            if struct_node.parent is None or struct_node.parent.name == "_root":
+                self._build_structure_tree(
+                    struct_node, parent=expr_node, graph=graph, registry=entity_nodes
+                )
 
         # 2-8. Attach each dimension's payload to the appropriate node(s).
         self._attach_cognitive(expr, graph, entity_nodes)

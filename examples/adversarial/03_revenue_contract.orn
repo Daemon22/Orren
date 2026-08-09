@@ -1,0 +1,261 @@
+create revenue_sharing_contract : Document
+
+    context:
+        purpose: pay artists 70 percent of revenue but reduce to 50 percent if platform costs exceed 10000 dollars per month and pause payments entirely if there's a legal dispute and resume when the dispute resolves and never pay anyone twice for the same transaction
+        domain: financial_contract
+        audience: artists and platform operators and lawyers
+        vibe_brief: fair transparent strict not_punitive
+
+    structure:
+        contract
+            parties
+                artist_party
+                platform_party
+                legal_oversight
+            terms
+                base_split
+                cost_threshold
+                dispute_clause
+                resumption_clause
+                dedup_clause
+                audit_window
+            execution
+                revenue_stream
+                cost_stream
+                dispute_detector
+                payment_pipeline
+                audit_log
+            interface
+                artist_dashboard
+                platform_dashboard
+                legal_view
+
+    cognitive:
+        revenue_sharing_contract.calculation = precise_to_penny
+        revenue_sharing_contract.audit = monthly_window
+        base_split.artist_share = 70_percent
+        base_split.platform_share = 30_percent
+        cost_threshold.trigger = monthly_costs_exceed_10000
+        cost_threshold.adjusted_artist_share = 50_percent
+        cost_threshold.adjusted_platform_share = 50_percent
+        dispute_clause.action = pause_payments
+        resumption_clause.action = resume_payments
+        dedup_clause.guard = transaction_hash_check
+        payment_pipeline.execution = scheduled_monthly
+        audit_log.retention = permanent
+
+    vibe:
+        revenue_sharing_contract.tone = strict
+        revenue_sharing_contract.color_character = neutral_grey
+        revenue_sharing_contract.form_character = structured
+        revenue_sharing_contract.aesthetic = "a contract you can read"
+        revenue_sharing_contract.intensity = measured
+        artist_dashboard.tone = hopeful
+        artist_dashboard.color_character = warm_green
+        platform_dashboard.tone = professional
+        platform_dashboard.color_character = neutral_blue
+        legal_view.tone = authoritative
+        legal_view.color_character = deep_red
+
+    spatial:
+        parties located_in contract
+        terms located_in contract
+        execution located_in contract
+        interface located_in contract
+        artist_party located_in parties
+        platform_party located_in parties
+        legal_oversight located_in parties
+        base_split located_in terms
+        cost_threshold located_in terms
+        dispute_clause located_in terms
+        resumption_clause located_in terms
+        dedup_clause located_in terms
+        audit_window located_in terms
+        revenue_stream located_in execution
+        cost_stream located_in execution
+        dispute_detector located_in execution
+        payment_pipeline located_in execution
+        audit_log located_in execution
+        artist_dashboard located_in interface
+        platform_dashboard located_in interface
+        legal_view located_in interface
+
+    temporal:
+        revenue_received → cost_calculated on monthly_close
+        cost_calculated → split_determined on threshold_check
+        split_determined → payment_scheduled on dispute_check
+        payment_scheduled → payment_executed on schedule_date
+        payment_executed → audit_recorded on immediate
+        dispute_detected → payments_paused on immediate
+        dispute_resolved → payments_resumed on legal_oversight_approval
+
+    relational:
+        revenue_stream feeds cost_stream
+        cost_stream feeds cost_threshold
+        cost_threshold feeds base_split
+        base_split feeds payment_pipeline
+        dispute_detector feeds payment_pipeline
+        payment_pipeline feeds artist_party
+        payment_pipeline feeds platform_party
+        payment_pipeline feeds audit_log
+        dedup_clause feeds payment_pipeline
+
+    conditional:
+        artist_share = 70_percent when monthly_costs below 10000
+        artist_share = 50_percent when monthly_costs exceed 10000
+        payments pause when dispute_detected
+        payments resume when dispute_resolved
+        payment blocked when transaction_hash_already_paid
+        audit_log retained always (unconditional preservation)
+        legal_oversight activates on dispute_detected
+        legal_oversight deactivates on dispute_resolved
+
+    behavior:
+        revenue_sharing_contract behaves_as strict_accountant
+        revenue_sharing_contract transitions from receiving to calculating on monthly_close
+        revenue_sharing_contract transitions from calculating to splitting on threshold_check
+        revenue_sharing_contract transitions from splitting to scheduling on dispute_clear
+        revenue_sharing_contract transitions from scheduling to executing on schedule_date
+        revenue_sharing_contract transitions from executing to auditing on payment_complete
+        revenue_sharing_contract transitions from any_state to paused on dispute_detected
+        revenue_sharing_contract transitions from paused to scheduling on dispute_resolved
+        revenue_sharing_contract lifecycle: receiving -> calculating -> splitting -> scheduling -> executing -> auditing -> receiving
+        payment_pipeline transitions from idle to validating on payment_request
+        payment_pipeline transitions from validating to checking_dedup on validation_pass
+        payment_pipeline transitions from checking_dedup to executing on hash_unique
+        payment_pipeline transitions from checking_dedup to blocked on hash_duplicate
+        payment_pipeline lifecycle: idle -> validating -> checking_dedup -> executing -> completed -> idle
+
+    calibrate:
+        calibrate strict for vibe:
+            maps_to contract_language_preciseness
+            threshold: every_clause_has_numeric_threshold
+            signal: clause_structure
+
+        calibrate "a contract you can read" for vibe:
+            maps_to readability_score
+            threshold: flesch_kincaid_grade <= 12
+            signal: text_analysis
+
+        calibrate neutral_grey for vibe:
+            maps_to color_value
+            threshold: rgb approximately 128 128 128
+            signal: ui_color_spec
+
+        calibrate 70_percent for cognitive:
+            maps_to numeric_ratio
+            threshold: 0.70 exactly
+            signal: payment_calculation
+
+        calibrate 10000_dollars for cognitive:
+            maps_to numeric_threshold
+            threshold: 10000.00 exactly
+            signal: monthly_cost_sum
+
+        calibrate permanent for cognitive:
+            maps_to retention_duration
+            threshold: indefinite
+            signal: storage_policy
+
+    equilibrium:
+        fairness_vs_strictness:
+            when vibe.strict is active AND cognitive.calculation is active
+            preserve both
+            resolution: strict in calculation fair in split
+            rationale: strict does not mean unfair
+
+        transparency_vs_privacy:
+            when cognitive.audit is active AND cognitive.privacy is active
+            preserve both
+            resolution: audit shows amounts not artist_personal_data
+            rationale: auditability without surveillance
+
+        automation_vs_legal_authority:
+            when cognitive.execution is active AND cognitive.authority is active
+            preserve both
+            resolution: legal_oversight overrides automation on dispute
+            rationale: contracts defer to law
+
+        cost_adjustment_vs_artist_trust:
+            when cost_threshold is active AND base_split is active
+            preserve both
+            resolution: cost threshold clearly communicated before activation
+            rationale: trust requires notice
+
+        dispute_pause_vs_artist_obligation:
+            when dispute_clause is active AND payment_pipeline is active
+            preserve both
+            resolution: pause payments preserve accrued obligations
+            rationale: pause does not erase debt
+
+        dedup_vs_completeness:
+            when dedup_clause is active AND payment_pipeline is active
+            preserve both
+            resolution: dedup blocks duplicates preserves all_unique_transactions
+            rationale: never pay twice never miss once
+
+        retention_overrides_storage:
+            when cognitive.retention is active
+            preserve unconditionally
+            resolution: audit_log retained permanently
+            rationale: audit trail is a legal contract
+
+        speed_vs_accuracy:
+            when cognitive.execution is active AND cognitive.calculation is active
+            preserve both
+            resolution: precise_to_penny even if slower
+            rationale: a penny error is still an error
+
+        hopeful_vs_realistic:
+            when vibe.hopeful is active AND cognitive.calculation is active
+            preserve both
+            resolution: hopeful in artist_dashboard realistic in calculation
+            rationale: artist sees hope accounting sees math
+
+    degrade:
+        require full for cognitive on calculation
+        require full for cognitive on audit
+        require full for cognitive on dedup_clause
+        require full for cognitive on dispute_clause
+        require full for cognitive on retention
+        require full for spatial on contract_structure
+        require full for temporal on payment_sequence
+        require full for relational on payment_pipeline_links
+        require full for behavioral on lifecycle_completeness
+        require full for conditional on threshold_logic
+        require faithful for vibe on color_character
+        require faithful for vibe on form_character
+        tolerate faithful for vibe on tone
+        tolerate proxy for vibe on aesthetic
+
+    realize:
+        target: contract_document (LaTeX)
+            capabilities: typography, layout, pagination
+            can_express: cognitive, conditional, spatial, behavioral, temporal
+            cannot_express: vibe fully
+            preservation_score: 0.91
+
+        target: payment_backend (Python)
+            capabilities: compute, write, retrieve, hash_check
+            can_express: cognitive, conditional, behavioral, temporal
+            cannot_express: vibe, spatial
+            preservation_score: 0.96
+
+        target: dashboard_interface (HTML/CSS/JS)
+            capabilities: layout, color, motion, event_handling
+            can_express: spatial, vibe, conditional
+            needs_bridge: payment_backend
+            cannot_express: cognitive.calculation
+            preservation_score: 0.82
+
+        target: audit_storage (Python)
+            capabilities: write, retain, retrieve
+            can_express: cognitive.retention, cognitive.audit
+            cannot_express: vibe, spatial
+            preservation_score: 1.0
+
+        target: dispute_detector_service (Python)
+            capabilities: detect_event, write, retrieve
+            can_express: conditional, cognitive
+            cannot_express: vibe, spatial
+            preservation_score: 1.0

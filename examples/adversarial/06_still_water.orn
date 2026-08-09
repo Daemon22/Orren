@@ -1,0 +1,331 @@
+create still_water : Application
+
+    context:
+        purpose: a meditation app that should feel like floating in warm water but it should snap to attention if the doorbell rings and it should never startle the user and it should remember what made them calm last time so it can return there
+        domain: meditation
+        audience: people who want to rest not optimize
+        vibe_brief: warm floating held not_optimizing not_gamified
+
+    structure:
+        still_water
+            breathing_layer
+                breath_circle
+                breath_sound
+            water_layer
+                water_visual
+                water_sound
+            warmth_layer
+                warm_gradient
+                warm_pulse
+            attention_layer
+                doorbell_listener
+                phone_listener
+                name_listener
+                gentle_interrupt
+            memory_layer
+                calm_memory
+                return_path
+            session
+                begin_button
+                pause_button
+                end_button
+                session_log
+
+    cognitive:
+        still_water.session = user_controlled
+        still_water.pacing = breath_followed
+        still_water.warmth = modulated_to_user
+        still_water.memory = calm_pattern_recalled
+        breath_circle.phase = inhale_exhale_cycle
+        breath_sound.amplitude = synced_to_circle
+        water_visual.animation = slow_drift
+        water_sound.amplitude = low_constant
+        warm_gradient.shift = gradual
+        warm_pulse.rate = synced_to_breath
+        doorbell_listener.detection = audio_classified
+        phone_listener.detection = notification_intercepted
+        name_listener.detection = voice_name_recognized
+        gentle_interrupt.action = gradual_fade_to_alert
+        calm_memory.storage = pattern_encoded
+        return_path.recall = calm_pattern_replayed
+        session_log.retention = user_controlled
+
+    vibe:
+        still_water.color_character = warm_blue
+        still_water.tone = warm
+        still_water.aesthetic = "floating in warm water"
+        still_water.intensity = barely_there
+        still_water.form_character = organic
+        breath_circle.color_character = soft_amber
+        breath_circle.activation_signal = slow_pulse
+        breath_circle.form_character = circle
+        breath_sound.tone = soft
+        water_layer.color_character = warm_blue
+        water_layer.tone = fluid
+        water_sound.tone = low_hum
+        warm_gradient.color_character = amber_to_cream
+        warm_pulse.tone = gentle
+        attention_layer.tone = invisible
+        gentle_interrupt.tone = alert_but_soft
+        gentle_interrupt.color_character = amber_alert
+        gentle_interrupt.activation_signal = slow_rise
+        memory_layer.tone = invisible
+        begin_button.tone = inviting
+        begin_button.color_character = warm_amber
+        begin_button.form_character = rounded
+        pause_button.tone = neutral
+        end_button.tone = neutral
+
+    spatial:
+        breathing_layer located_in still_water
+        water_layer located_in still_water
+        warmth_layer located_in still_water
+        attention_layer located_in still_water
+        memory_layer located_in still_water
+        session located_in still_water
+        breath_circle located_in breathing_layer
+        breath_sound located_in breathing_layer
+        water_visual located_in water_layer
+        water_sound located_in water_layer
+        warm_gradient located_in warmth_layer
+        warm_pulse located_in warmth_layer
+        doorbell_listener located_in attention_layer
+        phone_listener located_in attention_layer
+        name_listener located_in attention_layer
+        gentle_interrupt located_in attention_layer
+        calm_memory located_in memory_layer
+        return_path located_in memory_layer
+        begin_button located_in session
+        pause_button located_in session
+        end_button located_in session
+        session_log located_in session
+
+    temporal:
+        begin_press → breath_start on user_intent
+        breath_start → water_layer_activate on immediate
+        water_layer_activate → warmth_layer_activate on immediate
+        warmth_layer_activate → calm_memory_attempt on user_relaxation_detected
+        calm_memory_attempt → return_path_recall on memory_found
+        return_path_recall → calm_pattern_replay on immediate
+        external_event_detected → gentle_interrupt on doorbell OR phone OR name
+        gentle_interrupt → user_choice on gradual_fade_complete
+        user_choice_continue → calm_pattern_replay on user_resume
+        user_choice_end → session_end on user_intent
+        pause_press → breath_pause on user_intent
+        breath_pause → resume_on on user_intent
+        session_end → session_log_write on immediate
+
+    relational:
+        breath_circle feeds breath_sound
+        breath_sound feeds water_layer
+        water_layer feeds warmth_layer
+        warmth_layer feeds warm_pulse
+        warm_pulse feeds breath_circle
+        doorbell_listener feeds gentle_interrupt
+        phone_listener feeds gentle_interrupt
+        name_listener feeds gentle_interrupt
+        gentle_interrupt feeds user_choice
+        calm_memory feeds return_path
+        return_path feeds calm_pattern_replay
+        calm_pattern_replay feeds breath_circle
+        calm_pattern_replay feeds water_layer
+        calm_pattern_replay feeds warmth_layer
+        begin_button feeds breath_start
+        pause_button feeds breath_pause
+        end_button feeds session_end
+
+    conditional:
+        breath_circle activates on begin_press
+        breath_circle pauses on pause_press
+        breath_circle resumes on user_resume
+        breath_circle stops on end_press
+        water_layer activates when breath_circle active
+        warmth_layer activates when water_layer active
+        calm_memory_attempt activates when user_relaxation_detected
+        return_path_recall activates when calm_memory_found
+        gentle_interrupt activates on doorbell_detected
+        gentle_interrupt activates on phone_detected
+        gentle_interrupt activates on name_detected
+        gentle_interrupt never activates on sudden_loud_noise
+        calm_pattern_replay activates when user_resume_after_interrupt
+        calm_pattern_replay activates when calm_memory_found_at_start
+        session_log retained when user_opted_in
+        still_water never displays timer
+        still_water never displays score
+        still_water never displays streak
+
+    behavior:
+        still_water behaves_as calm_water
+        still_water transitions from idle to settling on begin_press
+        still_water transitions from settling to floating on user_relaxation_detected
+        still_water transitions from floating to remembering on calm_pattern_emerging
+        still_water transitions from remembering to floating on calm_pattern_replayed
+        still_water transitions from any_state to alerting on external_event_detected
+        still_water transitions from alerting to floating on user_choice_continue
+        still_water transitions from alerting to ending on user_choice_end
+        still_water transitions from any_state to idle on end_press
+        still_water lifecycle: idle -> settling -> floating -> remembering -> floating -> ending -> idle
+        breath_circle transitions from still to expanding on inhale
+        breath_circle transitions from expanding to contracting on exhale
+        breath_circle transitions from contracting to expanding on inhale
+        breath_circle lifecycle: still -> expanding -> contracting -> expanding
+        gentle_interrupt transitions from inactive to fading_in on external_event_detected
+        gentle_interrupt transitions from fading_in to awaiting on fade_complete
+        gentle_interrupt transitions from awaiting to fading_out on user_choice
+        gentle_interrupt lifecycle: inactive -> fading_in -> awaiting -> fading_out -> inactive
+        calm_memory transitions from empty to encoding on calm_pattern_detected
+        calm_memory transitions from encoding to stored on encoding_complete
+        calm_memory transitions from stored to recalling on return_path_request
+        calm_memory lifecycle: empty -> encoding -> stored -> recalling -> stored
+
+    calibrate:
+        calibrate warm_blue for vibe:
+            maps_to color_hue
+            threshold: hue in [200, 220] with low saturation
+            signal: ui_color_value
+
+        calibrate "floating in warm water" for vibe:
+            maps_to composite_motion_and_sound
+            threshold: composite
+            signal: animation_curve + audio_amplitude + color_shift
+            note: proxy — the floating quality is emergent
+
+        calibrate barely_there for vibe:
+            maps_to visual_intensity
+            threshold: contrast <= 0.3 AND opacity <= 0.6
+            signal: ui_style_spec
+
+        calibrate soft_amber for vibe:
+            maps_to color_hue
+            threshold: hue in [30, 50] with high brightness
+            signal: ui_color_value
+
+        calibrate slow_pulse for vibe:
+            maps_to luminance_ramp
+            threshold: cycle_duration >= 4000ms
+            signal: animation_parameter
+
+        calibrate low_hum for vibe:
+            maps_to audio_amplitude
+            threshold: peak <= -30 dBFS
+            signal: audio_master_level
+
+        calibrate alert_but_soft for vibe:
+            maps_to interrupt_gradient
+            threshold: rise_time >= 1500ms
+            signal: animation_parameter
+
+        calibrate breath_followed for cognitive:
+            maps_to breath_phase
+            threshold: inhale_exhale_ratio 4 6 seconds
+            signal: pacing_engine_state
+
+        calibrate user_controlled for cognitive:
+            maps_to session_ownership
+            threshold: every_change_requires_user_intent
+            signal: session_state
+
+    equilibrium:
+        warm_vs_alert:
+            when vibe.warm is active AND conditional.external_event is active
+            preserve both
+            resolution: alert through slow_rise not through sudden_flash
+            rationale: never startle the user
+
+        floating_vs_attention:
+            when vibe.floating is active AND cognitive.attention is active
+            preserve both
+            resolution: attention_layer invisible until needed
+            rationale: attention is for safety not for optimization
+
+        memory_vs_privacy:
+            when cognitive.memory is active AND cognitive.privacy is active
+            preserve both
+            resolution: memory local only never cloud
+            rationale: calm patterns are intimate
+
+        optimizing_vs_resting:
+            when cognitive.measurement is active AND vibe.not_optimizing is active
+            preserve both
+            resolution: never display timer score or streak
+            rationale: rest is not performance
+
+        gentle_vs_never_startle:
+            when vibe.gentle is active AND conditional.sudden_loud_noise is active
+            preserve both
+            resolution: never trigger interrupt on sudden noise
+            rationale: the user's startle is the opposite of calm
+
+        user_control_vs_automation:
+            when cognitive.user_control is active AND cognitive.automation is active
+            preserve both
+            resolution: automation only for relaxation_detection
+            rationale: the app serves the user not the metric
+
+        continuity_vs_interrupt:
+            when vibe.continuous is active AND conditional.external_event is active
+            preserve both
+            resolution: interrupt then offer return
+            rationale: calm returns
+
+        retention_vs_user_control:
+            when cognitive.retention is active AND cognitive.user_control is active
+            preserve both
+            resolution: retention follows user opt in
+            rationale: the user owns their rest
+
+        aesthetic_vs_function:
+            when vibe.aesthetic is active AND cognitive.session is active
+            preserve both
+            resolution: aesthetic in surface function in pacing
+            rationale: form and function are not opposed
+
+        breath_vs_heart:
+            when cognitive.breath is active AND cognitive.heart is active
+            preserve both
+            resolution: pace to breath not to heart
+            rationale: breath is voluntary heart is not
+
+    degrade:
+        require full for cognitive on user_control
+        require full for cognitive on pacing
+        require full for cognitive on memory
+        require full for cognitive on privacy
+        require full for spatial on layer_stacking
+        require full for temporal on breath_to_warmth_sequence
+        require full for relational on breath_circle_feedback
+        require full for behavioral on lifecycle_completeness
+        require full for conditional on never_startle
+        require full for conditional on never_display_score
+        require faithful for vibe on color_character
+        require faithful for vibe on tone
+        require faithful for vibe on form_character
+        tolerate proxy for vibe on aesthetic
+        require full for vibe on activation_signal
+        require full for vibe on intensity
+
+    realize:
+        target: web_interface (HTML/CSS/JS)
+            capabilities: layout, color, motion, event_handling, web_audio, microphone
+            can_express: spatial, vibe, conditional, behavioral, temporal
+            needs_bridge: audio_classification_backend
+            cannot_express: vibe.aesthetic fully
+            preservation_score: 0.86
+
+        target: audio_backend (Python)
+            capabilities: audio_classification, pattern_recognition
+            can_express: cognitive.detection
+            cannot_express: vibe, spatial
+            preservation_score: 0.95
+
+        target: memory_backend (Python)
+            capabilities: write, retrieve, pattern_match
+            can_express: cognitive.memory
+            cannot_express: vibe, spatial
+            preservation_score: 1.0
+
+        target: session_archive (Python)
+            capabilities: write, retain, retrieve
+            can_express: cognitive.retention
+            cannot_express: vibe, spatial
+            preservation_score: 1.0

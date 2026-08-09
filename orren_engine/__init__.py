@@ -9,7 +9,7 @@ Public API:
     Engine              — orchestrates the whole pipeline
 """
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 from .data_model import (
     BehavioralStatement,
@@ -47,6 +47,7 @@ from .equilibrium_resolver import EquilibriumResolver
 from .realization_coordinator import RealizationCoordinator
 from .semantic_editor import SemanticEditor
 from .codegen import generate as generate_code
+from .preview import generate_preview, write_preview
 from .engine import Engine
 from .validate import run_all as run_validation_suite
 

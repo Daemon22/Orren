@@ -1,0 +1,270 @@
+create assistive_arm : Device
+
+    context:
+        purpose: a robotic arm that helps elderly people grab things but it should move slowly when the person seems tired and quickly when they're trying to grab something falling and never ever push toward the person ever
+        audience: elderly people living alone who are still proud
+        domain: medical_device
+        vibe_brief: dignified quiet reliable warm not clinical
+
+    structure:
+        arm
+            base
+            shoulder_joint
+            upper_segment
+            elbow_joint
+            lower_segment
+            wrist_joint
+            gripper
+                pressure_sensor
+                slip_detector
+        control_unit
+            intent_recognizer
+            fatigue_estimator
+            safety_monitor
+            manual_override
+        interface
+            status_light
+            voice_acknowledgment
+            emergency_button
+
+    cognitive:
+        assistive_arm.actuation = servo_driven
+        assistive_arm.safety = highest_priority
+        assistive_arm.fatigue_awareness = continuous
+        intent_recognizer.inference = multimodal
+        fatigue_estimator.estimation = behavioral_baselined
+        safety_monitor.guard = geometric_constraint
+        gripper.pressure = regulated_to_object
+        gripper.slip = detected_and_corrected
+        manual_override.authority = overrides_all_automation
+
+    vibe:
+        assistive_arm.tone = dignified
+        assistive_arm.color_character = warm_white
+        assistive_arm.form_character = rounded
+        assistive_arm.intensity = quiet
+        assistive_arm.aesthetic = "an arm not a machine"
+        interface.tone = respectful
+        status_light.color_character = soft_amber
+        status_light.activation_signal = gentle_pulse
+        voice_acknowledgment.tone = warm
+        emergency_button.color_character = alert_red
+        emergency_button.tone = urgent
+
+    spatial:
+        base located_in arm
+        shoulder_joint located_in arm
+        upper_segment located_in arm
+        elbow_joint located_in arm
+        lower_segment located_in arm
+        wrist_joint located_in arm
+        gripper located_in arm
+        pressure_sensor located_in gripper
+        slip_detector located_in gripper
+        intent_recognizer located_in control_unit
+        fatigue_estimator located_in control_unit
+        safety_monitor located_in control_unit
+        manual_override located_in control_unit
+        status_light located_in interface
+        voice_acknowledgment located_in interface
+        emergency_button located_in interface
+
+    temporal:
+        intent_recognized → safety_check on user_intent
+        safety_check → motion_planned on safety_confirmed
+        motion_planned → motion_executed on plan_validated
+        motion_executed → gripper_engaged on object_reached
+        gripper_engaged → object_secured on pressure_stable
+        object_secured → return_motion on user_release_intent
+
+    relational:
+        intent_recognizer feeds safety_monitor
+        safety_monitor feeds motion_planner
+        fatigue_estimator feeds motion_planner
+        motion_planner feeds arm_actuation
+        pressure_sensor feeds gripper_control
+        slip_detector feeds gripper_control
+        manual_override feeds arm_actuation
+        emergency_button feeds safety_monitor
+
+    conditional:
+        arm moves slowly when fatigue_high
+        arm moves quickly when object_falling
+        arm never moves toward user ever
+        gripper releases on user_release_intent
+        gripper releases on slip_detected
+        arm halts on safety_monitor_alert
+        arm halts on emergency_button_press
+        manual_override activates on user_voice_command
+        manual_override activates on user_physical_command
+        arm retained always in safe_state when not in use
+
+    behavior:
+        assistive_arm behaves_as careful_assistant
+        assistive_arm transitions from idle to listening on user_present
+        assistive_arm transitions from listening to planning on user_intent
+        assistive_arm transitions from planning to moving on safety_confirmed
+        assistive_arm transitions from moving to grasping on object_reached
+        assistive_arm transitions from grasping to holding on object_secured
+        assistive_arm transitions from holding to returning on user_release_intent
+        assistive_arm transitions from any_state to halted on safety_alert
+        assistive_arm lifecycle: idle -> listening -> planning -> moving -> grasping -> holding -> returning -> idle
+        gripper transitions from open to closing on object_reached
+        gripper transitions from closing to secured on pressure_stable
+        gripper transitions from secured to opening on user_release_intent
+        gripper lifecycle: open -> closing -> secured -> opening -> open
+        safety_monitor transitions from passive to active on motion_planned
+        safety_monitor transitions from active to alert on constraint_violation
+        safety_monitor lifecycle: passive -> active -> alert -> passive
+
+    calibrate:
+        calibrate dignified for vibe:
+            maps_to motion_speed_and_acceleration_profile
+            threshold: max_acceleration <= 0.5 m/s²
+            signal: servo_command_stream
+
+        calibrate warm_white for vibe:
+            maps_to color_temperature
+            threshold: kelton in [3500, 4500]
+            signal: paint_color_spec
+
+        calibrate quiet for vibe:
+            maps_to acoustic_emission
+            threshold: peak_spl <= 35 dB at 1m
+            signal: microphone_measurement
+
+        calibrate gentle_pulse for vibe:
+            maps_to luminance_ramp
+            threshold: ramp_duration >= 1200ms duty_cycle <= 0.4
+            signal: led_pwm
+
+        calibrate "an arm not a machine" for vibe:
+            maps_to composite_form_and_motion
+            threshold: composite
+            signal: silhouette + motion_envelope + surface_treatment
+            note: proxy — no single signal captures dignity
+
+        calibrate slowly for cognitive:
+            maps_to motion_speed
+            threshold: velocity <= 0.1 m/s when fatigue_high
+            signal: servo_velocity_command
+
+        calibrate quickly for cognitive:
+            maps_to motion_speed
+            threshold: velocity >= 0.5 m/s when object_falling
+            signal: servo_velocity_command
+
+        calibrate safe_state for cognitive:
+            maps_to arm_configuration
+            threshold: retracted_and_locked
+            signal: joint_angles
+
+    equilibrium:
+        safety_overrides_everything:
+            when cognitive.safety is active
+            preserve unconditionally
+            resolution: halt motion immediately
+            rationale: safety is the highest contract
+
+        dignity_vs_speed:
+            when vibe.dignified is active AND cognitive.actuation is active
+            preserve both
+            resolution: speed bounded by dignity profile even when urgent
+            rationale: urgency does not justify loss of dignity
+
+        fatigue_vs_urgency:
+            when cognitive.fatigue_awareness is active AND conditional.object_falling is active
+            preserve both
+            resolution: speed up but cap at dignity_limit
+            rationale: respond to urgency within dignity constraints
+
+        automation_vs_authority:
+            when cognitive.actuation is active AND cognitive.authority is active
+            preserve both
+            resolution: manual_override wins immediately
+            rationale: the user is the final authority on their own body
+
+        quiet_vs_alert:
+            when vibe.quiet is active AND vibe.urgent is active
+            preserve both
+            resolution: urgent only on emergency_button
+            rationale: emergencies are exceptional
+
+        warm_vs_clinical:
+            when vibe.warm is active AND cognitive.medical is active
+            preserve both
+            resolution: warm in form and motion clinical in safety
+            rationale: clinical precision without clinical coldness
+
+        retention_vs_privacy:
+            when cognitive.retention is active AND cognitive.privacy is active
+            preserve both
+            resolution: retain state for safety erase patterns for privacy
+            rationale: safety audit and user dignity both honored
+
+        aesthetic_vs_function:
+            when vibe.aesthetic is active AND cognitive.actuation is active
+            preserve both
+            resolution: aesthetic in form function in motion
+            rationale: form and function are not opposed
+
+        never_push_toward_user:
+            when cognitive.safety is active AND conditional.toward_user is active
+            preserve both
+            resolution: motion never enters user_zone
+            rationale: geometric constraint is a hard contract
+
+    degrade:
+        require full for cognitive on actuation
+        require full for cognitive on safety
+        require full for cognitive on fatigue_awareness
+        require full for cognitive on authority
+        require full for spatial on arm_geometry
+        require full for temporal on safety_check_sequence
+        require full for relational on safety_to_actuation_link
+        require full for behavioral on lifecycle_completeness
+        require full for conditional on never_toward_user
+        require faithful for vibe on color_character
+        require faithful for vibe on form_character
+        tolerate faithful for vibe on tone
+        tolerate proxy for vibe on aesthetic
+        require full for vibe on activation_signal
+
+    realize:
+        target: embedded_controller (C)
+            capabilities: servo_control, sensor_reading, safety_monitoring, gpio
+            can_express: cognitive, conditional, behavioral, temporal, relational
+            needs_bridge: intent_recognition
+            cannot_express: vibe
+            preservation_score: 0.82
+
+        target: interface_panel (HTML/CSS/JS)
+            capabilities: layout, color, motion, event_handling
+            can_express: spatial, vibe, conditional
+            needs_bridge: backend_telemetry
+            cannot_express: cognitive.actuation
+            preservation_score: 0.79
+
+        target: intent_recognition_service (Python)
+            capabilities: multimodal_inference, retrieve
+            can_express: cognitive.inference
+            cannot_express: vibe, spatial, behavioral
+            preservation_score: 1.0
+
+        target: safety_audit_log (Python)
+            capabilities: write, retain, retrieve
+            can_express: cognitive.retention, cognitive.safety
+            cannot_express: vibe, spatial
+            preservation_score: 1.0
+
+        target: voice_acknowledgment_service (Python)
+            capabilities: speech_synthesis, retrieve
+            can_express: cognitive.acknowledgment
+            cannot_express: vibe, spatial
+            preservation_score: 1.0
+
+        target: fatigue_estimator_service (Python)
+            capabilities: behavioral_analysis, retrieve
+            can_express: cognitive.estimation
+            cannot_express: vibe, spatial
+            preservation_score: 1.0

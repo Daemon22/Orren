@@ -5,6 +5,7 @@ Usage:
     orren sir FILE                Parse + build SIR; print node summary.
     orren resolve FILE            Parse + SIR + equilibrium; print report.
     orren realize FILE [--out D]  Full pipeline; write generated artifacts to D.
+    orren preview FILE [--out F]  Generate a self-contained HTML preview.
     orren validate FILE           Run basic checks against FILE.
     orren validate-suite          Run the canonical 48-test validation suite.
     orren hash FILE               Print a content hash of the SIR (reproducibility).
@@ -50,6 +51,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return _cmd_resolve(args)
     if args.command == "realize":
         return _cmd_realize(args)
+    if args.command == "preview":
+        return _cmd_preview(args)
     if args.command == "validate":
         return _cmd_validate(args)
     if args.command == "validate-suite":
@@ -69,6 +72,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         sp.add_argument("file", help="path to .orn source file")
         if cmd == "realize":
             sp.add_argument("--out", default="orren_out", help="output directory")
+    sp_preview = sub.add_parser("preview", help="generate a self-contained HTML preview")
+    sp_preview.add_argument("file", help="path to .orn source file")
+    sp_preview.add_argument("--out", default=None, help="output HTML path (default: <name>.preview.html)")
     sub.add_parser("validate-suite", help="run the 48-test validation suite against the bundled examples")
     return p
 
@@ -160,8 +166,33 @@ def _cmd_realize(args) -> int:
     return 0
 
 
+def _cmd_preview(args) -> int:
+    """Generate a self-contained HTML preview of the .orn source."""
+    from .preview import write_preview
+    source = _read_source(args.file)
+    engine = Engine()
+    result = engine.run(source)
+    if result.graph is None or result.graph.root is None:
+        print("ERROR: no SIR graph built", file=sys.stderr)
+        return 1
+    # Default output path: <basename>.preview.html next to the source.
+    if args.out is None:
+        base = os.path.splitext(os.path.basename(args.file))[0]
+        out_path = os.path.join(os.path.dirname(os.path.abspath(args.file)),
+                                f"{base}.preview.html")
+    else:
+        out_path = args.out
+    write_preview(result.graph, out_path, artifacts=result.artifacts)
+    print(f"Preview written to: {out_path}")
+    print(f"  {len(result.graph.nodes)} entities, "
+          f"{len(result.graph.equilibrium_rules)} equilibrium rules, "
+          f"{len(result.artifacts)} realization targets")
+    print(f"  Open in browser: file://{os.path.abspath(out_path)}")
+    return 0
+
+
 def _cmd_validate(args) -> int:
-    """Run the 48-test validation suite against the given file."""
+    """Run basic validation checks against the given file."""
     source = _read_source(args.file)
     engine = Engine()
     result = engine.run(source)

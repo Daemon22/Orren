@@ -556,9 +556,11 @@ def _parse_conditional(body: List[str]) -> List[ConditionalStatement]:
                 )
             )
             continue
-        # subject activates/begins/deactivates on CONDITION
+        # subject activates/begins/deactivates/retained/intensifies/lightens/etc.
+        # on|when CONDITION  — accepts both 'on' and 'when' as the trigger word,
+        # and any verb as the action (natural-language tolerant).
         m = re.match(
-            r"^(?P<subj>[A-Za-z_][\w.]*)\s+(?P<act>activates|begins|deactivates|retained)\s+on\s+(?P<cond>.+)$",
+            r"^(?P<subj>[A-Za-z_][\w.]*)\s+(?P<act>[a-z_]+)\s+(?:on|when)\s+(?P<cond>.+)$",
             text,
         )
         if m:
@@ -566,6 +568,38 @@ def _parse_conditional(body: List[str]) -> List[ConditionalStatement]:
                 ConditionalStatement(
                     subject=m.group("subj"),
                     action=m.group("act"),
+                    condition=m.group("cond").strip(),
+                    unconditional=False,
+                    line=ln,
+                )
+            )
+            continue
+        # Negative form: subject never does X  (e.g. "still_water never displays timer")
+        m = re.match(
+            r"^(?P<subj>[A-Za-z_][\w.]*)\s+never\s+(?P<cond>.+)$",
+            text,
+        )
+        if m:
+            out.append(
+                ConditionalStatement(
+                    subject=m.group("subj"),
+                    action="never",
+                    condition=m.group("cond").strip(),
+                    unconditional=False,
+                    line=ln,
+                )
+            )
+            continue
+        # Blocked-when form: X blocked when Y  (e.g. "cloud_processing blocked when privacy_mode_on")
+        m = re.match(
+            r"^(?P<subj>[A-Za-z_][\w.]*)\s+blocked\s+(?:on|when)\s+(?P<cond>.+)$",
+            text,
+        )
+        if m:
+            out.append(
+                ConditionalStatement(
+                    subject=m.group("subj"),
+                    action="blocked",
                     condition=m.group("cond").strip(),
                     unconditional=False,
                     line=ln,
