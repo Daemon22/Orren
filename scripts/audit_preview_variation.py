@@ -2,7 +2,8 @@
 import os
 import sys
 
-sys.path.insert(0, "/home/z/my-project")
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, PROJECT_ROOT)
 
 from orren_engine import Engine, extract_design_tokens
 
@@ -27,7 +28,7 @@ print("-" * 110)
 
 results = []
 for src_path, label in EXAMPLES:
-    full_path = f"/home/z/my-project/{src_path}"
+    full_path = os.path.join(PROJECT_ROOT, src_path)
     with open(full_path) as f:
         src = f.read()
     engine = Engine()

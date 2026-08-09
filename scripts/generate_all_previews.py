@@ -2,7 +2,8 @@
 import os
 import sys
 
-sys.path.insert(0, "/home/z/my-project")
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, PROJECT_ROOT)
 
 from orren_engine import Engine, write_preview
 
@@ -22,12 +23,12 @@ EXAMPLES = [
     ("examples/adversarial/06_still_water.orn",       "adv_06_still_water"),
 ]
 
-OUT_DIR = "/home/z/my-project/download/previews"
+OUT_DIR = os.path.join(PROJECT_ROOT, "download", "previews")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 print(f"Generating {len(EXAMPLES)} previews into {OUT_DIR}/\n")
 for src_path, label in EXAMPLES:
-    full_src = f"/home/z/my-project/{src_path}"
+    full_src = os.path.join(PROJECT_ROOT, src_path)
     out_path = os.path.join(OUT_DIR, f"{label}.html")
     try:
         with open(full_src) as f:

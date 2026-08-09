@@ -3,7 +3,8 @@ equilibrium rule count, realization target count, and section count."""
 import os
 import sys
 
-sys.path.insert(0, "/home/z/my-project")
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, PROJECT_ROOT)
 
 from orren_engine import Engine, Dimension
 
@@ -20,7 +21,7 @@ EXAMPLES = [
 print(f"{'#':<3} {'Example':<25} {'Exprs':>5} {'Nodes':>6} {'Rules':>5} {'Tgts':>5} {'Sections':>8} {'All9Dim':>7}")
 print("-" * 75)
 for i, (fname, label) in enumerate(EXAMPLES, 1):
-    path = f"/home/z/my-project/examples/{fname}"
+    path = os.path.join(PROJECT_ROOT, "examples", fname)
     with open(path) as f:
         src = f.read()
     engine = Engine()

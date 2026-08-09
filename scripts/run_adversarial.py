@@ -5,7 +5,8 @@ import os
 import sys
 import traceback
 
-sys.path.insert(0, "/home/z/my-project")
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, PROJECT_ROOT)
 
 from orren_engine import Engine, Dimension, generate_code
 
@@ -21,7 +22,7 @@ ADVERSARIAL = [
 results = []
 
 for fname in ADVERSARIAL:
-    path = f"/home/z/my-project/examples/adversarial/{fname}"
+    path = os.path.join(PROJECT_ROOT, "examples", "adversarial", fname)
     label = fname.replace(".orn", "").replace("_", " ").title()
     print(f"\n=== {label} ===")
     try:
