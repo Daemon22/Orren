@@ -173,7 +173,7 @@ class TestRealizeCommand:
         manifest_path = out_dir / "manifest.json"
         with open(manifest_path) as f:
             manifest = json.load(f)
-        assert manifest["version"] == "0.3.2"
+        assert manifest["version"] == "0.3.3"
         assert manifest["expressions"] >= 1
         assert manifest["sir_nodes"] >= 1
         assert len(manifest["artifacts"]) >= 1
@@ -293,11 +293,11 @@ class TestPackageMetadata:
         )
         with open(p) as f:
             content = f.read()
-        assert 'version = "0.3.2"' in content
+        assert 'version = "0.3.3"' in content
 
     def test_package_imports_cleanly(self):
         import orren_engine
-        assert orren_engine.__version__ == "0.3.2"
+        assert orren_engine.__version__ == "0.3.3"
         # All public API names should be importable.
         for name in ("CoParser", "SIRBuilder", "EquilibriumResolver",
                      "RealizationCoordinator", "SemanticEditor", "Engine"):

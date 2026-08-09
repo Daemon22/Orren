@@ -97,7 +97,7 @@ orren hash app.orn   # SHA-256 of the SIR signature
 ## Test suite
 
 ```bash
-pytest tests/ -v          # 568 tests across 12 phases
+pytest tests/ -v          # 634 tests across 13 phases
 orren validate-suite      # canonical 48-test validation against bundled examples
 ```
 
@@ -114,7 +114,8 @@ orren validate-suite      # canonical 48-test validation against bundled example
 | 9 | Integration tests                  | 30    |
 | 10 | Validation suite (48 canonical)    | 18    |
 | 11 | Adversarial natural-language       | 96    |
-| 12 | Preview quality                    | 120   |
+| 12 | Preview quality (layout-agnostic)  | 105   |
+| 13 | Preview variation                  | 28    |
 
 ## Adversarial testing
 
@@ -143,20 +144,52 @@ These surfaced two real engine bugs (both fixed in v0.3.2):
 
 `orren preview FILE` generates a single self-contained HTML file with
 inline CSS + JS — no external dependencies. Open it in any browser to
-see a visual mockup of the described interface:
+see a visual mockup of the described interface.
 
-- **Header**: app name, purpose, vibe brief, summary badges
-- **Structure panel**: navigable entity tree with dimension counts
-- **Canvas panel**: each entity rendered as a card with applied vibe
-  colors and form characteristics; click to expand dimension details
-- **Equilibrium panel**: every rule listed with fired/not-fired status,
-  preserve list, and resolution text
-- **Realization panel**: each target with preservation score, capabilities,
-  output file count
-- **Degradation map**: all PROXY/BRIDGE/OUT_OF_SCOPE entries visible as
-  colored badges
+**Crucially, each preview looks genuinely different** — the vibe
+dimensions drive the entire page aesthetic, not just badge colors.
+The design system (`orren_engine/design_tokens.py`) maps vibes to:
 
-13 preview files are pre-generated in `download/previews/`.
+- **Palette**: full background/foreground/accent/panel/muted scheme
+- **Typography**: literary serif for narratives, humanist sans for
+  accessibility tools, rounded sans for youth-focused apps, serif for
+  documents, mono for technical schematics
+- **Layout strategy**: 5 distinct strategies
+  - `document` — single column, wide margins, justified text (books, contracts)
+  - `dashboard` — 3-column grid (dashboards, information-dense)
+  - `app` — focused centered canvas (single-purpose apps)
+  - `atmospheric` — full-bleed, breathing animation, floating orbs
+    (meditation, music, narrative)
+  - `schematic` — component diagram with safety/sensor/actuator markers
+    (devices, robotics)
+- **Motion**: slow + breathing for calm apps, snappy for urgent,
+  none for formal documents
+- **Texture**: gradient for water/air, grain for paper/wood, vignette
+  for atmospheric scenes
+- **Shape**: organic curves for warm apps, sharp corners for strict,
+  classic for documents
+
+13 preview files are pre-generated in `download/previews/`. Audit
+results across all 13:
+
+| Dimension | Unique values |
+|---|---|
+| Layout strategies | 5 (document/dashboard/app/atmospheric/schematic) |
+| Font families | 5 (literary_serif/serif/humanist_sans/rounded_sans/sans) |
+| Moods | 5 (cool/warm/serious/neutral/atmospheric) |
+| Background palettes | 10 unique |
+| Identical visual identities | 0 (no two unrelated apps look the same) |
+
+Open a few in tabs to see the difference:
+
+```
+file:///home/z/my-project/download/previews/07_master_builder_book.html   # cream paper document
+file:///home/z/my-project/download/previews/adv_03_revenue_contract.html   # strict white document
+file:///home/z/my-project/download/previews/adv_06_still_water.html        # breathing warm-blue atmospheric
+file:///home/z/my-project/download/previews/adv_04_lighthouse.html         # deep navy with amber lamp glow
+file:///home/z/my-project/download/previews/adv_02_assistive_arm.html      # warm-white technical schematic
+file:///home/z/my-project/download/previews/03_farmer_dashboard.html       # warm earth-tone dashboard
+```
 
 ## Validation suite
 

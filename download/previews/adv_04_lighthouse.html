@@ -7,898 +7,396 @@
 <style>
 
 :root {
-  --bg: #0f172a;
-  --fg: #e2e8f0;
-  --accent: #1e3a5f;
-  --panel-bg: #1e293b;
-  --panel-border: #334155;
-  --muted: #94a3b8;
-  --eq-color: #f59e0b;
-  --proxy-color: #ef4444;
-  --bridge-color: #8b5cf6;
-  --good-color: #10b981;
+  --bg: linear-gradient(180deg, #050a14 0%, #0a1224 50%, #050a14 100%);
+  --fg: #dbeafe;
+  --accent: #f59e0b;
+  --panel-bg: #0a1224;
+  --panel-border: #1f2f4d;
+  --muted: #64748b;
+  --highlight: #fbbf24;
+  --heading-font: 'Iowan Old Style', 'Palatino', 'Source Serif Pro', Georgia, serif;
+  --body-font: 'Iowan Old Style', 'Palatino', 'Source Serif Pro', Georgia, serif;
+  --mono-font: 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --heading-weight: 600;
+  --body-size: 15px;
+  --line-height: 1.7;
+  --letter-spacing: 0.01em;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+  --card-radius: 8px;
+  --panel-radius: 12px;
+  --spacing-unit: 20px;
+  --motion-duration: 200ms;
+  --motion-easing: ease;
+  --bg-gradient: linear-gradient(180deg, #050a14 0%, #0a1224 50%, #050a14 100%);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  background: var(--bg);
+  font-family: var(--body-font);
+  background: linear-gradient(180deg, #050a14 0%, #0a1224 50%, #050a14 100%);
   color: var(--fg);
-  line-height: 1.5;
-  font-size: 14px;
+  line-height: var(--line-height);
+  font-size: var(--body-size);
+  letter-spacing: var(--letter-spacing);
+  min-height: 100vh;
+  position: relative;
 }
-.app-header {
-  background: linear-gradient(135deg, var(--panel-bg), var(--bg));
-  border-bottom: 2px solid var(--accent);
-  padding: 24px 32px;
-}
-.app-header h1 {
-  font-size: 28px;
-  font-weight: 700;
-  margin-bottom: 8px;
-  color: var(--fg);
-}
-.app-header .purpose {
-  color: var(--muted);
-  font-size: 15px;
-  margin-bottom: 4px;
-  max-width: 80ch;
-}
-.app-header .vibe-brief {
-  color: var(--accent);
-  font-size: 13px;
-  margin-bottom: 12px;
-}
-.meta-row {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.badge {
-  display: inline-block;
-  padding: 4px 10px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 500;
-}
-.badge-info {
-  background: rgba(59, 130, 246, 0.2);
-  color: #93c5fd;
-  border: 1px solid rgba(59, 130, 246, 0.3);
-}
-.badge-score {
-  background: rgba(16, 185, 129, 0.2);
-  color: #6ee7b7;
-  border: 1px solid rgba(16, 185, 129, 0.3);
-}
-.layout {
-  display: grid;
-  grid-template-columns: 280px 1fr 360px;
-  gap: 16px;
-  padding: 16px;
-  min-height: calc(100vh - 200px);
-}
-.panel {
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  border-radius: 12px;
-  padding: 16px;
-  overflow-y: auto;
-  max-height: calc(100vh - 120px);
-}
-.panel h2 {
-  font-size: 14px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--panel-border);
-}
-.panel .hint {
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: 16px;
-}
-.structure-panel .tree {
-  list-style: none;
-  font-size: 13px;
-}
-.structure-panel .tree ul {
-  list-style: none;
-  padding-left: 16px;
-  border-left: 1px solid var(--panel-border);
-  margin-left: 4px;
-}
-.structure-panel .tree li {
-  padding: 4px 0;
-}
-.structure-panel .entity-label {
-  color: var(--fg);
-  cursor: pointer;
-  transition: color 0.15s;
-}
-.structure-panel .entity-label:hover {
-  color: var(--accent);
-}
-.structure-panel .kind {
-  font-size: 11px;
-  color: var(--muted);
-  background: rgba(148, 163, 184, 0.15);
-  padding: 1px 6px;
-  border-radius: 4px;
-  margin-left: 4px;
-}
-.structure-panel .dim-count {
-  font-size: 11px;
-  color: var(--accent);
-  margin-left: 4px;
-}
-.canvas-panel {
-  display: flex;
-  flex-direction: column;
-}
-.canvas-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 12px;
-  align-content: start;
-}
-.entity-card {
-  padding: 14px;
-  border: 1px solid rgba(255,255,255,0.15);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-  min-height: 100px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  transition: transform 0.15s, box-shadow 0.15s;
-  color: #fff;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
-}
-.entity-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-}
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-}
-.card-label {
-  font-size: 15px;
-  font-weight: 600;
-}
-.card-path {
-  font-size: 11px;
-  opacity: 0.7;
-  font-family: monospace;
-}
-.card-badges {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-.dim-badge {
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: rgba(0,0,0,0.4);
-  font-weight: 600;
-}
-.card-vibes {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-  font-size: 10px;
-}
-.eq-badge {
-  background: rgba(245, 158, 11, 0.3);
-  color: #fbbf24;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-.deg-badge {
-  background: rgba(239, 68, 68, 0.3);
-  color: #fca5a5;
-  padding: 2px 6px;
-  border-radius: 4px;
-  text-transform: uppercase;
-  font-weight: 600;
-}
-.deg-badge.deg-proxy { background: rgba(239, 68, 68, 0.3); color: #fca5a5; }
-.deg-badge.deg-documented { background: rgba(168, 85, 247, 0.3); color: #c4b5fd; }
-.deg-badge.deg-optional { background: rgba(100, 116, 139, 0.3); color: #cbd5e1; }
-.vibe-details {
-  font-size: 11px;
-  border-top: 1px solid rgba(255,255,255,0.2);
-  padding-top: 8px;
-  margin-top: 4px;
-}
-.vibe-item {
-  display: flex;
-  justify-content: space-between;
-  padding: 2px 0;
-}
+
+a { color: var(--accent); text-decoration: none; }
+h1, h2, h3, h4 { font-family: var(--heading-font); font-weight: var(--heading-weight); }
+.badge { display: inline-block; padding: 4px 10px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 500; }
+.badge-info { background: rgba(255,255,255,0.08); color: var(--muted); border: 1px solid var(--panel-border); }
+.badge-mood { background: rgba(255,255,255,0.12); color: var(--fg); border: 1px solid var(--accent); }
+.badge-layout { background: rgba(255,255,255,0.06); color: var(--muted); border: 1px dashed var(--panel-border); }
+.badge-score { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.3); }
+.panel { background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: var(--panel-radius); padding: 16px; overflow-y: auto; }
+.panel h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--panel-border); }
+.panel .hint { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+.sub-panel { background: rgba(0,0,0,0.15); border: 1px solid var(--panel-border); border-radius: var(--radius-md); padding: 12px; margin-bottom: 16px; }
+.sub-panel h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 10px; }
+.empty { color: var(--muted); font-style: italic; font-size: 12px; }
+.tree { list-style: none; font-size: 13px; }
+.tree ul { list-style: none; padding-left: 16px; border-left: 1px solid var(--panel-border); margin-left: 4px; }
+.tree li { padding: 4px 0; }
+.entity-label { color: var(--fg); cursor: pointer; transition: color var(--motion-duration) var(--motion-easing); }
+.entity-label:hover { color: var(--accent); }
+.kind { font-size: 11px; color: var(--muted); background: rgba(255,255,255,0.08); padding: 1px 6px; border-radius: var(--radius-sm); margin-left: 4px; }
+.dim-count { font-size: 11px; color: var(--accent); margin-left: 4px; }
+.canvas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; align-content: start; }
+.entity-card { padding: 14px; border: 1px solid rgba(255,255,255,0.15); box-shadow: 0 4px 12px rgba(0,0,0,0.2); min-height: 100px; display: flex; flex-direction: column; gap: 8px; transition: transform var(--motion-duration) var(--motion-easing), box-shadow var(--motion-duration) var(--motion-easing); color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.5); }
+.entity-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+.card-header { display: flex; justify-content: space-between; align-items: baseline; }
+.card-label { font-size: 15px; font-weight: var(--heading-weight); }
+.card-path { font-size: 11px; opacity: 0.7; font-family: var(--mono-font); }
+.card-badges { display: flex; gap: 4px; flex-wrap: wrap; }
+.dim-badge { font-size: 10px; padding: 2px 6px; border-radius: var(--radius-sm); background: rgba(0,0,0,0.4); font-weight: 600; }
+.card-vibes { display: flex; gap: 4px; flex-wrap: wrap; font-size: 10px; }
+.eq-badge { background: rgba(245, 158, 11, 0.3); color: #fbbf24; padding: 2px 6px; border-radius: var(--radius-sm); }
+.deg-badge { background: rgba(239, 68, 68, 0.3); color: #fca5a5; padding: 2px 6px; border-radius: var(--radius-sm); text-transform: uppercase; font-weight: 600; }
+.vibe-details { font-size: 11px; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 8px; margin-top: 4px; }
+.vibe-item { display: flex; justify-content: space-between; padding: 2px 0; }
 .vibe-aspect { opacity: 0.8; }
 .vibe-term { font-weight: 500; }
-.expand-btn {
-  align-self: flex-start;
-  background: rgba(0,0,0,0.3);
-  border: 1px solid rgba(255,255,255,0.2);
-  color: #fff;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  cursor: pointer;
-  margin-top: auto;
-}
-.expand-btn:hover {
-  background: rgba(0,0,0,0.5);
-}
-.info-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.sub-panel {
-  background: rgba(15, 23, 42, 0.5);
-  border: 1px solid var(--panel-border);
-  border-radius: 8px;
-  padding: 12px;
-}
-.sub-panel h3 {
-  font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-  margin-bottom: 10px;
-}
-.eq-item {
-  padding: 8px;
-  margin-bottom: 8px;
-  border-radius: 6px;
-  border-left: 3px solid;
-  background: rgba(30, 41, 59, 0.6);
-}
-.eq-item.eq-fired {
-  border-color: var(--good-color);
-}
-.eq-item.eq-not-fired {
-  border-color: var(--muted);
-  opacity: 0.6;
-}
-.eq-name {
-  font-weight: 600;
-  font-size: 13px;
-  margin-bottom: 4px;
-}
-.eq-status {
-  font-size: 11px;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin-bottom: 4px;
-}
-.eq-detail {
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: 2px;
-}
-.rz-item {
-  padding: 8px;
-  margin-bottom: 8px;
-  border-radius: 6px;
-  background: rgba(30, 41, 59, 0.6);
-  border-left: 3px solid var(--accent);
-}
-.rz-name {
-  font-weight: 600;
-  font-size: 13px;
-}
-.rz-lang {
-  font-size: 11px;
-  color: var(--muted);
-  font-family: monospace;
-}
-.rz-score {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  margin: 4px 0;
-}
+.expand-btn { align-self: flex-start; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 2px 8px; border-radius: var(--radius-sm); font-size: 11px; cursor: pointer; margin-top: auto; }
+.eq-item { padding: 8px; margin-bottom: 8px; border-radius: var(--radius-sm); border-left: 3px solid; background: rgba(0,0,0,0.2); }
+.eq-item.eq-fired { border-color: #10b981; }
+.eq-item.eq-not-fired { border-color: var(--muted); opacity: 0.6; }
+.eq-name { font-weight: var(--heading-weight); font-size: 13px; margin-bottom: 4px; }
+.eq-status { font-size: 11px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.eq-detail { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.rz-item { padding: 8px; margin-bottom: 8px; border-radius: var(--radius-sm); background: rgba(0,0,0,0.2); border-left: 3px solid var(--accent); }
+.rz-name { font-weight: var(--heading-weight); font-size: 13px; }
+.rz-lang { font-size: 11px; color: var(--muted); font-family: var(--mono-font); }
+.rz-score { display: inline-block; padding: 2px 8px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 600; margin: 4px 0; }
 .score-high { background: rgba(16, 185, 129, 0.3); color: #6ee7b7; }
 .score-mid { background: rgba(245, 158, 11, 0.3); color: #fbbf24; }
 .score-low { background: rgba(239, 68, 68, 0.3); color: #fca5a5; }
-.rz-detail {
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: 2px;
-}
-.deg-summary {
-  font-size: 11px;
-  color: var(--muted);
-  margin-bottom: 10px;
-  padding: 6px;
-  background: rgba(30, 41, 59, 0.6);
-  border-radius: 4px;
-  text-align: center;
-}
-.deg-group {
-  margin-bottom: 12px;
-}
-.deg-group h4 {
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: 6px;
-}
-.deg-row {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  padding: 3px 0;
-  font-size: 11px;
-  border-bottom: 1px solid rgba(51, 65, 85, 0.4);
-}
-.deg-aspect {
-  flex: 1;
-  color: var(--fg);
-}
-.deg-level {
-  font-size: 10px;
-  padding: 1px 5px;
-  border-radius: 3px;
-  text-transform: uppercase;
-  font-weight: 600;
-}
+.rz-detail { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.deg-summary { font-size: 11px; color: var(--muted); margin-bottom: 10px; padding: 6px; background: rgba(0,0,0,0.2); border-radius: var(--radius-sm); text-align: center; font-family: var(--mono-font); }
+.deg-group { margin-bottom: 12px; }
+.deg-group h4 { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.deg-row { display: flex; gap: 6px; align-items: center; padding: 3px 0; font-size: 11px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.deg-aspect { flex: 1; color: var(--fg); }
+.deg-level { font-size: 10px; padding: 1px 5px; border-radius: var(--radius-sm); text-transform: uppercase; font-weight: 600; }
 .deg-level.deg-proxy { background: rgba(239,68,68,0.3); color: #fca5a5; }
 .deg-level.deg-documented { background: rgba(168,85,247,0.3); color: #c4b5fd; }
 .deg-level.deg-optional { background: rgba(100,116,139,0.3); color: #cbd5e1; }
-.deg-source {
-  font-size: 10px;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: rgba(139,92,246,0.3);
-  color: #c4b5fd;
-  text-transform: uppercase;
-  font-weight: 600;
-}
-.deg-node {
-  font-family: monospace;
-  font-size: 10px;
-  color: var(--muted);
-}
-.empty {
-  color: var(--muted);
-  font-style: italic;
-  font-size: 12px;
-}
-footer {
-  padding: 12px 32px;
-  border-top: 1px solid var(--panel-border);
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  color: var(--muted);
-}
-@media (max-width: 1024px) {
-  .layout {
-    grid-template-columns: 1fr;
-  }
-  .panel {
-    max-height: none;
-  }
-}
+.deg-source { font-size: 10px; padding: 1px 5px; border-radius: var(--radius-sm); background: rgba(139,92,246,0.3); color: #c4b5fd; text-transform: uppercase; font-weight: 600; }
+.deg-node { font-family: var(--mono-font); font-size: 10px; color: var(--muted); }
+details summary { cursor: pointer; padding: 12px; background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: var(--radius-md); color: var(--muted); font-size: 13px; }
+details summary:hover { color: var(--fg); }
+
+
+
+.atmospheric-scene { min-height: 100vh; position: relative; overflow: hidden; padding: 0; }
+.atmospheric-vignette { position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 200px rgba(0,0,0,0.6); }
+.atmospheric-header { text-align: center; padding: 80px 32px 40px; position: relative; z-index: 2; }
+.atmospheric-header h1 { font-size: 36px; margin-bottom: 12px; font-weight: var(--heading-weight); }
+.atmospheric-purpose { color: var(--muted); font-size: 16px; max-width: 60ch; margin: 0 auto 8px; line-height: 1.7; }
+.atmospheric-vibe { color: var(--accent); font-size: 14px; font-style: italic; }
+.atmospheric-meta { display: flex; gap: 16px; justify-content: center; margin-top: 16px; font-size: 12px; color: var(--muted); font-family: var(--mono-font); }
+.atmospheric-meta span { padding: 4px 10px; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); background: rgba(0,0,0,0.2); }
+.atmospheric-canvas { padding: 0 32px 60px; position: relative; z-index: 2; }
+.atmosphere-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 32px; max-width: 1000px; margin: 0 auto; }
+.atmosphere-card { display: flex; flex-direction: column; align-items: center; padding: 24px; text-align: center; position: relative; min-height: 140px; }
+.atm-orb { width: 80px; height: 80px; border-radius: 50%; margin-bottom: 12px; filter: blur(8px); opacity: 0.7; }
+.atm-label { font-size: 13px; color: var(--fg); margin-bottom: 4px; }
+.atm-path { font-size: 10px; color: var(--muted); font-family: var(--mono-font); }
+.atm-eq { position: absolute; top: 8px; right: 8px; font-size: 10px; padding: 2px 6px; border-radius: var(--radius-sm); background: rgba(245,158,11,0.3); color: #fbbf24; }
+.wisdom-panel { max-width: 700px; margin: 0 auto 60px; padding: 0 32px; position: relative; z-index: 2; }
+.wisdom-item { font-size: 15px; color: var(--muted); text-align: center; margin-bottom: 12px; font-style: italic; line-height: 1.7; }
+.atmospheric-details { max-width: 1000px; margin: 0 auto 60px; padding: 0 32px; position: relative; z-index: 2; }
+.atmospheric-panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-top: 16px; }
+.atmospheric-panels .panel { background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: var(--panel-radius); padding: 16px; }
+.atmospheric-footer { text-align: center; padding: 24px 32px; border-top: 1px solid var(--panel-border); position: relative; z-index: 2; font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; max-width: 1000px; margin: 0 auto; }
+
 
 </style>
 </head>
 <body>
 
-<header class="app-header">
-  <div class="header-content">
+<div class="atmospheric-scene breathing">
+  <div class="atmospheric-vignette"></div>
+  <header class="atmospheric-header">
     <h1>The Lighthouse</h1>
-    <p class="purpose">an interactive fiction game where the player keeps a lighthouse running through a long stormy night and the choices they make about the light the radio and the door shape which of five endings they reach</p>
-    <p class="vibe-brief">Vibe: <em>melancholy hopeful isolated not_lonely atmospheric</em></p>
-    <div class="meta-row">
-      <span class="badge badge-info">41 entities</span>
-      <span class="badge badge-info">11 equilibrium rules</span>
-      <span class="badge badge-info">5 realization targets</span>
-      <span class="badge badge-score">avg preservation: 0.96</span>
+    <p class="atmospheric-purpose">an interactive fiction game where the player keeps a lighthouse running through a long stormy night and the choices they make about the light the radio and the door shape which of five endings they reach</p>
+    <p class="atmospheric-vibe">melancholy hopeful isolated not_lonely atmospheric</p>
+    <div class="atmospheric-meta">
+      <span>41 entities</span>
+      <span>11 equilibrium rules</span>
+      <span>5 targets</span>
     </div>
-  </div>
-</header>
-<main class="layout">
-  <aside class="panel structure-panel">
-    <h2>Structure</h2>
-    <ul class='tree'><li><span class='entity-label' data-path='the_lighthouse'>the lighthouse</span> <span class='kind'>root</span><span class='dim-count'>8d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game'>game</span> <span class='dim-count'>2d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game.opening_scene'>opening scene</span> <span class='dim-count'>2d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game.opening_scene.dock_arrival'>dock arrival</span> <span class='dim-count'>3d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.opening_scene.lighthouse_door'>lighthouse door</span> <span class='dim-count'>3d</span></li></ul></li><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior'>lighthouse interior</span> <span class='dim-count'>2d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.ground_floor'>ground floor</span> <span class='dim-count'>3d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.ground_floor.fuel_store'>fuel store</span> <span class='dim-count'>3d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.ground_floor.tool_bench'>tool bench</span> <span class='dim-count'>3d</span></li></ul></li><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.stairwell'>stairwell</span> <span class='dim-count'>3d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.stairwell.middle_landing'>middle landing</span> <span class='dim-count'>2d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.stairwell.top_landing'>top landing</span> <span class='dim-count'>2d</span></li></ul></li><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.lamp_room'>lamp room</span> <span class='dim-count'>4d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.lamp_room.main_lamp'>main lamp</span> <span class='dim-count'>5d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.lamp_room.reserve_lamp'>reserve lamp</span> <span class='dim-count'>3d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.lamp_room.lamp_log'>lamp log</span> <span class='dim-count'>2d</span></li></ul></li><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.radio_room'>radio room</span> <span class='dim-count'>4d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.radio_room.radio_set'>radio set</span> <span class='dim-count'>4d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.radio_room.log_book'>log book</span> <span class='dim-count'>3d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.radio_room.distress_signal'>distress signal</span> <span class='dim-count'>3d</span></li></ul></li></ul></li><li><span class='entity-label' data-path='the_lighthouse.game.outside'>outside</span> <span class='dim-count'>3d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game.outside.cliff_edge'>cliff edge</span> <span class='dim-count'>2d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.outside.boat_house'>boat house</span> <span class='dim-count'>2d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.outside.wreck_site'>wreck site</span> <span class='dim-count'>2d</span></li></ul></li><li><span class='entity-label' data-path='the_lighthouse.game.characters'>characters</span> <span class='dim-count'>2d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game.characters.keeper'>keeper</span> <span class='dim-count'>4d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.characters.visitor'>visitor</span> <span class='dim-count'>4d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.characters.voice_on_radio'>voice on radio</span> <span class='dim-count'>4d</span></li></ul></li><li><span class='entity-label' data-path='the_lighthouse.game.state'>state</span> <span class='dim-count'>2d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game.state.lamp_state'>lamp state</span> <span class='dim-count'>3d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.state.radio_state'>radio state</span> <span class='dim-count'>3d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.state.door_state'>door state</span> <span class='dim-count'>5d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.state.keeper_state'>keeper state</span> <span class='dim-count'>3d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.state.weather_state'>weather state</span> <span class='dim-count'>3d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.state.time_state'>time state</span> <span class='dim-count'>3d</span></li></ul></li><li><span class='entity-label' data-path='the_lighthouse.game.endings'>endings</span> <span class='dim-count'>2d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game.endings.ending_rescue'>ending rescue</span> <span class='dim-count'>4d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.endings.ending_loss'>ending loss</span> <span class='dim-count'>4d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.endings.ending_quiet'>ending quiet</span> <span class='dim-count'>4d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.endings.ending_visitor'>ending visitor</span> <span class='dim-count'>4d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.endings.ending_dawn'>ending dawn</span> <span class='dim-count'>4d</span></li></ul></li></ul></li></ul></li></ul>
-  </aside>
-  <section class="panel canvas-panel">
-    <h2>Interface Preview</h2>
-    <p class="hint">Each card represents an entity. Colors and shapes come from vibe dimensions. Hover for details.</p>
-    <div class='canvas-grid'>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game">
-  <div class="card-header">
-    <span class="card-label">Game</span>
-    <span class="card-path">game</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-conditional' title='conditional: 1 entries'>C1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+  </header>
+  <main class="atmospheric-canvas">
+    <div class='atmosphere-grid'>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Game</div>
+  <div class="atm-path">game</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.opening_scene">
-  <div class="card-header">
-    <span class="card-label">Opening Scene</span>
-    <span class="card-path">opening_scene</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Opening Scene</div>
+  <div class="atm-path">opening_scene</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.opening_scene.dock_arrival">
-  <div class="card-header">
-    <span class="card-label">Dock Arrival</span>
-    <span class="card-path">dock_arrival</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-temporal' title='temporal: 1 entries'>T1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Dock Arrival</div>
+  <div class="atm-path">dock_arrival</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.opening_scene.lighthouse_door">
-  <div class="card-header">
-    <span class="card-label">Lighthouse Door</span>
-    <span class="card-path">lighthouse_door</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-temporal' title='temporal: 2 entries'>T2</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Lighthouse Door</div>
+  <div class="atm-path">lighthouse_door</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.lighthouse_interior">
-  <div class="card-header">
-    <span class="card-label">Lighthouse Interior</span>
-    <span class="card-path">lighthouse_interior</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Lighthouse Interior</div>
+  <div class="atm-path">lighthouse_interior</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.lighthouse_interior.ground_floor">
-  <div class="card-header">
-    <span class="card-label">Ground Floor</span>
-    <span class="card-path">ground_floor</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-temporal' title='temporal: 1 entries'>T1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Ground Floor</div>
+  <div class="atm-path">ground_floor</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.lighthouse_interior.ground_floor.fuel_store">
-  <div class="card-header">
-    <span class="card-label">Fuel Store</span>
-    <span class="card-path">fuel_store</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-relational' title='relational: 1 entries'>R1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Fuel Store</div>
+  <div class="atm-path">fuel_store</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.lighthouse_interior.ground_floor.tool_bench">
-  <div class="card-header">
-    <span class="card-label">Tool Bench</span>
-    <span class="card-path">tool_bench</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-relational' title='relational: 1 entries'>R1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Tool Bench</div>
+  <div class="atm-path">tool_bench</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.lighthouse_interior.stairwell">
-  <div class="card-header">
-    <span class="card-label">Stairwell</span>
-    <span class="card-path">stairwell</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-temporal' title='temporal: 2 entries'>T2</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Stairwell</div>
+  <div class="atm-path">stairwell</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.lighthouse_interior.stairwell.middle_landing">
-  <div class="card-header">
-    <span class="card-label">Middle Landing</span>
-    <span class="card-path">middle_landing</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Middle Landing</div>
+  <div class="atm-path">middle_landing</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.lighthouse_interior.stairwell.top_landing">
-  <div class="card-header">
-    <span class="card-label">Top Landing</span>
-    <span class="card-path">top_landing</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Top Landing</div>
+  <div class="atm-path">top_landing</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #d4a373; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.lighthouse_interior.lamp_room">
-  <div class="card-header">
-    <span class="card-label">Lamp Room</span>
-    <span class="card-path">lamp_room</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-vibe' title='vibe: 2 entries'>V2</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-temporal' title='temporal: 1 entries'>T1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> <span class='deg-badge deg-proxy' title='vibe.aesthetic: proxy'>proxy</span></div>
-  <div class='vibe-details' hidden><div class='vibe-item'><span class='vibe-aspect'>color_character</span>: <span class='vibe-term'>warm_amber</span></div><div class='vibe-item'><span class='vibe-aspect'>activation_signal</span>: <span class='vibe-term'>steady_beam</span></div></div>
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Lamp Room</div>
+  <div class="atm-path">lamp_room</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.lighthouse_interior.lamp_room.main_lamp">
-  <div class="card-header">
-    <span class="card-label">Main Lamp</span>
-    <span class="card-path">main_lamp</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-relational' title='relational: 1 entries'>R1</span><span class='dim-badge dim-conditional' title='conditional: 3 entries'>C3</span><span class='dim-badge dim-behavioral' title='behavioral: 4 entries'>B4</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Main Lamp</div>
+  <div class="atm-path">main_lamp</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.lighthouse_interior.lamp_room.reserve_lamp">
-  <div class="card-header">
-    <span class="card-label">Reserve Lamp</span>
-    <span class="card-path">reserve_lamp</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-conditional' title='conditional: 1 entries'>C1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Reserve Lamp</div>
+  <div class="atm-path">reserve_lamp</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.lighthouse_interior.lamp_room.lamp_log">
-  <div class="card-header">
-    <span class="card-label">Lamp Log</span>
-    <span class="card-path">lamp_log</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Lamp Log</div>
+  <div class="atm-path">lamp_log</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #4a6fa5; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.lighthouse_interior.radio_room">
-  <div class="card-header">
-    <span class="card-label">Radio Room</span>
-    <span class="card-path">radio_room</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-vibe' title='vibe: 2 entries'>V2</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-temporal' title='temporal: 1 entries'>T1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> <span class='deg-badge deg-proxy' title='vibe.aesthetic: proxy'>proxy</span></div>
-  <div class='vibe-details' hidden><div class='vibe-item'><span class='vibe-aspect'>tone</span>: <span class='vibe-term'>scratchy_distant</span></div><div class='vibe-item'><span class='vibe-aspect'>color_character</span>: <span class='vibe-term'>cold_blue</span></div></div>
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #4a6fa5;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #4a6fa5 0%, transparent 70%);"></div>
+  <div class="atm-label">Radio Room</div>
+  <div class="atm-path">radio_room</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.lighthouse_interior.radio_room.radio_set">
-  <div class="card-header">
-    <span class="card-label">Radio Set</span>
-    <span class="card-path">radio_set</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-relational' title='relational: 1 entries'>R1</span><span class='dim-badge dim-conditional' title='conditional: 2 entries'>C2</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Radio Set</div>
+  <div class="atm-path">radio_set</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.lighthouse_interior.radio_room.log_book">
-  <div class="card-header">
-    <span class="card-label">Log Book</span>
-    <span class="card-path">log_book</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-relational' title='relational: 1 entries'>R1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Log Book</div>
+  <div class="atm-path">log_book</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.lighthouse_interior.radio_room.distress_signal">
-  <div class="card-header">
-    <span class="card-label">Distress Signal</span>
-    <span class="card-path">distress_signal</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-relational' title='relational: 1 entries'>R1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Distress Signal</div>
+  <div class="atm-path">distress_signal</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #475569; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.outside">
-  <div class="card-header">
-    <span class="card-label">Outside</span>
-    <span class="card-path">outside</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-vibe' title='vibe: 2 entries'>V2</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> <span class='deg-badge deg-proxy' title='vibe.aesthetic: proxy'>proxy</span></div>
-  <div class='vibe-details' hidden><div class='vibe-item'><span class='vibe-aspect'>tone</span>: <span class='vibe-term'>hostile</span></div><div class='vibe-item'><span class='vibe-aspect'>color_character</span>: <span class='vibe-term'>storm_grey</span></div></div>
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #475569;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #475569 0%, transparent 70%);"></div>
+  <div class="atm-label">Outside</div>
+  <div class="atm-path">outside</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.outside.cliff_edge">
-  <div class="card-header">
-    <span class="card-label">Cliff Edge</span>
-    <span class="card-path">cliff_edge</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Cliff Edge</div>
+  <div class="atm-path">cliff_edge</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.outside.boat_house">
-  <div class="card-header">
-    <span class="card-label">Boat House</span>
-    <span class="card-path">boat_house</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Boat House</div>
+  <div class="atm-path">boat_house</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.outside.wreck_site">
-  <div class="card-header">
-    <span class="card-label">Wreck Site</span>
-    <span class="card-path">wreck_site</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Wreck Site</div>
+  <div class="atm-path">wreck_site</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.characters">
-  <div class="card-header">
-    <span class="card-label">Characters</span>
-    <span class="card-path">characters</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Characters</div>
+  <div class="atm-path">characters</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.characters.keeper">
-  <div class="card-header">
-    <span class="card-label">Keeper</span>
-    <span class="card-path">keeper</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-vibe' title='vibe: 1 entries'>V1</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-behavioral' title='behavioral: 5 entries'>B5</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> <span class='deg-badge deg-proxy' title='vibe.aesthetic: proxy'>proxy</span></div>
-  <div class='vibe-details' hidden><div class='vibe-item'><span class='vibe-aspect'>tone</span>: <span class='vibe-term'>weary_determined</span></div></div>
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Keeper</div>
+  <div class="atm-path">keeper</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.characters.visitor">
-  <div class="card-header">
-    <span class="card-label">Visitor</span>
-    <span class="card-path">visitor</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-vibe' title='vibe: 1 entries'>V1</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-conditional' title='conditional: 1 entries'>C1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> <span class='deg-badge deg-proxy' title='vibe.aesthetic: proxy'>proxy</span></div>
-  <div class='vibe-details' hidden><div class='vibe-item'><span class='vibe-aspect'>tone</span>: <span class='vibe-term'>uncertain</span></div></div>
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Visitor</div>
+  <div class="atm-path">visitor</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.characters.voice_on_radio">
-  <div class="card-header">
-    <span class="card-label">Voice On Radio</span>
-    <span class="card-path">voice_on_radio</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-vibe' title='vibe: 1 entries'>V1</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-relational' title='relational: 1 entries'>R1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> <span class='deg-badge deg-proxy' title='vibe.aesthetic: proxy'>proxy</span></div>
-  <div class='vibe-details' hidden><div class='vibe-item'><span class='vibe-aspect'>tone</span>: <span class='vibe-term'>desperate</span></div></div>
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Voice On Radio</div>
+  <div class="atm-path">voice_on_radio</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.state">
-  <div class="card-header">
-    <span class="card-label">State</span>
-    <span class="card-path">state</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">State</div>
+  <div class="atm-path">state</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.state.lamp_state">
-  <div class="card-header">
-    <span class="card-label">Lamp State</span>
-    <span class="card-path">lamp_state</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-cognitive' title='cognitive: 2 entries'>C2</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Lamp State</div>
+  <div class="atm-path">lamp_state</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.state.radio_state">
-  <div class="card-header">
-    <span class="card-label">Radio State</span>
-    <span class="card-path">radio_state</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-cognitive' title='cognitive: 1 entries'>C1</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Radio State</div>
+  <div class="atm-path">radio_state</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.state.door_state">
-  <div class="card-header">
-    <span class="card-label">Door State</span>
-    <span class="card-path">door_state</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-cognitive' title='cognitive: 1 entries'>C1</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-relational' title='relational: 1 entries'>R1</span><span class='dim-badge dim-conditional' title='conditional: 1 entries'>C1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Door State</div>
+  <div class="atm-path">door_state</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.state.keeper_state">
-  <div class="card-header">
-    <span class="card-label">Keeper State</span>
-    <span class="card-path">keeper_state</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-cognitive' title='cognitive: 2 entries'>C2</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Keeper State</div>
+  <div class="atm-path">keeper_state</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.state.weather_state">
-  <div class="card-header">
-    <span class="card-label">Weather State</span>
-    <span class="card-path">weather_state</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-cognitive' title='cognitive: 1 entries'>C1</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Weather State</div>
+  <div class="atm-path">weather_state</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.state.time_state">
-  <div class="card-header">
-    <span class="card-label">Time State</span>
-    <span class="card-path">time_state</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-cognitive' title='cognitive: 1 entries'>C1</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Time State</div>
+  <div class="atm-path">time_state</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.endings">
-  <div class="card-header">
-    <span class="card-label">Endings</span>
-    <span class="card-path">endings</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Endings</div>
+  <div class="atm-path">endings</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.endings.ending_rescue">
-  <div class="card-header">
-    <span class="card-label">Ending Rescue</span>
-    <span class="card-path">ending_rescue</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-vibe' title='vibe: 1 entries'>V1</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-conditional' title='conditional: 1 entries'>C1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> <span class='deg-badge deg-proxy' title='vibe.aesthetic: proxy'>proxy</span></div>
-  <div class='vibe-details' hidden><div class='vibe-item'><span class='vibe-aspect'>tone</span>: <span class='vibe-term'>relief</span></div></div>
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Ending Rescue</div>
+  <div class="atm-path">ending_rescue</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.endings.ending_loss">
-  <div class="card-header">
-    <span class="card-label">Ending Loss</span>
-    <span class="card-path">ending_loss</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-vibe' title='vibe: 1 entries'>V1</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-conditional' title='conditional: 1 entries'>C1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> <span class='deg-badge deg-proxy' title='vibe.aesthetic: proxy'>proxy</span></div>
-  <div class='vibe-details' hidden><div class='vibe-item'><span class='vibe-aspect'>tone</span>: <span class='vibe-term'>grief</span></div></div>
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Ending Loss</div>
+  <div class="atm-path">ending_loss</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.endings.ending_quiet">
-  <div class="card-header">
-    <span class="card-label">Ending Quiet</span>
-    <span class="card-path">ending_quiet</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-vibe' title='vibe: 1 entries'>V1</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-conditional' title='conditional: 1 entries'>C1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> <span class='deg-badge deg-proxy' title='vibe.aesthetic: proxy'>proxy</span></div>
-  <div class='vibe-details' hidden><div class='vibe-item'><span class='vibe-aspect'>tone</span>: <span class='vibe-term'>peace</span></div></div>
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Ending Quiet</div>
+  <div class="atm-path">ending_quiet</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.endings.ending_visitor">
-  <div class="card-header">
-    <span class="card-label">Ending Visitor</span>
-    <span class="card-path">ending_visitor</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-vibe' title='vibe: 1 entries'>V1</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-conditional' title='conditional: 1 entries'>C1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> <span class='deg-badge deg-proxy' title='vibe.aesthetic: proxy'>proxy</span></div>
-  <div class='vibe-details' hidden><div class='vibe-item'><span class='vibe-aspect'>tone</span>: <span class='vibe-term'>companionship</span></div></div>
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Ending Visitor</div>
+  <div class="atm-path">ending_visitor</div>
+  <span class='atm-eq'>1</span>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="the_lighthouse.game.endings.ending_dawn">
-  <div class="card-header">
-    <span class="card-label">Ending Dawn</span>
-    <span class="card-path">ending_dawn</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-vibe' title='vibe: 1 entries'>V1</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-conditional' title='conditional: 1 entries'>C1</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;ending_dignity&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;every ending is meaningful none is punishment&#x27;, &#x27;rationale&#x27;: &#x27;every story deserves a worthy close&#x27;}'>⚖ ending_dignity</span> <span class='deg-badge deg-proxy' title='vibe.aesthetic: proxy'>proxy</span></div>
-  <div class='vibe-details' hidden><div class='vibe-item'><span class='vibe-aspect'>tone</span>: <span class='vibe-term'>survival</span></div></div>
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+<div class="atmosphere-card drift" style="--card-glow: #f59e0b;">
+  <div class="atm-orb" style="background: radial-gradient(circle, #f59e0b 0%, transparent 70%);"></div>
+  <div class="atm-label">Ending Dawn</div>
+  <div class="atm-path">ending_dawn</div>
+  <span class='atm-eq'>1</span>
 </div></div>
-  </section>
-  <aside class="panel info-panel">
-    
+  </main>
+  <div class='wisdom-panel'><div class='wisdom-item' title='melancholy_vs_hopeful'><em>melancholy in atmosphere hope in keeper_agency</em></div><div class='wisdom-item' title='isolation_vs_not_lonely'><em>physical isolation with presence_of_voice_on_radio</em></div><div class='wisdom-item' title='atmosphere_vs_action'><em>action serves atmosphere atmosphere contextualizes action</em></div></div>
+  <details class="atmospheric-details">
+    <summary>structure · equilibrium · realization</summary>
+    <div class="atmospheric-panels">
+      <div class="panel"><ul class='tree'><li><span class='entity-label' data-path='the_lighthouse'>the lighthouse</span> <span class='kind'>root</span><span class='dim-count'>8d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game'>game</span> <span class='dim-count'>2d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game.opening_scene'>opening scene</span> <span class='dim-count'>2d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game.opening_scene.dock_arrival'>dock arrival</span> <span class='dim-count'>3d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.opening_scene.lighthouse_door'>lighthouse door</span> <span class='dim-count'>3d</span></li></ul></li><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior'>lighthouse interior</span> <span class='dim-count'>2d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.ground_floor'>ground floor</span> <span class='dim-count'>3d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.ground_floor.fuel_store'>fuel store</span> <span class='dim-count'>3d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.ground_floor.tool_bench'>tool bench</span> <span class='dim-count'>3d</span></li></ul></li><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.stairwell'>stairwell</span> <span class='dim-count'>3d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.stairwell.middle_landing'>middle landing</span> <span class='dim-count'>2d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.stairwell.top_landing'>top landing</span> <span class='dim-count'>2d</span></li></ul></li><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.lamp_room'>lamp room</span> <span class='dim-count'>4d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.lamp_room.main_lamp'>main lamp</span> <span class='dim-count'>5d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.lamp_room.reserve_lamp'>reserve lamp</span> <span class='dim-count'>3d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.lamp_room.lamp_log'>lamp log</span> <span class='dim-count'>2d</span></li></ul></li><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.radio_room'>radio room</span> <span class='dim-count'>4d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.radio_room.radio_set'>radio set</span> <span class='dim-count'>4d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.radio_room.log_book'>log book</span> <span class='dim-count'>3d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.lighthouse_interior.radio_room.distress_signal'>distress signal</span> <span class='dim-count'>3d</span></li></ul></li></ul></li><li><span class='entity-label' data-path='the_lighthouse.game.outside'>outside</span> <span class='dim-count'>3d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game.outside.cliff_edge'>cliff edge</span> <span class='dim-count'>2d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.outside.boat_house'>boat house</span> <span class='dim-count'>2d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.outside.wreck_site'>wreck site</span> <span class='dim-count'>2d</span></li></ul></li><li><span class='entity-label' data-path='the_lighthouse.game.characters'>characters</span> <span class='dim-count'>2d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game.characters.keeper'>keeper</span> <span class='dim-count'>4d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.characters.visitor'>visitor</span> <span class='dim-count'>4d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.characters.voice_on_radio'>voice on radio</span> <span class='dim-count'>4d</span></li></ul></li><li><span class='entity-label' data-path='the_lighthouse.game.state'>state</span> <span class='dim-count'>2d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game.state.lamp_state'>lamp state</span> <span class='dim-count'>3d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.state.radio_state'>radio state</span> <span class='dim-count'>3d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.state.door_state'>door state</span> <span class='dim-count'>5d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.state.keeper_state'>keeper state</span> <span class='dim-count'>3d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.state.weather_state'>weather state</span> <span class='dim-count'>3d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.state.time_state'>time state</span> <span class='dim-count'>3d</span></li></ul></li><li><span class='entity-label' data-path='the_lighthouse.game.endings'>endings</span> <span class='dim-count'>2d</span><ul><li><span class='entity-label' data-path='the_lighthouse.game.endings.ending_rescue'>ending rescue</span> <span class='dim-count'>4d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.endings.ending_loss'>ending loss</span> <span class='dim-count'>4d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.endings.ending_quiet'>ending quiet</span> <span class='dim-count'>4d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.endings.ending_visitor'>ending visitor</span> <span class='dim-count'>4d</span></li><li><span class='entity-label' data-path='the_lighthouse.game.endings.ending_dawn'>ending dawn</span> <span class='dim-count'>4d</span></li></ul></li></ul></li></ul></li></ul></div>
+      <div class="panel">
 <div class="sub-panel">
   <h3>Equilibrium (11 rules)</h3>
   
@@ -968,8 +466,8 @@ footer {
   <div class="eq-detail"><strong>Preserve:</strong> both</div>
   <div class="eq-detail"><strong>Resolution:</strong> courage is choosing despite weariness</div>
 </div>
-</div>
-    
+</div></div>
+      <div class="panel">
 <div class="sub-panel">
   <h3>Realization (5 targets)</h3>
   
@@ -978,64 +476,48 @@ footer {
   <div class="rz-lang">HTML/CSS/JS</div>
   <div class="rz-score score-high">0.96</div>
   <div class="rz-detail"><strong>Capabilities:</strong> layout, color, motion, event_handling</div>
-  <div class="rz-detail"><strong>Output files:</strong> 3</div>
-  <div class="rz-detail"><strong>Degradation rows:</strong> 32</div>
 </div>
 <div class="rz-item">
   <div class="rz-name">narrative_engine</div>
   <div class="rz-lang">Python</div>
   <div class="rz-score score-high">1.00</div>
   <div class="rz-detail"><strong>Capabilities:</strong> text_generation, state_management, branching</div>
-  <div class="rz-detail"><strong>Output files:</strong> 1</div>
-  <div class="rz-detail"><strong>Degradation rows:</strong> 32</div>
 </div>
 <div class="rz-item">
   <div class="rz-name">save_backend</div>
   <div class="rz-lang">Python</div>
   <div class="rz-score score-high">1.00</div>
   <div class="rz-detail"><strong>Capabilities:</strong> write, retain, retrieve</div>
-  <div class="rz-detail"><strong>Output files:</strong> 1</div>
-  <div class="rz-detail"><strong>Degradation rows:</strong> 32</div>
 </div>
 <div class="rz-item">
   <div class="rz-name">scene_renderer</div>
   <div class="rz-lang">HTML/CSS/JS</div>
   <div class="rz-score score-mid">0.86</div>
   <div class="rz-detail"><strong>Capabilities:</strong> layout, color, motion</div>
-  <div class="rz-detail"><strong>Output files:</strong> 2</div>
-  <div class="rz-detail"><strong>Degradation rows:</strong> 32</div>
 </div>
 <div class="rz-item">
   <div class="rz-name">ambient_audio</div>
   <div class="rz-lang">WebAudio</div>
   <div class="rz-score score-high">1.00</div>
   <div class="rz-detail"><strong>Capabilities:</strong> procedural_audio, looping</div>
-  <div class="rz-detail"><strong>Output files:</strong> 1</div>
-  <div class="rz-detail"><strong>Degradation rows:</strong> 32</div>
 </div>
+</div></div>
+    </div>
+  </details>
+  <footer class="atmospheric-footer">
+    <span>Orren Engine v0.3.2</span>
+    <span>41 nodes · 11 eq rules · 5 targets</span>
+  </footer>
 </div>
-    
-<div class="sub-panel">
-  <h3>Degradation Map</h3>
-  <div class='deg-summary'>PROXY: 128 · BRIDGE: 1 · OUT_OF_SCOPE: 0</div>
-  <div class='deg-group'><h4>Proxy / Documented (128)</h4><div class='deg-row'><span class='deg-aspect'>default</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>the_lighthouse</span></div><div class='deg-row'><span class='deg-aspect'>persistence</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>the_lighthouse</span></div><div class='deg-row'><span class='deg-aspect'>value</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>the_lighthouse</span></div><div class='deg-row'><span class='deg-aspect'>color_character</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>the_lighthouse</span></div><div class='deg-row'><span class='deg-aspect'>tone</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>the_lighthouse</span></div><div class='deg-row'><span class='deg-aspect'>aesthetic</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>the_lighthouse</span></div><div class='deg-row'><span class='deg-aspect'>intensity</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>the_lighthouse</span></div><div class='deg-row'><span class='deg-aspect'>form_character</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>the_lighthouse</span></div><div class='deg-row'><span class='deg-aspect'>feeds</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>the_lighthouse</span></div><div class='deg-row'><span class='deg-aspect'>activation_signal</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>lamp_room</span></div><div class='deg-row'><span class='deg-aspect'>fuel</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>lamp_state</span></div><div class='deg-row'><span class='deg-aspect'>brightness</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>lamp_state</span></div><div class='deg-row'><span class='deg-aspect'>contact</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>radio_state</span></div><div class='deg-row'><span class='deg-aspect'>locked</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>door_state</span></div><div class='deg-row'><span class='deg-aspect'>energy</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>keeper_state</span></div></div>
-  <div class='deg-group'><h4>Needs Bridge (1)</h4><div class='deg-row'><span class='deg-aspect'>narrative</span><span class='deg-source'>bridge</span><span class='deg-node'>the_lighthouse</span></div></div>
-</div>
-  </aside>
-</main>
-<footer>
-  <span>Orren Engine v0.3.1</span>
-  <span>41 nodes · 11 equilibrium rules · 5 targets</span>
-</footer>
 <script>
 
 document.querySelectorAll('.entity-label').forEach(el => {
   el.addEventListener('click', () => {
     const path = el.dataset.path;
-    const card = document.querySelector(`.entity-card[data-path="${path}"]`);
+    const card = document.querySelector(`.entity-card[data-path="${path}"], .atmosphere-card[data-path="${path}"], .sch-component[data-path="${path}"]`);
     if (card) {
       card.scrollIntoView({behavior: 'smooth', block: 'center'});
-      card.style.outline = '3px solid #3b82f6';
+      card.style.outline = '3px solid var(--accent)';
       setTimeout(() => card.style.outline = '', 1500);
     }
   });

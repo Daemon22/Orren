@@ -7,769 +7,158 @@
 <style>
 
 :root {
-  --bg: #0f172a;
-  --fg: #e2e8f0;
-  --accent: #1f2937;
-  --panel-bg: #1e293b;
-  --panel-border: #334155;
-  --muted: #94a3b8;
-  --eq-color: #f59e0b;
-  --proxy-color: #ef4444;
-  --bridge-color: #8b5cf6;
-  --good-color: #10b981;
+  --bg: #fafaf9;
+  --fg: #1f2937;
+  --accent: #374151;
+  --panel-bg: #ffffff;
+  --panel-border: #e5e7eb;
+  --muted: #6b7280;
+  --highlight: #111827;
+  --heading-font: Georgia, 'Times New Roman', 'Noto Serif', serif;
+  --body-font: Georgia, 'Times New Roman', 'Noto Serif', serif;
+  --mono-font: 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --heading-weight: 700;
+  --body-size: 16px;
+  --line-height: 1.7;
+  --letter-spacing: 0;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+  --card-radius: 8px;
+  --panel-radius: 12px;
+  --spacing-unit: 14px;
+  --motion-duration: 200ms;
+  --motion-easing: ease;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  background: var(--bg);
+  font-family: var(--body-font);
+  background: #fafaf9;
   color: var(--fg);
-  line-height: 1.5;
-  font-size: 14px;
+  line-height: var(--line-height);
+  font-size: var(--body-size);
+  letter-spacing: var(--letter-spacing);
+  min-height: 100vh;
+
 }
-.app-header {
-  background: linear-gradient(135deg, var(--panel-bg), var(--bg));
-  border-bottom: 2px solid var(--accent);
-  padding: 24px 32px;
-}
-.app-header h1 {
-  font-size: 28px;
-  font-weight: 700;
-  margin-bottom: 8px;
-  color: var(--fg);
-}
-.app-header .purpose {
-  color: var(--muted);
-  font-size: 15px;
-  margin-bottom: 4px;
-  max-width: 80ch;
-}
-.app-header .vibe-brief {
-  color: var(--accent);
-  font-size: 13px;
-  margin-bottom: 12px;
-}
-.meta-row {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.badge {
-  display: inline-block;
-  padding: 4px 10px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 500;
-}
-.badge-info {
-  background: rgba(59, 130, 246, 0.2);
-  color: #93c5fd;
-  border: 1px solid rgba(59, 130, 246, 0.3);
-}
-.badge-score {
-  background: rgba(16, 185, 129, 0.2);
-  color: #6ee7b7;
-  border: 1px solid rgba(16, 185, 129, 0.3);
-}
-.layout {
-  display: grid;
-  grid-template-columns: 280px 1fr 360px;
-  gap: 16px;
-  padding: 16px;
-  min-height: calc(100vh - 200px);
-}
-.panel {
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  border-radius: 12px;
-  padding: 16px;
-  overflow-y: auto;
-  max-height: calc(100vh - 120px);
-}
-.panel h2 {
-  font-size: 14px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--panel-border);
-}
-.panel .hint {
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: 16px;
-}
-.structure-panel .tree {
-  list-style: none;
-  font-size: 13px;
-}
-.structure-panel .tree ul {
-  list-style: none;
-  padding-left: 16px;
-  border-left: 1px solid var(--panel-border);
-  margin-left: 4px;
-}
-.structure-panel .tree li {
-  padding: 4px 0;
-}
-.structure-panel .entity-label {
-  color: var(--fg);
-  cursor: pointer;
-  transition: color 0.15s;
-}
-.structure-panel .entity-label:hover {
-  color: var(--accent);
-}
-.structure-panel .kind {
-  font-size: 11px;
-  color: var(--muted);
-  background: rgba(148, 163, 184, 0.15);
-  padding: 1px 6px;
-  border-radius: 4px;
-  margin-left: 4px;
-}
-.structure-panel .dim-count {
-  font-size: 11px;
-  color: var(--accent);
-  margin-left: 4px;
-}
-.canvas-panel {
-  display: flex;
-  flex-direction: column;
-}
-.canvas-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 12px;
-  align-content: start;
-}
-.entity-card {
-  padding: 14px;
-  border: 1px solid rgba(255,255,255,0.15);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-  min-height: 100px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  transition: transform 0.15s, box-shadow 0.15s;
-  color: #fff;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
-}
-.entity-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-}
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-}
-.card-label {
-  font-size: 15px;
-  font-weight: 600;
-}
-.card-path {
-  font-size: 11px;
-  opacity: 0.7;
-  font-family: monospace;
-}
-.card-badges {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-.dim-badge {
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: rgba(0,0,0,0.4);
-  font-weight: 600;
-}
-.card-vibes {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-  font-size: 10px;
-}
-.eq-badge {
-  background: rgba(245, 158, 11, 0.3);
-  color: #fbbf24;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-.deg-badge {
-  background: rgba(239, 68, 68, 0.3);
-  color: #fca5a5;
-  padding: 2px 6px;
-  border-radius: 4px;
-  text-transform: uppercase;
-  font-weight: 600;
-}
-.deg-badge.deg-proxy { background: rgba(239, 68, 68, 0.3); color: #fca5a5; }
-.deg-badge.deg-documented { background: rgba(168, 85, 247, 0.3); color: #c4b5fd; }
-.deg-badge.deg-optional { background: rgba(100, 116, 139, 0.3); color: #cbd5e1; }
-.vibe-details {
-  font-size: 11px;
-  border-top: 1px solid rgba(255,255,255,0.2);
-  padding-top: 8px;
-  margin-top: 4px;
-}
-.vibe-item {
-  display: flex;
-  justify-content: space-between;
-  padding: 2px 0;
-}
+
+a { color: var(--accent); text-decoration: none; }
+h1, h2, h3, h4 { font-family: var(--heading-font); font-weight: var(--heading-weight); }
+.badge { display: inline-block; padding: 4px 10px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 500; }
+.badge-info { background: rgba(255,255,255,0.08); color: var(--muted); border: 1px solid var(--panel-border); }
+.badge-mood { background: rgba(255,255,255,0.12); color: var(--fg); border: 1px solid var(--accent); }
+.badge-layout { background: rgba(255,255,255,0.06); color: var(--muted); border: 1px dashed var(--panel-border); }
+.badge-score { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.3); }
+.panel { background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: var(--panel-radius); padding: 16px; overflow-y: auto; }
+.panel h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--panel-border); }
+.panel .hint { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+.sub-panel { background: rgba(0,0,0,0.15); border: 1px solid var(--panel-border); border-radius: var(--radius-md); padding: 12px; margin-bottom: 16px; }
+.sub-panel h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 10px; }
+.empty { color: var(--muted); font-style: italic; font-size: 12px; }
+.tree { list-style: none; font-size: 13px; }
+.tree ul { list-style: none; padding-left: 16px; border-left: 1px solid var(--panel-border); margin-left: 4px; }
+.tree li { padding: 4px 0; }
+.entity-label { color: var(--fg); cursor: pointer; transition: color var(--motion-duration) var(--motion-easing); }
+.entity-label:hover { color: var(--accent); }
+.kind { font-size: 11px; color: var(--muted); background: rgba(255,255,255,0.08); padding: 1px 6px; border-radius: var(--radius-sm); margin-left: 4px; }
+.dim-count { font-size: 11px; color: var(--accent); margin-left: 4px; }
+.canvas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; align-content: start; }
+.entity-card { padding: 14px; border: 1px solid rgba(255,255,255,0.15); box-shadow: 0 4px 12px rgba(0,0,0,0.2); min-height: 100px; display: flex; flex-direction: column; gap: 8px; transition: transform var(--motion-duration) var(--motion-easing), box-shadow var(--motion-duration) var(--motion-easing); color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.5); }
+.entity-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+.card-header { display: flex; justify-content: space-between; align-items: baseline; }
+.card-label { font-size: 15px; font-weight: var(--heading-weight); }
+.card-path { font-size: 11px; opacity: 0.7; font-family: var(--mono-font); }
+.card-badges { display: flex; gap: 4px; flex-wrap: wrap; }
+.dim-badge { font-size: 10px; padding: 2px 6px; border-radius: var(--radius-sm); background: rgba(0,0,0,0.4); font-weight: 600; }
+.card-vibes { display: flex; gap: 4px; flex-wrap: wrap; font-size: 10px; }
+.eq-badge { background: rgba(245, 158, 11, 0.3); color: #fbbf24; padding: 2px 6px; border-radius: var(--radius-sm); }
+.deg-badge { background: rgba(239, 68, 68, 0.3); color: #fca5a5; padding: 2px 6px; border-radius: var(--radius-sm); text-transform: uppercase; font-weight: 600; }
+.vibe-details { font-size: 11px; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 8px; margin-top: 4px; }
+.vibe-item { display: flex; justify-content: space-between; padding: 2px 0; }
 .vibe-aspect { opacity: 0.8; }
 .vibe-term { font-weight: 500; }
-.expand-btn {
-  align-self: flex-start;
-  background: rgba(0,0,0,0.3);
-  border: 1px solid rgba(255,255,255,0.2);
-  color: #fff;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  cursor: pointer;
-  margin-top: auto;
-}
-.expand-btn:hover {
-  background: rgba(0,0,0,0.5);
-}
-.info-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.sub-panel {
-  background: rgba(15, 23, 42, 0.5);
-  border: 1px solid var(--panel-border);
-  border-radius: 8px;
-  padding: 12px;
-}
-.sub-panel h3 {
-  font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-  margin-bottom: 10px;
-}
-.eq-item {
-  padding: 8px;
-  margin-bottom: 8px;
-  border-radius: 6px;
-  border-left: 3px solid;
-  background: rgba(30, 41, 59, 0.6);
-}
-.eq-item.eq-fired {
-  border-color: var(--good-color);
-}
-.eq-item.eq-not-fired {
-  border-color: var(--muted);
-  opacity: 0.6;
-}
-.eq-name {
-  font-weight: 600;
-  font-size: 13px;
-  margin-bottom: 4px;
-}
-.eq-status {
-  font-size: 11px;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin-bottom: 4px;
-}
-.eq-detail {
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: 2px;
-}
-.rz-item {
-  padding: 8px;
-  margin-bottom: 8px;
-  border-radius: 6px;
-  background: rgba(30, 41, 59, 0.6);
-  border-left: 3px solid var(--accent);
-}
-.rz-name {
-  font-weight: 600;
-  font-size: 13px;
-}
-.rz-lang {
-  font-size: 11px;
-  color: var(--muted);
-  font-family: monospace;
-}
-.rz-score {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  margin: 4px 0;
-}
+.expand-btn { align-self: flex-start; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 2px 8px; border-radius: var(--radius-sm); font-size: 11px; cursor: pointer; margin-top: auto; }
+.eq-item { padding: 8px; margin-bottom: 8px; border-radius: var(--radius-sm); border-left: 3px solid; background: rgba(0,0,0,0.2); }
+.eq-item.eq-fired { border-color: #10b981; }
+.eq-item.eq-not-fired { border-color: var(--muted); opacity: 0.6; }
+.eq-name { font-weight: var(--heading-weight); font-size: 13px; margin-bottom: 4px; }
+.eq-status { font-size: 11px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.eq-detail { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.rz-item { padding: 8px; margin-bottom: 8px; border-radius: var(--radius-sm); background: rgba(0,0,0,0.2); border-left: 3px solid var(--accent); }
+.rz-name { font-weight: var(--heading-weight); font-size: 13px; }
+.rz-lang { font-size: 11px; color: var(--muted); font-family: var(--mono-font); }
+.rz-score { display: inline-block; padding: 2px 8px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 600; margin: 4px 0; }
 .score-high { background: rgba(16, 185, 129, 0.3); color: #6ee7b7; }
 .score-mid { background: rgba(245, 158, 11, 0.3); color: #fbbf24; }
 .score-low { background: rgba(239, 68, 68, 0.3); color: #fca5a5; }
-.rz-detail {
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: 2px;
-}
-.deg-summary {
-  font-size: 11px;
-  color: var(--muted);
-  margin-bottom: 10px;
-  padding: 6px;
-  background: rgba(30, 41, 59, 0.6);
-  border-radius: 4px;
-  text-align: center;
-}
-.deg-group {
-  margin-bottom: 12px;
-}
-.deg-group h4 {
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: 6px;
-}
-.deg-row {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  padding: 3px 0;
-  font-size: 11px;
-  border-bottom: 1px solid rgba(51, 65, 85, 0.4);
-}
-.deg-aspect {
-  flex: 1;
-  color: var(--fg);
-}
-.deg-level {
-  font-size: 10px;
-  padding: 1px 5px;
-  border-radius: 3px;
-  text-transform: uppercase;
-  font-weight: 600;
-}
+.rz-detail { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.deg-summary { font-size: 11px; color: var(--muted); margin-bottom: 10px; padding: 6px; background: rgba(0,0,0,0.2); border-radius: var(--radius-sm); text-align: center; font-family: var(--mono-font); }
+.deg-group { margin-bottom: 12px; }
+.deg-group h4 { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.deg-row { display: flex; gap: 6px; align-items: center; padding: 3px 0; font-size: 11px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.deg-aspect { flex: 1; color: var(--fg); }
+.deg-level { font-size: 10px; padding: 1px 5px; border-radius: var(--radius-sm); text-transform: uppercase; font-weight: 600; }
 .deg-level.deg-proxy { background: rgba(239,68,68,0.3); color: #fca5a5; }
 .deg-level.deg-documented { background: rgba(168,85,247,0.3); color: #c4b5fd; }
 .deg-level.deg-optional { background: rgba(100,116,139,0.3); color: #cbd5e1; }
-.deg-source {
-  font-size: 10px;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: rgba(139,92,246,0.3);
-  color: #c4b5fd;
-  text-transform: uppercase;
-  font-weight: 600;
-}
-.deg-node {
-  font-family: monospace;
-  font-size: 10px;
-  color: var(--muted);
-}
-.empty {
-  color: var(--muted);
-  font-style: italic;
-  font-size: 12px;
-}
-footer {
-  padding: 12px 32px;
-  border-top: 1px solid var(--panel-border);
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  color: var(--muted);
-}
-@media (max-width: 1024px) {
-  .layout {
-    grid-template-columns: 1fr;
-  }
-  .panel {
-    max-height: none;
-  }
-}
+.deg-source { font-size: 10px; padding: 1px 5px; border-radius: var(--radius-sm); background: rgba(139,92,246,0.3); color: #c4b5fd; text-transform: uppercase; font-weight: 600; }
+.deg-node { font-family: var(--mono-font); font-size: 10px; color: var(--muted); }
+details summary { cursor: pointer; padding: 12px; background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: var(--radius-md); color: var(--muted); font-size: 13px; }
+details summary:hover { color: var(--fg); }
+
+
+
+.document-page { max-width: 900px; margin: 40px auto; padding: 60px 80px; background: var(--panel-bg); border: 1px solid var(--panel-border); box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+.doc-header { text-align: center; margin-bottom: 48px; padding-bottom: 24px; border-bottom: 2px solid var(--fg); }
+.doc-header h1 { font-size: 32px; margin-bottom: 12px; }
+.doc-purpose { color: var(--muted); font-size: 15px; margin-bottom: 4px; font-style: italic; }
+.doc-vibe { color: var(--accent); font-size: 13px; }
+.doc-body { font-size: var(--body-size); line-height: 1.8; }
+.doc-body section { margin-bottom: 32px; }
+.doc-body h2 { font-size: 22px; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 1px solid var(--panel-border); }
+.doc-body h3 { font-size: 18px; margin: 20px 0 8px; color: var(--fg); }
+.doc-body h4 { font-size: 16px; margin: 16px 0 6px; color: var(--accent); }
+.doc-body p { margin-bottom: 12px; text-align: justify; }
+.doc-body ul { margin: 8px 0 12px 24px; }
+.doc-body li { margin-bottom: 4px; }
+.doc-body strong { color: var(--accent); }
+.doc-aside { margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--panel-border); }
+.doc-eq-panel, .doc-rz-panel { margin-bottom: 24px; }
+.doc-eq-panel h3, .doc-rz-panel h3 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 12px; }
+.doc-eq, .doc-rz { font-size: 13px; margin-bottom: 8px; padding: 8px; background: rgba(0,0,0,0.05); border-radius: var(--radius-sm); }
+.doc-footer { text-align: center; padding: 24px 0 0; border-top: 1px solid var(--panel-border); margin-top: 32px; font-size: 11px; color: var(--muted); }
+
 
 </style>
 </head>
 <body>
 
-<header class="app-header">
-  <div class="header-content">
+<div class="document-page">
+  <header class="doc-header">
     <h1>Master Builder Book</h1>
-    <p class="purpose">a printed book on the craft of building</p>
-    <p class="vibe-brief">Vibe: <em>timeless weighty considered</em></p>
-    <div class="meta-row">
-      <span class="badge badge-info">25 entities</span>
-      <span class="badge badge-info">8 equilibrium rules</span>
-      <span class="badge badge-info">1 realization targets</span>
-      <span class="badge badge-score">avg preservation: 0.82</span>
-    </div>
-  </div>
-</header>
-<main class="layout">
-  <aside class="panel structure-panel">
-    <h2>Structure</h2>
-    <ul class='tree'><li><span class='entity-label' data-path='master_builder_book'>master builder book</span> <span class='kind'>root</span><span class='dim-count'>7d</span><ul><li><span class='entity-label' data-path='master_builder_book.book'>book</span> <span class='dim-count'>5d</span><ul><li><span class='entity-label' data-path='master_builder_book.book.front_matter'>front matter</span> <span class='dim-count'>1d</span><ul><li><span class='entity-label' data-path='master_builder_book.book.front_matter.title_page'>title page</span> <span class='dim-count'>4d</span></li><li><span class='entity-label' data-path='master_builder_book.book.front_matter.copyright_page'>copyright page</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='master_builder_book.book.front_matter.dedication'>dedication</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='master_builder_book.book.front_matter.table_of_contents'>table of contents</span> <span class='dim-count'>3d</span></li><li><span class='entity-label' data-path='master_builder_book.book.front_matter.preface'>preface</span> <span class='dim-count'>1d</span></li></ul></li><li><span class='entity-label' data-path='master_builder_book.book.part_one_foundations'>part one foundations</span> <span class='dim-count'>1d</span><ul><li><span class='entity-label' data-path='master_builder_book.book.part_one_foundations.chapter_01_what_is_building'>chapter 01 what is building</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='master_builder_book.book.part_one_foundations.chapter_02_materials'>chapter 02 materials</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='master_builder_book.book.part_one_foundations.chapter_03_tools'>chapter 03 tools</span> <span class='dim-count'>1d</span></li></ul></li><li><span class='entity-label' data-path='master_builder_book.book.part_two_practice'>part two practice</span> <span class='dim-count'>1d</span><ul><li><span class='entity-label' data-path='master_builder_book.book.part_two_practice.chapter_04_planning'>chapter 04 planning</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='master_builder_book.book.part_two_practice.chapter_05_laying_foundations'>chapter 05 laying foundations</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='master_builder_book.book.part_two_practice.chapter_06_raising_walls'>chapter 06 raising walls</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='master_builder_book.book.part_two_practice.chapter_07_roofing'>chapter 07 roofing</span> <span class='dim-count'>1d</span></li></ul></li><li><span class='entity-label' data-path='master_builder_book.book.part_three_wisdom'>part three wisdom</span> <span class='dim-count'>1d</span><ul><li><span class='entity-label' data-path='master_builder_book.book.part_three_wisdom.chapter_08_patience'>chapter 08 patience</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='master_builder_book.book.part_three_wisdom.chapter_09_repair'>chapter 09 repair</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='master_builder_book.book.part_three_wisdom.chapter_10_legacy'>chapter 10 legacy</span> <span class='dim-count'>1d</span></li></ul></li><li><span class='entity-label' data-path='master_builder_book.book.back_matter'>back matter</span> <ul><li><span class='entity-label' data-path='master_builder_book.book.back_matter.glossary'>glossary</span> <span class='dim-count'>2d</span></li><li><span class='entity-label' data-path='master_builder_book.book.back_matter.index'>index</span> <span class='dim-count'>3d</span></li><li><span class='entity-label' data-path='master_builder_book.book.back_matter.colophon'>colophon</span> <span class='dim-count'>3d</span></li></ul></li></ul></li></ul></li></ul>
+    <p class="doc-purpose">a printed book on the craft of building</p>
+    <p class="doc-vibe">Vibe: <em>timeless weighty considered</em></p>
+  </header>
+  <main class="doc-body">
+    <section><h2>Book</h2><p><strong>reading:</strong> sequential</p><p><strong>toc:</strong> generated</p><p><strong>index:</strong> generated</p><p><strong>pagination:</strong> roman_then_arabic</p><p><strong>cross references:</strong> resolved</p><ul><li>book retained when always</li></ul><section><h3>Front Matter</h3><section><h4>Title Page</h4><p><strong>typography:</strong> display_weight</p><ul><li>title_page activates when book_open</li></ul></section><section><h4>Copyright Page</h4></section><section><h4>Dedication</h4></section><section><h4>Table Of Contents</h4><ul><li>table_of_contents activates when toc_request</li></ul></section><section><h4>Preface</h4></section></section><section><h3>Part One Foundations</h3><section><h4>Chapter 01 What Is Building</h4></section><section><h4>Chapter 02 Materials</h4></section><section><h4>Chapter 03 Tools</h4></section></section><section><h3>Part Two Practice</h3><section><h4>Chapter 04 Planning</h4></section><section><h4>Chapter 05 Laying Foundations</h4></section><section><h4>Chapter 06 Raising Walls</h4></section><section><h4>Chapter 07 Roofing</h4></section></section><section><h3>Part Three Wisdom</h3><section><h4>Chapter 08 Patience</h4></section><section><h4>Chapter 09 Repair</h4></section><section><h4>Chapter 10 Legacy</h4></section></section><section><h3>Back Matter</h3><section><h4>Glossary</h4><ul><li>glossary activates when term_lookup</li></ul></section><section><h4>Index</h4><ul><li>index activates when lookup_request</li></ul></section><section><h4>Colophon</h4><p><strong>typography:</strong> metadata_weight</p></section></section></section>
+  </main>
+  <aside class="doc-aside">
+    <div class='doc-eq-panel'><h3>Equilibrium Resolutions</h3><div class='doc-eq'><strong>timeless_vs_readable:</strong> timeless typography with modern legibility</div><div class='doc-eq'><strong>aesthetic_vs_navigation:</strong> toc in aesthetic style with clear hierarchy</div><div class='doc-eq'><strong>color_vs_legibility:</strong> deep colors for headings black for body</div><div class='doc-eq'><strong>classic_vs_modern:</strong> roman for front matter arabic for body</div><div class='doc-eq'><strong>subdued_vs_distinct:</strong> subdued overall palette with deep color accents</div><div class='doc-eq'><strong>sequential_vs_reference:</strong> sequential reading with parallel reference access</div><div class='doc-eq'><strong>front_matter_vs_body:</strong> roman then arabic pagination</div><div class='doc-eq'><strong>retention_overrides_format:</strong> book content retained in source form</div></div>
+    <div class='doc-rz-panel'><h3>Realization Targets</h3><div class='doc-rz'><strong>pdf_document</strong> (LaTeX) — preservation 0.82</div></div>
   </aside>
-  <section class="panel canvas-panel">
-    <h2>Interface Preview</h2>
-    <p class="hint">Each card represents an entity. Colors and shapes come from vibe dimensions. Hover for details.</p>
-    <div class='canvas-grid'>
-<div class="entity-card" style="background: #f5ebd6; border-radius: 4px; opacity: 0.92;" data-path="master_builder_book.book">
-  <div class="card-header">
-    <span class="card-label">Book</span>
-    <span class="card-path">book</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-cognitive' title='cognitive: 5 entries'>C5</span><span class='dim-badge dim-vibe' title='vibe: 5 entries'>V5</span><span class='dim-badge dim-conditional' title='conditional: 1 entries'>C1</span><span class='dim-badge dim-behavioral' title='behavioral: 5 entries'>B5</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;timeless_vs_readable&#x27;, &#x27;preserve&#x27;: [&#x27;both&#x27;], &#x27;resolution&#x27;: &#x27;timeless typography with modern legibility&#x27;, &#x27;rationale&#x27;: &#x27;classic form modern function&#x27;}'>⚖ timeless_vs_readable</span> <span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;aesthetic_vs_navigation&#x27;, &#x27;preserve&#x27;: [&#x27;both&#x27;], &#x27;resolution&#x27;: &#x27;toc in aesthetic style with clear hierarchy&#x27;, &#x27;rationale&#x27;: &#x27;navigation must not break aesthetic&#x27;}'>⚖ aesthetic_vs_navigation</span> <span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;classic_vs_modern&#x27;, &#x27;preserve&#x27;: [&#x27;both&#x27;], &#x27;resolution&#x27;: &#x27;roman for front matter arabic for body&#x27;, &#x27;rationale&#x27;: &#x27;classic convention modern readability&#x27;}'>⚖ classic_vs_modern</span> <span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;sequential_vs_reference&#x27;, &#x27;preserve&#x27;: [&#x27;both&#x27;], &#x27;resolution&#x27;: &#x27;sequential reading with parallel reference access&#x27;, &#x27;rationale&#x27;: &#x27;book serves two reading modes&#x27;}'>⚖ sequential_vs_reference</span> <span class='deg-badge deg-proxy' title='vibe.aesthetic: proxy'>proxy</span></div>
-  <div class='vibe-details' hidden><div class='vibe-item'><span class='vibe-aspect'>color_character</span>: <span class='vibe-term'>cream_paper</span></div><div class='vibe-item'><span class='vibe-aspect'>form_character</span>: <span class='vibe-term'>classic</span></div><div class='vibe-item'><span class='vibe-aspect'>tone</span>: <span class='vibe-term'>timeless</span></div><div class='vibe-item'><span class='vibe-aspect'>aesthetic</span>: <span class='vibe-term'>considered_craft</span></div><div class='vibe-item'><span class='vibe-aspect'>intensity</span>: <span class='vibe-term'>subdued</span></div></div>
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+  <footer class="doc-footer">
+    <span>Orren Engine v0.3.2 · 25 nodes · 1 targets</span>
+  </footer>
 </div>
-<div class="entity-card" style="background: #111827; border-radius: 8px; opacity: 0.92;" data-path="master_builder_book.book.front_matter.title_page">
-  <div class="card-header">
-    <span class="card-label">Title Page</span>
-    <span class="card-path">title_page</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-cognitive' title='cognitive: 1 entries'>C1</span><span class='dim-badge dim-vibe' title='vibe: 2 entries'>V2</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-conditional' title='conditional: 1 entries'>C1</span>
-  </div>
-  <div class="card-vibes"> <span class='deg-badge deg-proxy' title='vibe.aesthetic: proxy'>proxy</span></div>
-  <div class='vibe-details' hidden><div class='vibe-item'><span class='vibe-aspect'>color_character</span>: <span class='vibe-term'>black_ink</span></div><div class='vibe-item'><span class='vibe-aspect'>form_character</span>: <span class='vibe-term'>centered</span></div></div>
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="master_builder_book.book.front_matter.copyright_page">
-  <div class="card-header">
-    <span class="card-label">Copyright Page</span>
-    <span class="card-path">copyright_page</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="master_builder_book.book.front_matter.dedication">
-  <div class="card-header">
-    <span class="card-label">Dedication</span>
-    <span class="card-path">dedication</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="master_builder_book.book.front_matter.table_of_contents">
-  <div class="card-header">
-    <span class="card-label">Table Of Contents</span>
-    <span class="card-path">table_of_contents</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-relational' title='relational: 1 entries'>R1</span><span class='dim-badge dim-conditional' title='conditional: 1 entries'>C1</span>
-  </div>
-  
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="master_builder_book.book.front_matter.preface">
-  <div class="card-header">
-    <span class="card-label">Preface</span>
-    <span class="card-path">preface</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #991b1b; border-radius: 8px; opacity: 0.92;" data-path="master_builder_book.book.part_one_foundations">
-  <div class="card-header">
-    <span class="card-label">Part One Foundations</span>
-    <span class="card-path">part_one_foundations</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-vibe' title='vibe: 1 entries'>V1</span>
-  </div>
-  <div class="card-vibes"> <span class='deg-badge deg-proxy' title='vibe.aesthetic: proxy'>proxy</span></div>
-  <div class='vibe-details' hidden><div class='vibe-item'><span class='vibe-aspect'>color_character</span>: <span class='vibe-term'>deep_red</span></div></div>
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="master_builder_book.book.part_one_foundations.chapter_01_what_is_building">
-  <div class="card-header">
-    <span class="card-label">Chapter 01 What Is Building</span>
-    <span class="card-path">chapter_01_what_is_building</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="master_builder_book.book.part_one_foundations.chapter_02_materials">
-  <div class="card-header">
-    <span class="card-label">Chapter 02 Materials</span>
-    <span class="card-path">chapter_02_materials</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="master_builder_book.book.part_one_foundations.chapter_03_tools">
-  <div class="card-header">
-    <span class="card-label">Chapter 03 Tools</span>
-    <span class="card-path">chapter_03_tools</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #1e3a5f; border-radius: 8px; opacity: 0.92;" data-path="master_builder_book.book.part_two_practice">
-  <div class="card-header">
-    <span class="card-label">Part Two Practice</span>
-    <span class="card-path">part_two_practice</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-vibe' title='vibe: 1 entries'>V1</span>
-  </div>
-  <div class="card-vibes"> <span class='deg-badge deg-proxy' title='vibe.aesthetic: proxy'>proxy</span></div>
-  <div class='vibe-details' hidden><div class='vibe-item'><span class='vibe-aspect'>color_character</span>: <span class='vibe-term'>deep_blue</span></div></div>
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="master_builder_book.book.part_two_practice.chapter_04_planning">
-  <div class="card-header">
-    <span class="card-label">Chapter 04 Planning</span>
-    <span class="card-path">chapter_04_planning</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="master_builder_book.book.part_two_practice.chapter_05_laying_foundations">
-  <div class="card-header">
-    <span class="card-label">Chapter 05 Laying Foundations</span>
-    <span class="card-path">chapter_05_laying_foundations</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="master_builder_book.book.part_two_practice.chapter_06_raising_walls">
-  <div class="card-header">
-    <span class="card-label">Chapter 06 Raising Walls</span>
-    <span class="card-path">chapter_06_raising_walls</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="master_builder_book.book.part_two_practice.chapter_07_roofing">
-  <div class="card-header">
-    <span class="card-label">Chapter 07 Roofing</span>
-    <span class="card-path">chapter_07_roofing</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #27ae60; border-radius: 8px; opacity: 0.92;" data-path="master_builder_book.book.part_three_wisdom">
-  <div class="card-header">
-    <span class="card-label">Part Three Wisdom</span>
-    <span class="card-path">part_three_wisdom</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-vibe' title='vibe: 1 entries'>V1</span>
-  </div>
-  <div class="card-vibes"> <span class='deg-badge deg-proxy' title='vibe.aesthetic: proxy'>proxy</span></div>
-  <div class='vibe-details' hidden><div class='vibe-item'><span class='vibe-aspect'>color_character</span>: <span class='vibe-term'>deep_green</span></div></div>
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="master_builder_book.book.part_three_wisdom.chapter_08_patience">
-  <div class="card-header">
-    <span class="card-label">Chapter 08 Patience</span>
-    <span class="card-path">chapter_08_patience</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="master_builder_book.book.part_three_wisdom.chapter_09_repair">
-  <div class="card-header">
-    <span class="card-label">Chapter 09 Repair</span>
-    <span class="card-path">chapter_09_repair</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="master_builder_book.book.part_three_wisdom.chapter_10_legacy">
-  <div class="card-header">
-    <span class="card-label">Chapter 10 Legacy</span>
-    <span class="card-path">chapter_10_legacy</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="master_builder_book.book.back_matter.glossary">
-  <div class="card-header">
-    <span class="card-label">Glossary</span>
-    <span class="card-path">glossary</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-conditional' title='conditional: 1 entries'>C1</span>
-  </div>
-  
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="master_builder_book.book.back_matter.index">
-  <div class="card-header">
-    <span class="card-label">Index</span>
-    <span class="card-path">index</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-relational' title='relational: 1 entries'>R1</span><span class='dim-badge dim-conditional' title='conditional: 1 entries'>C1</span>
-  </div>
-  
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #6b7280; border-radius: 8px; opacity: 0.92;" data-path="master_builder_book.book.back_matter.colophon">
-  <div class="card-header">
-    <span class="card-label">Colophon</span>
-    <span class="card-path">colophon</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-cognitive' title='cognitive: 1 entries'>C1</span><span class='dim-badge dim-vibe' title='vibe: 1 entries'>V1</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  <div class="card-vibes"> <span class='deg-badge deg-proxy' title='vibe.aesthetic: proxy'>proxy</span></div>
-  <div class='vibe-details' hidden><div class='vibe-item'><span class='vibe-aspect'>color_character</span>: <span class='vibe-term'>grey_ink</span></div></div>
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div></div>
-  </section>
-  <aside class="panel info-panel">
-    
-<div class="sub-panel">
-  <h3>Equilibrium (8 rules)</h3>
-  
-<div class="eq-item eq-fired">
-  <div class="eq-name">⚖ timeless_vs_readable</div>
-  <div class="eq-status">fired</div>
-  <div class="eq-detail"><strong>Preserve:</strong> both</div>
-  <div class="eq-detail"><strong>Resolution:</strong> timeless typography with modern legibility</div>
-</div>
-<div class="eq-item eq-fired">
-  <div class="eq-name">⚖ aesthetic_vs_navigation</div>
-  <div class="eq-status">fired</div>
-  <div class="eq-detail"><strong>Preserve:</strong> both</div>
-  <div class="eq-detail"><strong>Resolution:</strong> toc in aesthetic style with clear hierarchy</div>
-</div>
-<div class="eq-item eq-not-fired">
-  <div class="eq-name">⚖ color_vs_legibility</div>
-  <div class="eq-status">not fired</div>
-  <div class="eq-detail"><strong>Preserve:</strong> both</div>
-  <div class="eq-detail"><strong>Resolution:</strong> deep colors for headings black for body</div>
-</div>
-<div class="eq-item eq-fired">
-  <div class="eq-name">⚖ classic_vs_modern</div>
-  <div class="eq-status">fired</div>
-  <div class="eq-detail"><strong>Preserve:</strong> both</div>
-  <div class="eq-detail"><strong>Resolution:</strong> roman for front matter arabic for body</div>
-</div>
-<div class="eq-item eq-not-fired">
-  <div class="eq-name">⚖ subdued_vs_distinct</div>
-  <div class="eq-status">not fired</div>
-  <div class="eq-detail"><strong>Preserve:</strong> both</div>
-  <div class="eq-detail"><strong>Resolution:</strong> subdued overall palette with deep color accents</div>
-</div>
-<div class="eq-item eq-fired">
-  <div class="eq-name">⚖ sequential_vs_reference</div>
-  <div class="eq-status">fired</div>
-  <div class="eq-detail"><strong>Preserve:</strong> both</div>
-  <div class="eq-detail"><strong>Resolution:</strong> sequential reading with parallel reference access</div>
-</div>
-<div class="eq-item eq-not-fired">
-  <div class="eq-name">⚖ front_matter_vs_body</div>
-  <div class="eq-status">not fired</div>
-  <div class="eq-detail"><strong>Preserve:</strong> both</div>
-  <div class="eq-detail"><strong>Resolution:</strong> roman then arabic pagination</div>
-</div>
-<div class="eq-item eq-not-fired">
-  <div class="eq-name">⚖ retention_overrides_format</div>
-  <div class="eq-status">not fired</div>
-  <div class="eq-detail"><strong>Preserve:</strong> unconditionally</div>
-  <div class="eq-detail"><strong>Resolution:</strong> book content retained in source form</div>
-</div>
-</div>
-    
-<div class="sub-panel">
-  <h3>Realization (1 targets)</h3>
-  
-<div class="rz-item">
-  <div class="rz-name">pdf_document</div>
-  <div class="rz-lang">LaTeX</div>
-  <div class="rz-score score-mid">0.82</div>
-  <div class="rz-detail"><strong>Capabilities:</strong> typography, layout, color, pagination</div>
-  <div class="rz-detail"><strong>Output files:</strong> 1</div>
-  <div class="rz-detail"><strong>Degradation rows:</strong> 23</div>
-</div>
-</div>
-    
-<div class="sub-panel">
-  <h3>Degradation Map</h3>
-  <div class='deg-summary'>PROXY: 18 · BRIDGE: 0 · OUT_OF_SCOPE: 0</div>
-  <div class='deg-group'><h4>Proxy / Documented (18)</h4><div class='deg-row'><span class='deg-aspect'>default</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>master_builder_book</span></div><div class='deg-row'><span class='deg-aspect'>tone</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>master_builder_book</span></div><div class='deg-row'><span class='deg-aspect'>transition</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>master_builder_book</span></div><div class='deg-row'><span class='deg-aspect'>feeds</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>master_builder_book</span></div><div class='deg-row'><span class='deg-aspect'>activates</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>master_builder_book</span></div><div class='deg-row'><span class='deg-aspect'>changes</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>master_builder_book</span></div><div class='deg-row'><span class='deg-aspect'>resolved</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>master_builder_book</span></div><div class='deg-row'><span class='deg-aspect'>transitions</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>master_builder_book</span></div><div class='deg-row'><span class='deg-aspect'>lifecycle</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>master_builder_book</span></div><div class='deg-row'><span class='deg-aspect'>reading</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>book</span></div><div class='deg-row'><span class='deg-aspect'>toc</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>book</span></div><div class='deg-row'><span class='deg-aspect'>index</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>book</span></div><div class='deg-row'><span class='deg-aspect'>pagination</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>book</span></div><div class='deg-row'><span class='deg-aspect'>cross_references</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>book</span></div><div class='deg-row'><span class='deg-aspect'>aesthetic</span><span class='deg-level deg-proxy'>proxy</span><span class='deg-node'>book</span></div></div>
-  
-</div>
-  </aside>
-</main>
-<footer>
-  <span>Orren Engine v0.3.1</span>
-  <span>25 nodes · 8 equilibrium rules · 1 targets</span>
-</footer>
 <script>
 
 document.querySelectorAll('.entity-label').forEach(el => {
   el.addEventListener('click', () => {
     const path = el.dataset.path;
-    const card = document.querySelector(`.entity-card[data-path="${path}"]`);
+    const card = document.querySelector(`.entity-card[data-path="${path}"], .atmosphere-card[data-path="${path}"], .sch-component[data-path="${path}"]`);
     if (card) {
       card.scrollIntoView({behavior: 'smooth', block: 'center'});
-      card.style.outline = '3px solid #3b82f6';
+      card.style.outline = '3px solid var(--accent)';
       setTimeout(() => card.style.outline = '', 1500);
     }
   });

@@ -7,633 +7,333 @@
 <style>
 
 :root {
-  --bg: #0f172a;
-  --fg: #e2e8f0;
-  --accent: #faf6f0;
-  --panel-bg: #1e293b;
-  --panel-border: #334155;
-  --muted: #94a3b8;
-  --eq-color: #f59e0b;
-  --proxy-color: #ef4444;
-  --bridge-color: #8b5cf6;
-  --good-color: #10b981;
+  --bg: #faf6f0;
+  --fg: #3a2f25;
+  --accent: #92400e;
+  --panel-bg: #ffffff;
+  --panel-border: #e7e0d4;
+  --muted: #a8a29e;
+  --highlight: #c2410c;
+  --heading-font: 'SF Pro Rounded', 'Nunito', 'Quicksand', system-ui, sans-serif;
+  --body-font: 'SF Pro Rounded', 'Nunito', 'Quicksand', system-ui, sans-serif;
+  --mono-font: 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --heading-weight: 700;
+  --body-size: 13px;
+  --line-height: 1.5;
+  --letter-spacing: 0;
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --card-radius: 16px;
+  --panel-radius: 16px;
+  --spacing-unit: 16px;
+  --motion-duration: 200ms;
+  --motion-easing: ease;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  background: var(--bg);
+  font-family: var(--body-font);
+  background: #faf6f0;
   color: var(--fg);
-  line-height: 1.5;
-  font-size: 14px;
+  line-height: var(--line-height);
+  font-size: var(--body-size);
+  letter-spacing: var(--letter-spacing);
+  min-height: 100vh;
+  background-image: radial-gradient(circle at 30% 20%, rgba(255,255,255,0.03), transparent 60%),
+              radial-gradient(circle at 70% 80%, rgba(255,255,255,0.020000000000000004), transparent 60%);
 }
-.app-header {
-  background: linear-gradient(135deg, var(--panel-bg), var(--bg));
-  border-bottom: 2px solid var(--accent);
-  padding: 24px 32px;
-}
-.app-header h1 {
-  font-size: 28px;
-  font-weight: 700;
-  margin-bottom: 8px;
-  color: var(--fg);
-}
-.app-header .purpose {
-  color: var(--muted);
-  font-size: 15px;
-  margin-bottom: 4px;
-  max-width: 80ch;
-}
-.app-header .vibe-brief {
-  color: var(--accent);
-  font-size: 13px;
-  margin-bottom: 12px;
-}
-.meta-row {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.badge {
-  display: inline-block;
-  padding: 4px 10px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 500;
-}
-.badge-info {
-  background: rgba(59, 130, 246, 0.2);
-  color: #93c5fd;
-  border: 1px solid rgba(59, 130, 246, 0.3);
-}
-.badge-score {
-  background: rgba(16, 185, 129, 0.2);
-  color: #6ee7b7;
-  border: 1px solid rgba(16, 185, 129, 0.3);
-}
-.layout {
-  display: grid;
-  grid-template-columns: 280px 1fr 360px;
-  gap: 16px;
-  padding: 16px;
-  min-height: calc(100vh - 200px);
-}
-.panel {
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  border-radius: 12px;
-  padding: 16px;
-  overflow-y: auto;
-  max-height: calc(100vh - 120px);
-}
-.panel h2 {
-  font-size: 14px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--panel-border);
-}
-.panel .hint {
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: 16px;
-}
-.structure-panel .tree {
-  list-style: none;
-  font-size: 13px;
-}
-.structure-panel .tree ul {
-  list-style: none;
-  padding-left: 16px;
-  border-left: 1px solid var(--panel-border);
-  margin-left: 4px;
-}
-.structure-panel .tree li {
-  padding: 4px 0;
-}
-.structure-panel .entity-label {
-  color: var(--fg);
-  cursor: pointer;
-  transition: color 0.15s;
-}
-.structure-panel .entity-label:hover {
-  color: var(--accent);
-}
-.structure-panel .kind {
-  font-size: 11px;
-  color: var(--muted);
-  background: rgba(148, 163, 184, 0.15);
-  padding: 1px 6px;
-  border-radius: 4px;
-  margin-left: 4px;
-}
-.structure-panel .dim-count {
-  font-size: 11px;
-  color: var(--accent);
-  margin-left: 4px;
-}
-.canvas-panel {
-  display: flex;
-  flex-direction: column;
-}
-.canvas-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 12px;
-  align-content: start;
-}
-.entity-card {
-  padding: 14px;
-  border: 1px solid rgba(255,255,255,0.15);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-  min-height: 100px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  transition: transform 0.15s, box-shadow 0.15s;
-  color: #fff;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
-}
-.entity-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-}
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-}
-.card-label {
-  font-size: 15px;
-  font-weight: 600;
-}
-.card-path {
-  font-size: 11px;
-  opacity: 0.7;
-  font-family: monospace;
-}
-.card-badges {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-.dim-badge {
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: rgba(0,0,0,0.4);
-  font-weight: 600;
-}
-.card-vibes {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-  font-size: 10px;
-}
-.eq-badge {
-  background: rgba(245, 158, 11, 0.3);
-  color: #fbbf24;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-.deg-badge {
-  background: rgba(239, 68, 68, 0.3);
-  color: #fca5a5;
-  padding: 2px 6px;
-  border-radius: 4px;
-  text-transform: uppercase;
-  font-weight: 600;
-}
-.deg-badge.deg-proxy { background: rgba(239, 68, 68, 0.3); color: #fca5a5; }
-.deg-badge.deg-documented { background: rgba(168, 85, 247, 0.3); color: #c4b5fd; }
-.deg-badge.deg-optional { background: rgba(100, 116, 139, 0.3); color: #cbd5e1; }
-.vibe-details {
-  font-size: 11px;
-  border-top: 1px solid rgba(255,255,255,0.2);
-  padding-top: 8px;
-  margin-top: 4px;
-}
-.vibe-item {
-  display: flex;
-  justify-content: space-between;
-  padding: 2px 0;
-}
+
+a { color: var(--accent); text-decoration: none; }
+h1, h2, h3, h4 { font-family: var(--heading-font); font-weight: var(--heading-weight); }
+.badge { display: inline-block; padding: 4px 10px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 500; }
+.badge-info { background: rgba(255,255,255,0.08); color: var(--muted); border: 1px solid var(--panel-border); }
+.badge-mood { background: rgba(255,255,255,0.12); color: var(--fg); border: 1px solid var(--accent); }
+.badge-layout { background: rgba(255,255,255,0.06); color: var(--muted); border: 1px dashed var(--panel-border); }
+.badge-score { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.3); }
+.panel { background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: var(--panel-radius); padding: 16px; overflow-y: auto; }
+.panel h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--panel-border); }
+.panel .hint { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+.sub-panel { background: rgba(0,0,0,0.15); border: 1px solid var(--panel-border); border-radius: var(--radius-md); padding: 12px; margin-bottom: 16px; }
+.sub-panel h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 10px; }
+.empty { color: var(--muted); font-style: italic; font-size: 12px; }
+.tree { list-style: none; font-size: 13px; }
+.tree ul { list-style: none; padding-left: 16px; border-left: 1px solid var(--panel-border); margin-left: 4px; }
+.tree li { padding: 4px 0; }
+.entity-label { color: var(--fg); cursor: pointer; transition: color var(--motion-duration) var(--motion-easing); }
+.entity-label:hover { color: var(--accent); }
+.kind { font-size: 11px; color: var(--muted); background: rgba(255,255,255,0.08); padding: 1px 6px; border-radius: var(--radius-sm); margin-left: 4px; }
+.dim-count { font-size: 11px; color: var(--accent); margin-left: 4px; }
+.canvas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; align-content: start; }
+.entity-card { padding: 14px; border: 1px solid rgba(255,255,255,0.15); box-shadow: 0 4px 12px rgba(0,0,0,0.2); min-height: 100px; display: flex; flex-direction: column; gap: 8px; transition: transform var(--motion-duration) var(--motion-easing), box-shadow var(--motion-duration) var(--motion-easing); color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.5); }
+.entity-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+.card-header { display: flex; justify-content: space-between; align-items: baseline; }
+.card-label { font-size: 15px; font-weight: var(--heading-weight); }
+.card-path { font-size: 11px; opacity: 0.7; font-family: var(--mono-font); }
+.card-badges { display: flex; gap: 4px; flex-wrap: wrap; }
+.dim-badge { font-size: 10px; padding: 2px 6px; border-radius: var(--radius-sm); background: rgba(0,0,0,0.4); font-weight: 600; }
+.card-vibes { display: flex; gap: 4px; flex-wrap: wrap; font-size: 10px; }
+.eq-badge { background: rgba(245, 158, 11, 0.3); color: #fbbf24; padding: 2px 6px; border-radius: var(--radius-sm); }
+.deg-badge { background: rgba(239, 68, 68, 0.3); color: #fca5a5; padding: 2px 6px; border-radius: var(--radius-sm); text-transform: uppercase; font-weight: 600; }
+.vibe-details { font-size: 11px; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 8px; margin-top: 4px; }
+.vibe-item { display: flex; justify-content: space-between; padding: 2px 0; }
 .vibe-aspect { opacity: 0.8; }
 .vibe-term { font-weight: 500; }
-.expand-btn {
-  align-self: flex-start;
-  background: rgba(0,0,0,0.3);
-  border: 1px solid rgba(255,255,255,0.2);
-  color: #fff;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  cursor: pointer;
-  margin-top: auto;
-}
-.expand-btn:hover {
-  background: rgba(0,0,0,0.5);
-}
-.info-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.sub-panel {
-  background: rgba(15, 23, 42, 0.5);
-  border: 1px solid var(--panel-border);
-  border-radius: 8px;
-  padding: 12px;
-}
-.sub-panel h3 {
-  font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-  margin-bottom: 10px;
-}
-.eq-item {
-  padding: 8px;
-  margin-bottom: 8px;
-  border-radius: 6px;
-  border-left: 3px solid;
-  background: rgba(30, 41, 59, 0.6);
-}
-.eq-item.eq-fired {
-  border-color: var(--good-color);
-}
-.eq-item.eq-not-fired {
-  border-color: var(--muted);
-  opacity: 0.6;
-}
-.eq-name {
-  font-weight: 600;
-  font-size: 13px;
-  margin-bottom: 4px;
-}
-.eq-status {
-  font-size: 11px;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin-bottom: 4px;
-}
-.eq-detail {
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: 2px;
-}
-.rz-item {
-  padding: 8px;
-  margin-bottom: 8px;
-  border-radius: 6px;
-  background: rgba(30, 41, 59, 0.6);
-  border-left: 3px solid var(--accent);
-}
-.rz-name {
-  font-weight: 600;
-  font-size: 13px;
-}
-.rz-lang {
-  font-size: 11px;
-  color: var(--muted);
-  font-family: monospace;
-}
-.rz-score {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  margin: 4px 0;
-}
+.expand-btn { align-self: flex-start; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 2px 8px; border-radius: var(--radius-sm); font-size: 11px; cursor: pointer; margin-top: auto; }
+.eq-item { padding: 8px; margin-bottom: 8px; border-radius: var(--radius-sm); border-left: 3px solid; background: rgba(0,0,0,0.2); }
+.eq-item.eq-fired { border-color: #10b981; }
+.eq-item.eq-not-fired { border-color: var(--muted); opacity: 0.6; }
+.eq-name { font-weight: var(--heading-weight); font-size: 13px; margin-bottom: 4px; }
+.eq-status { font-size: 11px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.eq-detail { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.rz-item { padding: 8px; margin-bottom: 8px; border-radius: var(--radius-sm); background: rgba(0,0,0,0.2); border-left: 3px solid var(--accent); }
+.rz-name { font-weight: var(--heading-weight); font-size: 13px; }
+.rz-lang { font-size: 11px; color: var(--muted); font-family: var(--mono-font); }
+.rz-score { display: inline-block; padding: 2px 8px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 600; margin: 4px 0; }
 .score-high { background: rgba(16, 185, 129, 0.3); color: #6ee7b7; }
 .score-mid { background: rgba(245, 158, 11, 0.3); color: #fbbf24; }
 .score-low { background: rgba(239, 68, 68, 0.3); color: #fca5a5; }
-.rz-detail {
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: 2px;
-}
-.deg-summary {
-  font-size: 11px;
-  color: var(--muted);
-  margin-bottom: 10px;
-  padding: 6px;
-  background: rgba(30, 41, 59, 0.6);
-  border-radius: 4px;
-  text-align: center;
-}
-.deg-group {
-  margin-bottom: 12px;
-}
-.deg-group h4 {
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: 6px;
-}
-.deg-row {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  padding: 3px 0;
-  font-size: 11px;
-  border-bottom: 1px solid rgba(51, 65, 85, 0.4);
-}
-.deg-aspect {
-  flex: 1;
-  color: var(--fg);
-}
-.deg-level {
-  font-size: 10px;
-  padding: 1px 5px;
-  border-radius: 3px;
-  text-transform: uppercase;
-  font-weight: 600;
-}
+.rz-detail { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.deg-summary { font-size: 11px; color: var(--muted); margin-bottom: 10px; padding: 6px; background: rgba(0,0,0,0.2); border-radius: var(--radius-sm); text-align: center; font-family: var(--mono-font); }
+.deg-group { margin-bottom: 12px; }
+.deg-group h4 { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.deg-row { display: flex; gap: 6px; align-items: center; padding: 3px 0; font-size: 11px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.deg-aspect { flex: 1; color: var(--fg); }
+.deg-level { font-size: 10px; padding: 1px 5px; border-radius: var(--radius-sm); text-transform: uppercase; font-weight: 600; }
 .deg-level.deg-proxy { background: rgba(239,68,68,0.3); color: #fca5a5; }
 .deg-level.deg-documented { background: rgba(168,85,247,0.3); color: #c4b5fd; }
 .deg-level.deg-optional { background: rgba(100,116,139,0.3); color: #cbd5e1; }
-.deg-source {
-  font-size: 10px;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: rgba(139,92,246,0.3);
-  color: #c4b5fd;
-  text-transform: uppercase;
-  font-weight: 600;
-}
-.deg-node {
-  font-family: monospace;
-  font-size: 10px;
-  color: var(--muted);
-}
-.empty {
-  color: var(--muted);
-  font-style: italic;
-  font-size: 12px;
-}
-footer {
-  padding: 12px 32px;
-  border-top: 1px solid var(--panel-border);
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  color: var(--muted);
-}
-@media (max-width: 1024px) {
-  .layout {
-    grid-template-columns: 1fr;
-  }
-  .panel {
-    max-height: none;
-  }
-}
+.deg-source { font-size: 10px; padding: 1px 5px; border-radius: var(--radius-sm); background: rgba(139,92,246,0.3); color: #c4b5fd; text-transform: uppercase; font-weight: 600; }
+.deg-node { font-family: var(--mono-font); font-size: 10px; color: var(--muted); }
+details summary { cursor: pointer; padding: 12px; background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: var(--radius-md); color: var(--muted); font-size: 13px; }
+details summary:hover { color: var(--fg); }
+
+
+
+.app-header { padding: 24px 32px; border-bottom: 2px solid var(--panel-border); background: linear-gradient(180deg, var(--panel-bg), transparent); }
+.app-header h1 { font-size: 26px; margin-bottom: 8px; font-family: var(--mono-font); }
+.app-header .purpose { color: var(--muted); font-size: 14px; margin-bottom: 4px; max-width: 80ch; font-family: var(--mono-font); }
+.app-header .vibe-brief { color: var(--accent); font-size: 12px; margin-bottom: 12px; font-family: var(--mono-font); }
+.meta-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.layout-schematic { display: grid; grid-template-columns: 1fr 360px; gap: 16px; padding: 16px; min-height: calc(100vh - 200px); }
+.schematic-canvas { background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: var(--panel-radius); padding: 20px; overflow-x: auto; }
+.schematic-canvas h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 16px; font-family: var(--mono-font); }
+.schematic-tree { font-family: var(--mono-font); font-size: 12px; }
+.sch-component { border: 1px solid var(--panel-border); border-radius: var(--radius-sm); padding: 10px; margin-bottom: 10px; background: rgba(0,0,0,0.2); }
+.sch-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.sch-name { font-weight: var(--heading-weight); color: var(--fg); }
+.sch-path { color: var(--muted); font-size: 10px; margin-left: auto; }
+.sch-safety { background: rgba(239,68,68,0.3); color: #fca5a5; padding: 1px 6px; border-radius: var(--radius-sm); font-size: 9px; font-weight: 700; }
+.sch-sensor { background: rgba(59,130,246,0.3); color: #93c5fd; padding: 1px 6px; border-radius: var(--radius-sm); font-size: 9px; font-weight: 700; }
+.sch-actuator { background: rgba(16,185,129,0.3); color: #6ee7b7; padding: 1px 6px; border-radius: var(--radius-sm); font-size: 9px; font-weight: 700; }
+.sch-details { font-size: 11px; color: var(--muted); padding-left: 8px; border-left: 2px solid var(--panel-border); }
+.sch-cog { padding: 2px 0; }
+.sch-cog-pred { color: var(--accent); }
+.sch-cog-val { color: var(--fg); }
+.sch-beh { padding: 2px 0; color: var(--muted); }
+.sch-children { margin-left: 16px; margin-top: 8px; padding-left: 12px; border-left: 1px dashed var(--panel-border); }
+.schematic-info { max-height: calc(100vh - 120px); overflow-y: auto; }
+.dash-footer { padding: 12px 32px; border-top: 1px solid var(--panel-border); display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-family: var(--mono-font); }
+@media (max-width: 1024px) { .layout-schematic { grid-template-columns: 1fr; } }
+
 
 </style>
 </head>
 <body>
 
-<header class="app-header">
+
+<header class="app-header" style="border-bottom-color: var(--accent);">
   <div class="header-content">
     <h1>Assistive Arm</h1>
     <p class="purpose">a robotic arm that helps elderly people grab things but it should move slowly when the person seems tired and quickly when they&#x27;re trying to grab something falling and never ever push toward the person ever</p>
     <p class="vibe-brief">Vibe: <em>dignified quiet reliable warm not clinical</em></p>
     <div class="meta-row">
       <span class="badge badge-info">20 entities</span>
-      <span class="badge badge-info">9 equilibrium rules</span>
-      <span class="badge badge-info">6 realization targets</span>
+      <span class="badge badge-info">9 eq rules</span>
+      <span class="badge badge-info">6 targets</span>
+      <span class="badge badge-mood">Warm</span>
+      <span class="badge badge-layout">Schematic</span>
       <span class="badge badge-score">avg preservation: 0.99</span>
     </div>
   </div>
 </header>
-<main class="layout">
-  <aside class="panel structure-panel">
-    <h2>Structure</h2>
-    <ul class='tree'><li><span class='entity-label' data-path='assistive_arm'>assistive arm</span> <span class='kind'>root</span><span class='dim-count'>7d</span><ul><li><span class='entity-label' data-path='assistive_arm.arm'>arm</span> <span class='dim-count'>1d</span><ul><li><span class='entity-label' data-path='assistive_arm.arm.base'>base</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='assistive_arm.arm.shoulder_joint'>shoulder joint</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='assistive_arm.arm.upper_segment'>upper segment</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='assistive_arm.arm.elbow_joint'>elbow joint</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='assistive_arm.arm.lower_segment'>lower segment</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='assistive_arm.arm.wrist_joint'>wrist joint</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='assistive_arm.arm.gripper'>gripper</span> <span class='dim-count'>4d</span><ul><li><span class='entity-label' data-path='assistive_arm.arm.gripper.pressure_sensor'>pressure sensor</span> <span class='dim-count'>2d</span></li><li><span class='entity-label' data-path='assistive_arm.arm.gripper.slip_detector'>slip detector</span> <span class='dim-count'>2d</span></li></ul></li></ul></li><li><span class='entity-label' data-path='assistive_arm.control_unit'>control unit</span> <ul><li><span class='entity-label' data-path='assistive_arm.control_unit.intent_recognizer'>intent recognizer</span> <span class='dim-count'>3d</span></li><li><span class='entity-label' data-path='assistive_arm.control_unit.fatigue_estimator'>fatigue estimator</span> <span class='dim-count'>3d</span></li><li><span class='entity-label' data-path='assistive_arm.control_unit.safety_monitor'>safety monitor</span> <span class='dim-count'>5d</span></li><li><span class='entity-label' data-path='assistive_arm.control_unit.manual_override'>manual override</span> <span class='dim-count'>4d</span></li></ul></li><li><span class='entity-label' data-path='assistive_arm.interface'>interface</span> <span class='dim-count'>1d</span><ul><li><span class='entity-label' data-path='assistive_arm.interface.status_light'>status light</span> <span class='dim-count'>2d</span></li><li><span class='entity-label' data-path='assistive_arm.interface.voice_acknowledgment'>voice acknowledgment</span> <span class='dim-count'>2d</span></li><li><span class='entity-label' data-path='assistive_arm.interface.emergency_button'>emergency button</span> <span class='dim-count'>3d</span></li></ul></li></ul></li></ul>
-  </aside>
-  <section class="panel canvas-panel">
-    <h2>Interface Preview</h2>
-    <p class="hint">Each card represents an entity. Colors and shapes come from vibe dimensions. Hover for details.</p>
-    <div class='canvas-grid'>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="assistive_arm.arm">
-  <div class="card-header">
-    <span class="card-label">Arm</span>
-    <span class="card-path">arm</span>
+<main class="layout-schematic">
+  <section class="schematic-canvas">
+    <h2>Component Diagram</h2>
+    <div class='schematic-tree'>
+<div class="sch-component" data-depth="0">
+  <div class="sch-header">
+    <span class="sch-name">arm</span>
+    
+    <span class="sch-path">arm</span>
   </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-conditional' title='conditional: 3 entries'>C3</span>
+  
+  <div class='sch-children'>
+<div class="sch-component" data-depth="1">
+  <div class="sch-header">
+    <span class="sch-name">base</span>
+    
+    <span class="sch-path">base</span>
   </div>
   
   
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="assistive_arm.arm.base">
-  <div class="card-header">
-    <span class="card-label">Base</span>
-    <span class="card-path">base</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
+<div class="sch-component" data-depth="1">
+  <div class="sch-header">
+    <span class="sch-name">shoulder joint</span>
+    
+    <span class="sch-path">shoulder_joint</span>
   </div>
   
   
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="assistive_arm.arm.shoulder_joint">
-  <div class="card-header">
-    <span class="card-label">Shoulder Joint</span>
-    <span class="card-path">shoulder_joint</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
+<div class="sch-component" data-depth="1">
+  <div class="sch-header">
+    <span class="sch-name">upper segment</span>
+    
+    <span class="sch-path">upper_segment</span>
   </div>
   
   
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="assistive_arm.arm.upper_segment">
-  <div class="card-header">
-    <span class="card-label">Upper Segment</span>
-    <span class="card-path">upper_segment</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
+<div class="sch-component" data-depth="1">
+  <div class="sch-header">
+    <span class="sch-name">elbow joint</span>
+    
+    <span class="sch-path">elbow_joint</span>
   </div>
   
   
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="assistive_arm.arm.elbow_joint">
-  <div class="card-header">
-    <span class="card-label">Elbow Joint</span>
-    <span class="card-path">elbow_joint</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
+<div class="sch-component" data-depth="1">
+  <div class="sch-header">
+    <span class="sch-name">lower segment</span>
+    
+    <span class="sch-path">lower_segment</span>
   </div>
   
   
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="assistive_arm.arm.lower_segment">
-  <div class="card-header">
-    <span class="card-label">Lower Segment</span>
-    <span class="card-path">lower_segment</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
+<div class="sch-component" data-depth="1">
+  <div class="sch-header">
+    <span class="sch-name">wrist joint</span>
+    
+    <span class="sch-path">wrist_joint</span>
   </div>
   
   
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="assistive_arm.arm.wrist_joint">
-  <div class="card-header">
-    <span class="card-label">Wrist Joint</span>
-    <span class="card-path">wrist_joint</span>
+<div class="sch-component" data-depth="1">
+  <div class="sch-header">
+    <span class="sch-name">gripper</span>
+    
+    <span class="sch-path">gripper</span>
   </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
+  <div class='sch-details'><div class='sch-cog'><span class='sch-cog-pred'>pressure</span>: <span class='sch-cog-val'>regulated_to_object</span></div><div class='sch-cog'><span class='sch-cog-pred'>slip</span>: <span class='sch-cog-val'>detected_and_corrected</span></div><div class='sch-beh'>open → closing on object_reached</div><div class='sch-beh'>closing → secured on pressure_stable</div><div class='sch-beh'>secured → opening on user_release_intent</div><div class='sch-beh'>lifecycle: closing → secured → opening → open</div></div>
+  <div class='sch-children'>
+<div class="sch-component" data-depth="2">
+  <div class="sch-header">
+    <span class="sch-name">pressure sensor</span>
+    <span class='sch-sensor'>SENSOR</span>
+    <span class="sch-path">pressure_sensor</span>
   </div>
   
   
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="assistive_arm.arm.gripper">
-  <div class="card-header">
-    <span class="card-label">Gripper</span>
-    <span class="card-path">gripper</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-cognitive' title='cognitive: 2 entries'>C2</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-conditional' title='conditional: 2 entries'>C2</span><span class='dim-badge dim-behavioral' title='behavioral: 4 entries'>B4</span>
+<div class="sch-component" data-depth="2">
+  <div class="sch-header">
+    <span class="sch-name">slip detector</span>
+    <span class='sch-sensor'>SENSOR</span>
+    <span class="sch-path">slip_detector</span>
   </div>
   
   
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+</div></div>
+</div></div>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="assistive_arm.arm.gripper.pressure_sensor">
-  <div class="card-header">
-    <span class="card-label">Pressure Sensor</span>
-    <span class="card-path">pressure_sensor</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-relational' title='relational: 1 entries'>R1</span>
+<div class="sch-component" data-depth="0">
+  <div class="sch-header">
+    <span class="sch-name">control unit</span>
+    
+    <span class="sch-path">control_unit</span>
   </div>
   
+  <div class='sch-children'>
+<div class="sch-component" data-depth="1">
+  <div class="sch-header">
+    <span class="sch-name">intent recognizer</span>
+    
+    <span class="sch-path">intent_recognizer</span>
+  </div>
+  <div class='sch-details'><div class='sch-cog'><span class='sch-cog-pred'>inference</span>: <span class='sch-cog-val'>multimodal</span></div></div>
   
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="assistive_arm.arm.gripper.slip_detector">
-  <div class="card-header">
-    <span class="card-label">Slip Detector</span>
-    <span class="card-path">slip_detector</span>
+<div class="sch-component" data-depth="1">
+  <div class="sch-header">
+    <span class="sch-name">fatigue estimator</span>
+    
+    <span class="sch-path">fatigue_estimator</span>
   </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-relational' title='relational: 1 entries'>R1</span>
-  </div>
+  <div class='sch-details'><div class='sch-cog'><span class='sch-cog-pred'>estimation</span>: <span class='sch-cog-val'>behavioral_baselined</span></div></div>
   
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="assistive_arm.control_unit.intent_recognizer">
-  <div class="card-header">
-    <span class="card-label">Intent Recognizer</span>
-    <span class="card-path">intent_recognizer</span>
+<div class="sch-component" data-depth="1">
+  <div class="sch-header">
+    <span class="sch-name">safety monitor</span>
+    <span class='sch-safety'>SAFETY</span>
+    <span class="sch-path">safety_monitor</span>
   </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-cognitive' title='cognitive: 1 entries'>C1</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-relational' title='relational: 1 entries'>R1</span>
+  <div class='sch-details'><div class='sch-cog'><span class='sch-cog-pred'>guard</span>: <span class='sch-cog-val'>geometric_constraint</span></div><div class='sch-beh'>passive → active on motion_planned</div><div class='sch-beh'>active → alert on constraint_violation</div><div class='sch-beh'>lifecycle: active → alert → passive</div></div>
+  
+</div>
+<div class="sch-component" data-depth="1">
+  <div class="sch-header">
+    <span class="sch-name">manual override</span>
+    
+    <span class="sch-path">manual_override</span>
+  </div>
+  <div class='sch-details'><div class='sch-cog'><span class='sch-cog-pred'>authority</span>: <span class='sch-cog-val'>overrides_all_automation</span></div></div>
+  
+</div></div>
+</div>
+<div class="sch-component" data-depth="0">
+  <div class="sch-header">
+    <span class="sch-name">interface</span>
+    
+    <span class="sch-path">interface</span>
+  </div>
+  
+  <div class='sch-children'>
+<div class="sch-component" data-depth="1">
+  <div class="sch-header">
+    <span class="sch-name">status light</span>
+    
+    <span class="sch-path">status_light</span>
   </div>
   
   
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="assistive_arm.control_unit.fatigue_estimator">
-  <div class="card-header">
-    <span class="card-label">Fatigue Estimator</span>
-    <span class="card-path">fatigue_estimator</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-cognitive' title='cognitive: 1 entries'>C1</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-relational' title='relational: 1 entries'>R1</span>
+<div class="sch-component" data-depth="1">
+  <div class="sch-header">
+    <span class="sch-name">voice acknowledgment</span>
+    
+    <span class="sch-path">voice_acknowledgment</span>
   </div>
   
   
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
 </div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="assistive_arm.control_unit.safety_monitor">
-  <div class="card-header">
-    <span class="card-label">Safety Monitor</span>
-    <span class="card-path">safety_monitor</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-cognitive' title='cognitive: 1 entries'>C1</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-relational' title='relational: 1 entries'>R1</span><span class='dim-badge dim-behavioral' title='behavioral: 3 entries'>B3</span>
-  </div>
-  <div class="card-vibes"><span class='eq-badge' title='{&#x27;rule&#x27;: &#x27;safety_overrides_everything&#x27;, &#x27;preserve&#x27;: [&#x27;unconditionally&#x27;], &#x27;resolution&#x27;: &#x27;halt motion immediately&#x27;, &#x27;rationale&#x27;: &#x27;safety is the highest contract&#x27;}'>⚖ safety_overrides_everything</span> </div>
-  
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="assistive_arm.control_unit.manual_override">
-  <div class="card-header">
-    <span class="card-label">Manual Override</span>
-    <span class="card-path">manual_override</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-cognitive' title='cognitive: 1 entries'>C1</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-relational' title='relational: 1 entries'>R1</span><span class='dim-badge dim-conditional' title='conditional: 2 entries'>C2</span>
+<div class="sch-component" data-depth="1">
+  <div class="sch-header">
+    <span class="sch-name">emergency button</span>
+    <span class='sch-safety'>SAFETY</span>
+    <span class="sch-path">emergency_button</span>
   </div>
   
   
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="assistive_arm.interface">
-  <div class="card-header">
-    <span class="card-label">Interface</span>
-    <span class="card-path">interface</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-vibe' title='vibe: 1 entries'>V1</span>
-  </div>
-  <div class="card-vibes"> <span class='deg-badge deg-proxy' title='vibe.aesthetic: proxy'>proxy</span></div>
-  <div class='vibe-details' hidden><div class='vibe-item'><span class='vibe-aspect'>tone</span>: <span class='vibe-term'>respectful</span></div></div>
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #f4a261; border-radius: 8px; opacity: 0.92;" data-path="assistive_arm.interface.status_light">
-  <div class="card-header">
-    <span class="card-label">Status Light</span>
-    <span class="card-path">status_light</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-vibe' title='vibe: 2 entries'>V2</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  <div class="card-vibes"> <span class='deg-badge deg-proxy' title='vibe.aesthetic: proxy'>proxy</span></div>
-  <div class='vibe-details' hidden><div class='vibe-item'><span class='vibe-aspect'>color_character</span>: <span class='vibe-term'>soft_amber</span></div><div class='vibe-item'><span class='vibe-aspect'>activation_signal</span>: <span class='vibe-term'>gentle_pulse</span></div></div>
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #64748b; border-radius: 8px; opacity: 0.92;" data-path="assistive_arm.interface.voice_acknowledgment">
-  <div class="card-header">
-    <span class="card-label">Voice Acknowledgment</span>
-    <span class="card-path">voice_acknowledgment</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-vibe' title='vibe: 1 entries'>V1</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span>
-  </div>
-  <div class="card-vibes"> <span class='deg-badge deg-proxy' title='vibe.aesthetic: proxy'>proxy</span></div>
-  <div class='vibe-details' hidden><div class='vibe-item'><span class='vibe-aspect'>tone</span>: <span class='vibe-term'>warm</span></div></div>
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
-</div>
-<div class="entity-card" style="background: #dc2626; border-radius: 8px; opacity: 0.92;" data-path="assistive_arm.interface.emergency_button">
-  <div class="card-header">
-    <span class="card-label">Emergency Button</span>
-    <span class="card-path">emergency_button</span>
-  </div>
-  <div class="card-badges">
-    <span class='dim-badge dim-vibe' title='vibe: 2 entries'>V2</span><span class='dim-badge dim-spatial' title='spatial: 1 entries'>S1</span><span class='dim-badge dim-relational' title='relational: 1 entries'>R1</span>
-  </div>
-  <div class="card-vibes"> <span class='deg-badge deg-proxy' title='vibe.aesthetic: proxy'>proxy</span></div>
-  <div class='vibe-details' hidden><div class='vibe-item'><span class='vibe-aspect'>color_character</span>: <span class='vibe-term'>alert_red</span></div><div class='vibe-item'><span class='vibe-aspect'>tone</span>: <span class='vibe-term'>urgent</span></div></div>
-  <button class="expand-btn" onclick="this.parentElement.querySelector('.vibe-details').hidden = !this.parentElement.querySelector('.vibe-details').hidden">details</button>
+</div></div>
 </div></div>
   </section>
-  <aside class="panel info-panel">
+  <aside class="schematic-info">
+    <div class="panel"><ul class='tree'><li><span class='entity-label' data-path='assistive_arm'>assistive arm</span> <span class='kind'>root</span><span class='dim-count'>7d</span><ul><li><span class='entity-label' data-path='assistive_arm.arm'>arm</span> <span class='dim-count'>1d</span><ul><li><span class='entity-label' data-path='assistive_arm.arm.base'>base</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='assistive_arm.arm.shoulder_joint'>shoulder joint</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='assistive_arm.arm.upper_segment'>upper segment</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='assistive_arm.arm.elbow_joint'>elbow joint</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='assistive_arm.arm.lower_segment'>lower segment</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='assistive_arm.arm.wrist_joint'>wrist joint</span> <span class='dim-count'>1d</span></li><li><span class='entity-label' data-path='assistive_arm.arm.gripper'>gripper</span> <span class='dim-count'>4d</span><ul><li><span class='entity-label' data-path='assistive_arm.arm.gripper.pressure_sensor'>pressure sensor</span> <span class='dim-count'>2d</span></li><li><span class='entity-label' data-path='assistive_arm.arm.gripper.slip_detector'>slip detector</span> <span class='dim-count'>2d</span></li></ul></li></ul></li><li><span class='entity-label' data-path='assistive_arm.control_unit'>control unit</span> <ul><li><span class='entity-label' data-path='assistive_arm.control_unit.intent_recognizer'>intent recognizer</span> <span class='dim-count'>3d</span></li><li><span class='entity-label' data-path='assistive_arm.control_unit.fatigue_estimator'>fatigue estimator</span> <span class='dim-count'>3d</span></li><li><span class='entity-label' data-path='assistive_arm.control_unit.safety_monitor'>safety monitor</span> <span class='dim-count'>5d</span></li><li><span class='entity-label' data-path='assistive_arm.control_unit.manual_override'>manual override</span> <span class='dim-count'>4d</span></li></ul></li><li><span class='entity-label' data-path='assistive_arm.interface'>interface</span> <span class='dim-count'>1d</span><ul><li><span class='entity-label' data-path='assistive_arm.interface.status_light'>status light</span> <span class='dim-count'>2d</span></li><li><span class='entity-label' data-path='assistive_arm.interface.voice_acknowledgment'>voice acknowledgment</span> <span class='dim-count'>2d</span></li><li><span class='entity-label' data-path='assistive_arm.interface.emergency_button'>emergency button</span> <span class='dim-count'>3d</span></li></ul></li></ul></li></ul></div>
     
 <div class="sub-panel">
   <h3>Equilibrium (9 rules)</h3>
@@ -702,72 +402,53 @@ footer {
   <div class="rz-lang">C</div>
   <div class="rz-score score-high">1.00</div>
   <div class="rz-detail"><strong>Capabilities:</strong> servo_control, sensor_reading, safety_monitoring, gpio</div>
-  <div class="rz-detail"><strong>Output files:</strong> 1</div>
-  <div class="rz-detail"><strong>Degradation rows:</strong> 26</div>
 </div>
 <div class="rz-item">
   <div class="rz-name">interface_panel</div>
   <div class="rz-lang">HTML/CSS/JS</div>
   <div class="rz-score score-high">0.94</div>
   <div class="rz-detail"><strong>Capabilities:</strong> layout, color, motion, event_handling</div>
-  <div class="rz-detail"><strong>Output files:</strong> 3</div>
-  <div class="rz-detail"><strong>Degradation rows:</strong> 26</div>
 </div>
 <div class="rz-item">
   <div class="rz-name">intent_recognition_service</div>
   <div class="rz-lang">Python</div>
   <div class="rz-score score-high">1.00</div>
   <div class="rz-detail"><strong>Capabilities:</strong> multimodal_inference, retrieve</div>
-  <div class="rz-detail"><strong>Output files:</strong> 1</div>
-  <div class="rz-detail"><strong>Degradation rows:</strong> 26</div>
 </div>
 <div class="rz-item">
   <div class="rz-name">safety_audit_log</div>
   <div class="rz-lang">Python</div>
   <div class="rz-score score-high">1.00</div>
   <div class="rz-detail"><strong>Capabilities:</strong> write, retain, retrieve</div>
-  <div class="rz-detail"><strong>Output files:</strong> 1</div>
-  <div class="rz-detail"><strong>Degradation rows:</strong> 26</div>
 </div>
 <div class="rz-item">
   <div class="rz-name">voice_acknowledgment_service</div>
   <div class="rz-lang">Python</div>
   <div class="rz-score score-high">1.00</div>
   <div class="rz-detail"><strong>Capabilities:</strong> speech_synthesis, retrieve</div>
-  <div class="rz-detail"><strong>Output files:</strong> 1</div>
-  <div class="rz-detail"><strong>Degradation rows:</strong> 26</div>
 </div>
 <div class="rz-item">
   <div class="rz-name">fatigue_estimator_service</div>
   <div class="rz-lang">Python</div>
   <div class="rz-score score-high">1.00</div>
   <div class="rz-detail"><strong>Capabilities:</strong> behavioral_analysis, retrieve</div>
-  <div class="rz-detail"><strong>Output files:</strong> 1</div>
-  <div class="rz-detail"><strong>Degradation rows:</strong> 26</div>
 </div>
-</div>
-    
-<div class="sub-panel">
-  <h3>Degradation Map</h3>
-  <div class='deg-summary'>PROXY: 106 · BRIDGE: 0 · OUT_OF_SCOPE: 0</div>
-  <div class='deg-group'><h4>Proxy / Documented (106)</h4><div class='deg-row'><span class='deg-aspect'>default</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>assistive_arm</span></div><div class='deg-row'><span class='deg-aspect'>actuation</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>assistive_arm</span></div><div class='deg-row'><span class='deg-aspect'>safety</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>assistive_arm</span></div><div class='deg-row'><span class='deg-aspect'>fatigue_awareness</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>assistive_arm</span></div><div class='deg-row'><span class='deg-aspect'>tone</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>assistive_arm</span></div><div class='deg-row'><span class='deg-aspect'>color_character</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>assistive_arm</span></div><div class='deg-row'><span class='deg-aspect'>form_character</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>assistive_arm</span></div><div class='deg-row'><span class='deg-aspect'>intensity</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>assistive_arm</span></div><div class='deg-row'><span class='deg-aspect'>aesthetic</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>assistive_arm</span></div><div class='deg-row'><span class='deg-aspect'>transition</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>assistive_arm</span></div><div class='deg-row'><span class='deg-aspect'>feeds</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>assistive_arm</span></div><div class='deg-row'><span class='deg-aspect'>behaves_as</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>assistive_arm</span></div><div class='deg-row'><span class='deg-aspect'>transitions</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>assistive_arm</span></div><div class='deg-row'><span class='deg-aspect'>lifecycle</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>assistive_arm</span></div><div class='deg-row'><span class='deg-aspect'>never</span><span class='deg-level deg-optional'>optional</span><span class='deg-node'>arm</span></div></div>
-  
 </div>
   </aside>
 </main>
-<footer>
-  <span>Orren Engine v0.3.1</span>
-  <span>20 nodes · 9 equilibrium rules · 6 targets</span>
+<footer class="dash-footer">
+  <span>Orren Engine v0.3.2</span>
+  <span>20 components · 9 safety rules · 6 targets</span>
 </footer>
 <script>
 
 document.querySelectorAll('.entity-label').forEach(el => {
   el.addEventListener('click', () => {
     const path = el.dataset.path;
-    const card = document.querySelector(`.entity-card[data-path="${path}"]`);
+    const card = document.querySelector(`.entity-card[data-path="${path}"], .atmosphere-card[data-path="${path}"], .sch-component[data-path="${path}"]`);
     if (card) {
       card.scrollIntoView({behavior: 'smooth', block: 'center'});
-      card.style.outline = '3px solid #3b82f6';
+      card.style.outline = '3px solid var(--accent)';
       setTimeout(() => card.style.outline = '', 1500);
     }
   });
