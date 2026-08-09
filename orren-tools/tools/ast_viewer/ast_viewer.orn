@@ -1,0 +1,323 @@
+-- ast_viewer.orn
+-- Abstract Syntax Tree viewer and renderer for Orren language source files.
+-- Supports multiple output formats: indented, bracketed, GraphViz DOT, and JSON.
+
+module orren_tools.tools.ast_viewer
+
+import module::{String, Int, Float, Bool, List, Map, Option}
+import orren.core.language.foundation::{SourceFile, Token, NodeKind}
+
+-- Enumeration of supported tree rendering formats.
+enum TreeFormat
+  INDENTED
+  BRACKETED
+  GRAPHVIZ
+  JSON
+end
+
+-- Enumeration of node highlighting styles for terminal output.
+enum NodeTypeHighlight
+  NONE
+  COLOR
+  EMOJI
+  FULL
+end
+
+-- Represents a single node in an abstract syntax tree.
+entity ASTNode
+  property kind: String = ""
+  property name: String = ""
+  property children: List<ASTNode> = []
+  property properties: Map<String, String> = {}
+  property line: Int = 0
+  property semantic_info: Map<String, String> = {}
+end
+
+-- Configuration options controlling how the AST is rendered.
+entity TreeConfig
+  property format: TreeFormat = TreeFormat.INDENTED
+  property max_depth: Int = 64
+  property highlight: NodeTypeHighlight = NodeTypeHighlight.NONE
+  property show_line_numbers: Bool = true
+  property show_semantic: Bool = false
+  property collapse_threshold: Int = 3
+  property max_width: Int = 120
+end
+
+-- Main viewer that parses source and renders the AST in chosen format.
+entity ASTViewer
+  property config: TreeConfig = TreeConfig()
+  property node_count: Int = 0
+  property max_depth_reached: Int = 0
+end
+
+-- Parse a source string into an ASTNode tree.
+fn parse_to_ast(self, source: String) -> ASTNode do
+  let tokens be self.tokenize(source)
+  let root be ASTNode()
+  root.kind = "Module"
+  root.name = "root"
+  let index be 0
+  let depth be 0
+  let stack be List<ASTNode>()
+  stack.append(root)
+  self.node_count = 1
+  while index < tokens.length do
+    let tok be tokens[index]
+    let current be stack[stack.length - 1]
+    if tok.kind == "KEYWORD" then
+      let child be ASTNode()
+      child.kind = "KeywordNode"
+      child.name = tok.value
+      child.line = tok.line
+      current.children.append(child)
+      self.node_count = self.node_count + 1
+      depth = depth + 1
+      if depth > self.max_depth_reached then
+        self.max_depth_reached = depth
+      end
+    else if tok.kind == "IDENTIFIER" then
+      let id_node be ASTNode()
+      id_node.kind = "Identifier"
+      id_node.name = tok.value
+      id_node.line = tok.line
+      current.children.append(id_node)
+      self.node_count = self.node_count + 1
+    else
+      let literal be ASTNode()
+      literal.kind = "Literal"
+      literal.name = tok.value
+      literal.properties["type"] = tok.kind
+      current.children.append(literal)
+      self.node_count = self.node_count + 1
+    end
+    index = index + 1
+  end
+  return root
+end
+
+-- Tokenize raw source into a flat list of tokens.
+fn tokenize(self, source: String) -> List<Token> do
+  let tokens be List<Token>()
+  let pos be 0
+  let line be 1
+  while pos < source.length do
+    let ch be source[pos]
+    if ch == "\n" then
+      line = line + 1
+    else if ch == " " or ch == "\t" then
+      -- skip whitespace
+    else if ch == "#" then
+      -- skip comment line
+      while pos < source.length and source[pos] != "\n" do
+        pos = pos + 1
+      end
+    else
+      let tok be Token()
+      tok.line = line
+      tok.kind = "IDENTIFIER"
+      tok.value = ""
+      while pos < source.length and source[pos] != " " and source[pos] != "\n" do
+        tok.value = tok.value + source[pos]
+        pos = pos + 1
+      end
+      tokens.append(tok)
+    end
+    pos = pos + 1
+  end
+  return tokens
+end
+
+-- Render AST as indented tree text.
+fn render_indented(self, node: ASTNode, depth: Int) -> String do
+  let indent be ""
+  let i be 0
+  while i < depth do
+    indent = indent + "  "
+    i = i + 1
+  end
+  let prefix be ""
+  match self.config.highlight with
+    NodeTypeHighlight.NONE then prefix = ""
+    NodeTypeHighlight.COLOR then prefix = "\033[36m"
+    NodeTypeHighlight.EMOJI then
+      match node.kind with
+        "Module" then prefix = "📦 "
+        "KeywordNode" then prefix = "🔑 "
+        "Identifier" then prefix = "🏷️ "
+        "Literal" then prefix = "💎 "
+        else prefix = "📄 "
+      end
+    NodeTypeHighlight.FULL then
+      prefix = "\033[1;36m"
+  end
+  let suffix be ""
+  if self.config.highlight == NodeTypeHighlight.COLOR or self.config.highlight == NodeTypeHighlight.FULL then
+    suffix = "\033[0m"
+  end
+  let line_info be ""
+  if self.config.show_line_numbers then
+    line_info = " [line " + node.line.to_string() + "]"
+  end
+  let sem_info be ""
+  if self.config.show_semantic and node.semantic_info.length > 0 then
+    let parts be List<String>()
+    for key in node.semantic_info.keys() do
+      parts.append(key + ":" + node.semantic_info[key])
+    end
+    sem_info = " {" + parts.join(", ") + "}"
+  end
+  let result be indent + prefix + node.kind + "(" + node.name + ")" + line_info + sem_info + suffix
+  if depth < self.config.max_depth then
+    for child in node.children do
+      result = result + "\n" + self.render_indented(child, depth + 1)
+    end
+  end
+  return result
+end
+
+-- Render AST as bracketed S-expression style text.
+fn render_bracketed(self, node: ASTNode) -> String do
+  if node.children.length == 0 then
+    return "(" + node.kind + " " + node.name + ")"
+  end
+  let parts be List<String>()
+  parts.append(node.kind)
+  parts.append(node.name)
+  for child in node.children do
+    if child.children.length >= self.config.collapse_threshold then
+      parts.append("[" + self.render_bracketed(child) + "]")
+    else
+      parts.append(self.render_bracketed(child))
+    end
+  end
+  return "(" + parts.join(" ") + ")"
+end
+
+-- Render AST as GraphViz DOT language output.
+fn render_graphviz(self, node: ASTNode, parent_id: String) -> String do
+  let node_id be "n" + node.line.to_string() + "_" + node.kind
+  let label be node.kind + "\n" + node.name
+  let lines be List<String>()
+  lines.append("  " + node_id + " [label=\"" + label + "\"];")
+  if parent_id != "" then
+    lines.append("  " + parent_id + " -> " + node_id + ";")
+  end
+  for child in node.children do
+    lines.append(self.render_graphviz(child, node_id))
+  end
+  return lines.join("\n")
+end
+
+-- Render AST as JSON string.
+fn render_json(self, node: ASTNode, depth: Int) -> String do
+  let lines be List<String>()
+  let indent be ""
+  let i be 0
+  while i < depth do
+    indent = indent + "  "
+    i = i + 1
+  end
+  lines.append(indent + "{")
+  lines.append(indent + "  \"kind\": \"" + node.kind + "\",")
+  lines.append(indent + "  \"name\": \"" + node.name + "\",")
+  lines.append(indent + "  \"line\": " + node.line.to_string() + ",")
+  if node.children.length > 0 then
+    lines.append(indent + "  \"children\": [")
+    let ci be 0
+    for child in node.children do
+      lines.append(self.render_json(child, depth + 2))
+      ci = ci + 1
+      if ci < node.children.length then
+        lines.append(indent + "  ,")
+      end
+    end
+    lines.append(indent + "  ]")
+  end
+  lines.append(indent + "}")
+  return lines.join("\n")
+end
+
+-- Search AST nodes by name pattern, return matching nodes.
+fn search_nodes(self, root: ASTNode, pattern: String) -> List<ASTNode> do
+  let results be List<ASTNode>()
+  if root.name.contains(pattern) or root.kind.contains(pattern) then
+    results.append(root)
+  end
+  for child in root.children do
+    let sub be self.search_nodes(child, pattern)
+    for item in sub do
+      results.append(item)
+    end
+  end
+  return results
+end
+
+-- Extract a subtree rooted at a node matching the given name.
+fn extract_subtree(self, root: ASTNode, target_name: String) -> Option<ASTNode> do
+  if root.name == target_name then
+    return Option.Some(root)
+  end
+  for child in root.children do
+    let result be self.extract_subtree(child, target_name)
+    match result with
+      Option.Some(node) then return Option.Some(node)
+      Option.None then -- continue searching
+    end
+  end
+  return Option.None
+end
+
+-- Compute statistics about the AST structure.
+fn compute_stats(self, root: ASTNode, depth: Int) -> Map<String, Int> do
+  let stats be Map<String, Int>()
+  stats["total_nodes"] = 0
+  stats["max_depth"] = 0
+  stats["leaf_count"] = 0
+  stats["branch_count"] = 0
+  let work be List<Map<String, Int>>()
+  let item be Map<String, Int>()
+  item["depth"] = depth
+  item["node_count"] = 1
+  item["leaves"] = 0
+  item["branches"] = 0
+  if root.children.length == 0 then
+    item["leaves"] = 1
+  else
+    item["branches"] = 1
+  end
+  work.append(item)
+  for child in root.children do
+    let child_stats be self.compute_stats(child, depth + 1)
+    stats["total_nodes"] = stats["total_nodes"] + child_stats["total_nodes"]
+    if child_stats["max_depth"] > stats["max_depth"] then
+      stats["max_depth"] = child_stats["max_depth"]
+    end
+    stats["leaf_count"] = stats["leaf_count"] + child_stats["leaf_count"]
+    stats["branch_count"] = stats["branch_count"] + child_stats["branch_count"]
+  end
+  stats["total_nodes"] = stats["total_nodes"] + 1
+  if depth > stats["max_depth"] then
+    stats["max_depth"] = depth
+  end
+  stats["leaf_count"] = stats["leaf_count"] + item["leaves"]
+  stats["branch_count"] = stats["branch_count"] + item["branches"]
+  return stats
+end
+
+-- Render the AST using the configured format.
+fn render(self, root: ASTNode) -> String do
+  match self.config.format with
+    TreeFormat.INDENTED then return self.render_indented(root, 0)
+    TreeFormat.BRACKETED then return self.render_bracketed(root)
+    TreeFormat.GRAPHVIZ then
+      let header be "digraph AST {"
+      let body be self.render_graphviz(root, "")
+      let footer be "}"
+      return header + "\n" + body + "\n" + footer
+    TreeFormat.JSON then return self.render_json(root, 0)
+  end
+  return ""
+end
+
+export {ASTNode, TreeConfig, ASTViewer, TreeFormat, NodeTypeHighlight}

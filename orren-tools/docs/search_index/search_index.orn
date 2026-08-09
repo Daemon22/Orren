@@ -1,0 +1,442 @@
+module orren_tools.docs.search_index
+
+import module::{String, Int, Float, Bool, List, Map}
+import orren_tools.docs.generator::{ModuleDoc, DocElement, DocElementType}
+
+intent "Provide lightning-fast full-text search across all Orren documentation, supporting exact, prefix, fuzzy, and semantic matching with ranked results and highlighted snippets."
+
+enum IndexEntryKind
+    MODULE
+    ENTITY
+    FUNCTION
+    PROPERTY
+    ENUM
+    KEYWORD
+    INTENT
+    EXAMPLE
+end
+
+enum SearchMatchKind
+    EXACT
+    PREFIX
+    FUZZY
+    SEMANTIC
+end
+
+entity IndexEntry
+    property id: String = ""
+    property kind: IndexEntryKind = IndexEntryKind.MODULE
+    property title: String = ""
+    property content: String = ""
+    property module_path: String = ""
+    property url: String = ""
+    property importance: Float = 0.5
+    property keywords: List<String> = List<String>.new()
+end
+
+entity SearchResult
+    property entry: IndexEntry = IndexEntry.new()
+    property score: Float = 0.0
+    property matched_fields: List<String> = List<String>.new()
+    property snippet: String = ""
+end
+
+entity SearchQuery
+    property text: String = ""
+    property kind_filter: List<IndexEntryKind> = List<IndexEntryKind>.new()
+    property module_filter: List<String> = List<String>.new()
+    property max_results: Int = 20
+    property match_kind: SearchMatchKind = SearchMatchKind.PREFIX
+end
+
+entity SearchIndex
+    property entries: Map<String, IndexEntry> = Map<String, IndexEntry>.new()
+    property word_index: Map<String, List<String>> = Map<String, List<String>>.new()
+    property module_index: Map<String, List<String>> = Map<String, List<String>>.new()
+    property kind_index: Map<IndexEntryKind, List<String>> = Map<IndexEntryKind, List<String>>.new()
+    property total_entries: Int = 0
+    property build_time: Float = 0.0
+end
+
+fn normalize_word(self, word: String) -> String do
+    let lower be word.to_lower()
+    let stripped be lower.replace("_", "").replace("-", "")
+    return stripped.strip_punctuation()
+end
+
+fn tokenize(self, text: String) -> List<String> do
+    let raw_words be text.split_on_whitespace()
+    let tokens be List<String>.new()
+    for word in raw_words do
+        let norm be self.normalize_word(word)
+        if norm.length() > 1 then
+            tokens.append(norm)
+        end
+    end
+    return tokens
+end
+
+fn add_entry(self, index: SearchIndex, entry: IndexEntry) -> String do
+    if entry.id == "" then
+        entry.id = "entry_" + index.total_entries.to_string()
+    end
+    index.entries.put(entry.id, entry)
+    index.total_entries = index.total_entries + 1
+    -- Index by kind.
+    let kind_list be index.kind_index.get_or_default(entry.kind, List<String>.new())
+    kind_list.append(entry.id)
+    index.kind_index.put(entry.kind, kind_list)
+    -- Index by module path.
+    if entry.module_path != "" then
+        let mod_list be index.module_index.get_or_default(entry.module_path, List<String>.new())
+        mod_list.append(entry.id)
+        index.module_index.put(entry.module_path, mod_list)
+    end
+    -- Build inverted word index for title and content.
+    let title_tokens be self.tokenize(entry.title)
+    let content_tokens be self.tokenize(entry.content)
+    let all_tokens be title_tokens + content_tokens
+    for token in all_tokens do
+        let postings be index.word_index.get_or_default(token, List<String>.new())
+        if not postings.contains(entry.id) then
+            postings.append(entry.id)
+            index.word_index.put(token, postings)
+        end
+    end
+    -- Index explicit keywords.
+    for kw in entry.keywords do
+        let kw_norm be self.normalize_word(kw)
+        let kw_postings be index.word_index.get_or_default(kw_norm, List<String>.new())
+        if not kw_postings.contains(entry.id) then
+            kw_postings.append(entry.id)
+            index.word_index.put(kw_norm, kw_postings)
+        end
+    end
+    return entry.id
+end
+
+fn remove_entry(self, index: SearchIndex, entry_id: String) -> Bool do
+    if not index.entries.contains_key(entry_id) then
+        return false
+    end
+    let entry be index.entries.get(entry_id)
+    let kind_list be index.kind_index.get(entry.kind)
+    if kind_list != nil then
+        kind_list.remove(entry_id)
+    end
+    if entry.module_path != "" then
+        let mod_list be index.module_index.get(entry.module_path)
+        if mod_list != nil then
+            mod_list.remove(entry_id)
+        end
+    end
+    let all_tokens be self.tokenize(entry.title + " " + entry.content)
+    for token in all_tokens do
+        let postings be index.word_index.get(token)
+        if postings != nil then
+            postings.remove(entry_id)
+        end
+    end
+    index.entries.remove(entry_id)
+    index.total_entries = index.total_entries - 1
+    return true
+end
+
+fn levenshtein_distance(self, a: String, b: String) -> Int do
+    let len_a be a.length()
+    let len_b be b.length()
+    if len_a == 0 then return len_b end
+    if len_b == 0 then return len_a end
+    let prev be List<Int>.new()
+    let curr be List<Int>.new()
+    for j in 0..len_b + 1 do
+        prev.append(j)
+    end
+    for i in 1..len_a + 1 do
+        curr.clear()
+        curr.append(i)
+        for j in 1..len_b + 1 do
+            let cost be 1
+            if a.substring(i - 1, 1) == b.substring(j - 1, 1) then
+                cost = 0
+            end
+            let del be prev.get(j) + 1
+            let ins be curr.get(j - 1) + 1
+            let sub be prev.get(j - 1) + cost
+            let min_val be del
+            if ins < min_val then min_val = ins end
+            if sub < min_val then min_val = sub end
+            curr.append(min_val)
+        end
+        prev = curr.copy()
+    end
+    return prev.get(len_b)
+end
+
+fn is_fuzzy_match(self, word: String, target: String, tolerance: Int) -> Bool do
+    return self.levenshtein_distance(word, target) <= tolerance
+end
+
+fn score_entry(self, entry: IndexEntry, query: SearchQuery) -> Float do
+    let query_tokens be self.tokenize(query.text)
+    let score be 0.0
+    let title_tokens be self.tokenize(entry.title)
+    let content_tokens be self.tokenize(entry.content)
+    for qt in query_tokens do
+        if title_tokens.contains(qt) then
+            score = score + 10.0
+        end
+        if content_tokens.contains(qt) then
+            score = score + 3.0
+        end
+        for tt in title_tokens do
+            if tt.starts_with(qt) then score = score + 5.0 end
+        end
+        for ct in content_tokens do
+            if ct.starts_with(qt) then score = score + 1.5 end
+        end
+        if query.match_kind == SearchMatchKind.FUZZY then
+            for tt in title_tokens do
+                if self.is_fuzzy_match(qt, tt, 2) then score = score + 2.0 end
+            end
+            for ct in content_tokens do
+                if self.is_fuzzy_match(qt, ct, 2) then score = score + 0.5 end
+            end
+        end
+        for kw in entry.keywords do
+            if self.normalize_word(kw) == qt then score = score + 7.0 end
+        end
+    end
+    return score * entry.importance
+end
+
+fn build_snippet(self, entry: IndexEntry, query: SearchQuery, context_size: Int) -> String do
+    let query_tokens be self.tokenize(query.text)
+    let words be entry.content.split_on_whitespace()
+    let best_pos be 0
+    let best_count be 0
+    for i in 0..words.length() do
+        let window_end be i + context_size
+        if window_end > words.length() then break end
+        let match_count be 0
+        for j in i..window_end do
+            let norm be self.normalize_word(words.get(j))
+            for qt in query_tokens do
+                if norm == qt or norm.starts_with(qt) then
+                    match_count = match_count + 1
+                end
+            end
+        end
+        if match_count > best_count then
+            best_count = match_count
+            best_pos = i
+        end
+    end
+    let end_pos be best_pos + context_size
+    if end_pos > words.length() then end_pos = words.length() end
+    let parts be List<String>.new()
+    for i in best_pos..end_pos do
+        let norm be self.normalize_word(words.get(i))
+        let is_match be false
+        for qt in query_tokens do
+            if norm == qt or norm.starts_with(qt) then is_match = true end
+        end
+        if is_match then
+            parts.append("**" + words.get(i) + "**")
+        else
+            parts.append(words.get(i))
+        end
+    end
+    let prefix be "... "
+    let suffix be " ..."
+    if best_pos == 0 then prefix = "" end
+    if end_pos >= words.length() then suffix = "" end
+    return prefix + parts.join(" ") + suffix
+end
+
+fn search(self, index: SearchIndex, query: SearchQuery) -> List<SearchResult> do
+    let query_tokens be self.tokenize(query.text)
+    let candidate_map be Map<String, Int>.new()
+    for qt in query_tokens do
+        -- Collect exact match postings.
+        let postings be index.word_index.get(qt)
+        if postings != nil then
+            for pid in postings do
+                let count be candidate_map.get_or_default(pid, 0)
+                candidate_map.put(pid, count + 1)
+            end
+        end
+        -- Collect prefix match postings.
+        for key in index.word_index.keys() do
+            if key.starts_with(qt) and key != qt then
+                let pp be index.word_index.get(key)
+                if pp != nil then
+                    for pid in pp do
+                        let c be candidate_map.get_or_default(pid, 0)
+                        candidate_map.put(pid, c + 1)
+                    end
+                end
+            end
+        end
+    end
+    let results be List<SearchResult>.new()
+    for cid in candidate_map.keys() do
+        let entry be index.entries.get(cid)
+        if entry == nil then continue end
+        -- Apply kind filter.
+        if query.kind_filter.length() > 0 then
+            let kind_match be false
+            for kf in query.kind_filter do
+                if entry.kind == kf then kind_match = true end
+            end
+            if not kind_match then continue end
+        end
+        -- Apply module filter.
+        if query.module_filter.length() > 0 then
+            let mod_match be false
+            for mf in query.module_filter do
+                if entry.module_path.starts_with(mf) then mod_match = true end
+            end
+            if not mod_match then continue end
+        end
+        let score be self.score_entry(entry, query)
+        if score > 0.0 then
+            let matched be List<String>.new()
+            let title_tok be self.tokenize(entry.title)
+            for qt in query_tokens do
+                if title_tok.contains(qt) and not matched.contains("title") then
+                    matched.append("title")
+                end
+            end
+            if matched.length() == 0 then matched.append("content") end
+            let snippet be self.build_snippet(entry, query, 30)
+            let result be SearchResult.new()
+            result.entry = entry
+            result.score = score
+            result.matched_fields = matched
+            result.snippet = snippet
+            results.append(result)
+        end
+    end
+    let sorted be self.sort_results(results)
+    let limited be List<SearchResult>.new()
+    let count be 0
+    for r in sorted do
+        if count >= query.max_results then break end
+        limited.append(r)
+        count = count + 1
+    end
+    return limited
+end
+
+fn search_module(self, index: SearchIndex, module_path: String, query_text: String) -> List<SearchResult> do
+    let query be SearchQuery.new()
+    query.text = query_text
+    query.module_filter.append(module_path)
+    query.max_results = 50
+    return self.search(index, query)
+end
+
+fn sort_results(self, results: List<SearchResult>) -> List<SearchResult> do
+    let sorted be results.copy()
+    let n be sorted.length()
+    if n <= 1 then return sorted end
+    let i be 1
+    while i < n do
+        let key be sorted.get(i)
+        let j be i - 1
+        while j >= 0 and sorted.get(j).score < key.score do
+            sorted.set(j + 1, sorted.get(j))
+            j = j - 1
+        end
+        sorted.set(j + 1, key)
+        i = i + 1
+    end
+    return sorted
+end
+
+fn build_index(self, modules: List<ModuleDoc>) -> SearchIndex do
+    let start_time be current_timestamp()
+    let index be SearchIndex.new()
+    for mod in modules do
+        let mod_entry be IndexEntry.new()
+        mod_entry.kind = IndexEntryKind.MODULE
+        mod_entry.title = mod.name
+        mod_entry.content = mod.description
+        mod_entry.module_path = mod.path
+        mod_entry.importance = 1.0
+        mod_entry.url = "modules/" + mod.path.replace(".", "/") + ".html"
+        self.add_entry(index, mod_entry)
+        for elem in mod.elements do
+            let elem_entry be IndexEntry.new()
+            elem_entry.module_path = mod.path
+            elem_entry.url = mod_entry.url + "#" + elem.name.to_lower()
+            match elem.type with
+                DocElementType.ENTITY do
+                    elem_entry.kind = IndexEntryKind.ENTITY
+                end
+                DocElementType.FUNCTION do
+                    elem_entry.kind = IndexEntryKind.FUNCTION
+                end
+                DocElementType.ENUM do
+                    elem_entry.kind = IndexEntryKind.ENUM
+                end
+                DocElementType.PROPERTY do
+                    elem_entry.kind = IndexEntryKind.PROPERTY
+                end
+                DocElementType.INTENT do
+                    elem_entry.kind = IndexEntryKind.INTENT
+                end
+            end
+            elem_entry.title = elem.name
+            elem_entry.content = elem.description
+            elem_entry.importance = 0.8
+            elem_entry.keywords = elem.tags
+            self.add_entry(index, elem_entry)
+        end
+    end
+    index.build_time = current_timestamp() - start_time
+    return index
+end
+
+fn index_stats(self, index: SearchIndex) -> String do
+    let stats be "SearchIndex Statistics:\n"
+    stats = stats + "  Total entries: " + index.total_entries.to_string() + "\n"
+    stats = stats + "  Unique words: " + index.word_index.size().to_string() + "\n"
+    stats = stats + "  Modules: " + index.module_index.size().to_string() + "\n"
+    stats = stats + "  Kinds: " + index.kind_index.size().to_string() + "\n"
+    stats = stats + "  Build time: " + index.build_time.to_string() + "ms\n"
+    return stats
+end
+
+fn clear_index(self, index: SearchIndex) -> Unit do
+    index.entries.clear()
+    index.word_index.clear()
+    index.module_index.clear()
+    index.kind_index.clear()
+    index.total_entries = 0
+    index.build_time = 0.0
+end
+
+export {
+    IndexEntryKind,
+    SearchMatchKind,
+    IndexEntry,
+    SearchResult,
+    SearchQuery,
+    SearchIndex,
+    normalize_word,
+    tokenize,
+    add_entry,
+    remove_entry,
+    levenshtein_distance,
+    is_fuzzy_match,
+    score_entry,
+    build_snippet,
+    search,
+    search_module,
+    sort_results,
+    build_index,
+    index_stats,
+    clear_index
+}

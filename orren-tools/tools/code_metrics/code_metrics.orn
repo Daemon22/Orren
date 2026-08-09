@@ -1,0 +1,371 @@
+-- code_metrics.orn - Comprehensive code metrics for Orren programs
+-- Part of the Orren Developer Utilities suite
+
+import orren.core.language.foundation::{String, Int, List, Map, Bool, Float}
+import orren.core.language.foundation::{File, FileReader, Regex, Math}
+
+module orren_tools.tools.code_metrics
+
+-- Kinds of metrics that can be collected
+enum MetricType
+    LINES_OF_CODE
+    CYCLOMATIC_COMPLEXITY
+    COUPLING
+    COHESION
+    MAINTAINABILITY_INDEX
+    COGNITIVE_COMPLEXITY
+    SEMANTIC_COVERAGE
+    ENTITY_SIZE
+    FUNCTION_LENGTH
+end
+
+-- Letter grade assigned based on metric thresholds
+enum Grade
+    A
+    B
+    C
+    D
+    F
+end
+
+-- Helper to convert Grade enum to display string
+fn grade_label(g: Grade) -> String do
+    match g with
+    case Grade.A do return "A (Excellent)" end
+    case Grade.B do return "B (Good)" end
+    case Grade.C do return "C (Fair)" end
+    case Grade.D do return "D (Poor)" end
+    case Grade.F do return "F (Failing)" end
+    end
+end
+
+-- Helper to join string list with newlines
+fn join_lines(parts: List<String>) -> String do
+    let be result = ""
+    for part in parts do
+        if result == "" then
+            let be result = part
+        else
+            let be result = result + "\n" + part
+        end
+    end
+    return result
+end
+
+-- Metrics collected for a single source file
+entity FileMetrics
+    property file_path: String = ""
+    property lines_of_code: Int = 0
+    property comment_lines: Int = 0
+    property blank_lines: Int = 0
+    property entity_count: Int = 0
+    property function_count: Int = 0
+    property avg_complexity: Float = 0.0
+    property max_complexity: Int = 0
+    property coupling: Int = 0
+    property cohesion: Float = 0.0
+    property maintainability_index: Float = 0.0
+    property grade: Grade = Grade.A
+
+    fn total_lines(self) -> Int do
+        return self.lines_of_code + self.comment_lines + self.blank_lines
+    end
+
+    fn comment_ratio(self) -> Float do
+        let be total = self.total_lines()
+        if total == 0 then return 0.0 end
+        return (self.comment_lines.to_float() / total.to_float()) * 100.0
+    end
+
+    fn assign_grade(self) -> Grade do
+        let be mi = self.maintainability_index
+        let be cx = self.avg_complexity
+        if mi >= 80.0 and cx <= 5.0 then return Grade.A end
+        if mi >= 65.0 and cx <= 10.0 then return Grade.B end
+        if mi >= 50.0 and cx <= 20.0 then return Grade.C end
+        if mi >= 35.0 and cx <= 35.0 then return Grade.D end
+        return Grade.F
+    end
+
+    fn needs_attention(self) -> Bool do
+        let be g = self.assign_grade()
+        return g == Grade.D or g == Grade.F
+    end
+
+    fn summary(self) -> String do
+        let be parts: List<String> = []
+        parts.append("File: " + self.file_path)
+        parts.append("  LOC: " + self.lines_of_code.to_string())
+        parts.append("  Comments: " + self.comment_lines.to_string())
+        parts.append("  Entities: " + self.entity_count.to_string())
+        parts.append("  Functions: " + self.function_count.to_string())
+        parts.append("  Avg Complexity: " + self.avg_complexity.to_string())
+        parts.append("  Max Complexity: " + self.max_complexity.to_string())
+        parts.append("  Coupling: " + self.coupling.to_string())
+        parts.append("  Cohesion: " + self.cohesion.to_string())
+        parts.append("  MI: " + self.maintainability_index.to_string())
+        parts.append("  Grade: " + grade_label(self.assign_grade()))
+        return join_lines(parts)
+    end
+end
+
+-- Aggregated metrics across an entire project
+entity ProjectMetrics
+    property files: List<FileMetrics> = []
+    property total_loc: Int = 0
+    property total_entities: Int = 0
+    property avg_complexity: Float = 0.0
+    property avg_cohesion: Float = 0.0
+    property grade_distribution: Map<Grade, Int> = {}
+
+    fn add_file(self, fm: FileMetrics) -> ProjectMetrics do
+        self.files.append(fm)
+        return self.recalculate()
+    end
+
+    fn recalculate(self) -> ProjectMetrics do
+        let be total_loc = 0
+        let be total_entities = 0
+        let be total_cx = 0.0
+        let be total_ch = 0.0
+        let be dist: Map<Grade, Int> = {}
+        let be grades: List<Grade> = [Grade.A, Grade.B, Grade.C, Grade.D, Grade.F]
+        for g in grades do dist.set(g, 0) end
+        let be count = self.files.length()
+        for fm in self.files do
+            let be total_loc = total_loc + fm.lines_of_code
+            let be total_entities = total_entities + fm.entity_count
+            let be total_cx = total_cx + fm.avg_complexity
+            let be total_ch = total_ch + fm.cohesion
+            let be g = fm.assign_grade()
+            dist.set(g, dist.get(g) + 1)
+        end
+        self.total_loc = total_loc
+        self.total_entities = total_entities
+        if count > 0 then
+            self.avg_complexity = total_cx / count.to_float()
+            self.avg_cohesion = total_ch / count.to_float()
+        end
+        self.grade_distribution = dist
+        return self
+    end
+
+    fn files_needing_attention(self) -> List<FileMetrics> do
+        let be attention: List<FileMetrics> = []
+        for fm in self.files do
+            if fm.needs_attention() then attention.append(fm) end
+        end
+        return attention
+    end
+
+    fn project_grade(self) -> Grade do
+        if self.grade_distribution.has(Grade.F) then
+            if self.grade_distribution.get(Grade.F) > self.files.length() / 4 then
+                return Grade.F
+            end
+        end
+        if self.avg_complexity <= 5.0 and self.avg_cohesion >= 0.8 then
+            return Grade.A
+        end
+        if self.avg_complexity <= 10.0 and self.avg_cohesion >= 0.6 then
+            return Grade.B
+        end
+        if self.avg_complexity <= 20.0 then return Grade.C end
+        if self.avg_complexity <= 35.0 then return Grade.D end
+        return Grade.F
+    end
+
+    fn summary(self) -> String do
+        let be lines: List<String> = []
+        lines.append("Project Metrics Summary")
+        lines.append("=======================")
+        lines.append("Files analyzed: " + self.files.length().to_string())
+        lines.append("Total LOC: " + self.total_loc.to_string())
+        lines.append("Total entities: " + self.total_entities.to_string())
+        lines.append("Avg complexity: " + self.avg_complexity.to_string())
+        lines.append("Avg cohesion: " + self.avg_cohesion.to_string())
+        lines.append("")
+        lines.append("Project grade: " + grade_label(self.project_grade()))
+        lines.append("Grade distribution:")
+        let be all_grades: List<Grade> = [Grade.A, Grade.B, Grade.C, Grade.D, Grade.F]
+        for g in all_grades do
+            lines.append("  " + grade_label(g) + ": " + dist.get(g).to_string())
+        end
+        let be attention = self.files_needing_attention()
+        lines.append("")
+        lines.append("Files needing attention: " + attention.length().to_string())
+        for fm in attention do
+            lines.append("  - " + fm.file_path)
+        end
+        return join_lines(lines)
+    end
+end
+
+-- Collector that computes metrics from source files
+entity MetricsCollector
+    property config: Map<String, String> = {}
+    property file_metrics: List<FileMetrics> = []
+    property thresholds: Map<String, Float> = {}
+
+    fn new(config: Map<String, String>) -> MetricsCollector do
+        let be collector = MetricsCollector {}
+        collector.config = config
+        collector.thresholds.set("max_complexity", 20.0)
+        collector.thresholds.set("min_cohesion", 0.5)
+        collector.thresholds.set("min_mi", 40.0)
+        collector.thresholds.set("max_coupling", 15.0)
+        return collector
+    end
+
+    fn count_lines(self, content: String) -> Map<String, Int> do
+        let be code_lines = 0
+        let be comment_lines = 0
+        let be blank_lines = 0
+        let be in_block = false
+        let be lines = content.split("\n")
+        for line in lines do
+            let be trimmed = line.trim()
+            if trimmed == "" then
+                let be blank_lines = blank_lines + 1
+            else if in_block then
+                let be comment_lines = comment_lines + 1
+                if trimmed.has("*/") then let be in_block = false end
+            else if trimmed.starts_with("--") then
+                let be comment_lines = comment_lines + 1
+            else if trimmed.starts_with("/*") then
+                let be comment_lines = comment_lines + 1
+                if not trimmed.has("*/") then let be in_block = true end
+            else
+                let be code_lines = code_lines + 1
+            end
+        end
+        let be result: Map<String, Int> = {}
+        result.set("code", code_lines)
+        result.set("comments", comment_lines)
+        result.set("blank", blank_lines)
+        return result
+    end
+
+    fn count_pattern(self, content: String, pattern_str: String) -> Int do
+        let be count = 0
+        let be pattern = Regex.compile(pattern_str)
+        let be lines = content.split("\n")
+        for line in lines do
+            if pattern.matches(line.trim()) then
+                let be count = count + 1
+            end
+        end
+        return count
+    end
+
+    fn compute_complexity(self, content: String) -> Map<String, Float> do
+        let be total = 1
+        let be fn_count = 0
+        let be max_cx = 0
+        let be lines = content.split("\n")
+        for line in lines do
+            let be t = line.trim()
+            if t.starts_with("fn ") then
+                if fn_count > 0 and total > max_cx then
+                    let be max_cx = total
+                end
+                let be total = 1
+                let be fn_count = fn_count + 1
+            end
+            if t.has("if ") or t.has("else if ") then let be total = total + 1 end
+            if t.starts_with("for ") then let be total = total + 1 end
+            if t.starts_with("while ") then let be total = total + 1 end
+            if t.starts_with("match ") then let be total = total + 1 end
+            if t.starts_with("case ") then let be total = total + 1 end
+        end
+        if total > max_cx then let be max_cx = total end
+        let be avg_cx = 0.0
+        if fn_count > 0 then
+            let be avg_cx = max_cx.to_float() / fn_count.to_float()
+        end
+        let be result: Map<String, Float> = {}
+        result.set("avg", avg_cx)
+        result.set("max", max_cx.to_float())
+        return result
+    end
+
+    fn compute_coupling(self, content: String) -> Int do
+        return self.count_pattern(content, "import\\s+")
+    end
+
+    fn compute_cohesion(self, content: String) -> Float do
+        let be entities = self.count_pattern(content, "^entity\\s+\\w+")
+        let be fns = self.count_pattern(content, "^fn\\s+\\w+")
+        let be total = entities + fns
+        if total == 0 then return 1.0 end
+        if total <= 3 then return 0.95 end
+        if total <= 8 then return 0.80 end
+        if total <= 15 then return 0.65 end
+        return 0.45
+    end
+
+    fn compute_mi(self, loc: Int, cx: Float, cr: Float) -> Float do
+        let be hv = Math.log(loc.to_float() + 1.0)
+        let be mi = 171.0 - 5.2 * hv - 0.23 * cx - 16.2 * (1.0 - cr / 100.0)
+        if mi > 100.0 then let be mi = 100.0 end
+        if mi < 0.0 then let be mi = 0.0 end
+        return mi
+    end
+
+    fn analyze_file(self, file_path: String, content: String) -> FileMetrics do
+        let be fm = FileMetrics {}
+        fm.file_path = file_path
+        let be lc = self.count_lines(content)
+        fm.lines_of_code = lc.get("code")
+        fm.comment_lines = lc.get("comments")
+        fm.blank_lines = lc.get("blank")
+        fm.entity_count = self.count_pattern(content, "^entity\\s+\\w+")
+        fm.function_count = self.count_pattern(content, "^fn\\s+\\w+")
+        let be cx = self.compute_complexity(content)
+        fm.avg_complexity = cx.get("avg")
+        fm.max_complexity = cx.get("max").to_int()
+        fm.coupling = self.compute_coupling(content)
+        fm.cohesion = self.compute_cohesion(content)
+        fm.maintainability_index = self.compute_mi(
+            fm.lines_of_code, fm.avg_complexity, fm.comment_ratio()
+        )
+        fm.grade = fm.assign_grade()
+        return fm
+    end
+
+    fn analyze_project(self, file_map: Map<String, String>) -> ProjectMetrics do
+        let be project = ProjectMetrics {}
+        let be keys = file_map.keys()
+        for path in keys do
+            let be fm = self.analyze_file(path, file_map.get(path))
+            self.file_metrics.append(fm)
+            project.add_file(fm)
+        end
+        return project
+    end
+
+    fn check_thresholds(self, fm: FileMetrics) -> List<String> do
+        let be violations: List<String> = []
+        if fm.avg_complexity > self.thresholds.get("max_complexity") then
+            violations.append("High complexity: " + fm.avg_complexity.to_string())
+        end
+        if fm.cohesion < self.thresholds.get("min_cohesion") then
+            violations.append("Low cohesion: " + fm.cohesion.to_string())
+        end
+        if fm.maintainability_index < self.thresholds.get("min_mi") then
+            violations.append("Low MI: " + fm.maintainability_index.to_string())
+        end
+        if fm.coupling.to_float() > self.thresholds.get("max_coupling") then
+            violations.append("High coupling: " + fm.coupling.to_string())
+        end
+        return violations
+    end
+end
+
+export {
+    MetricType,
+    Grade,
+    FileMetrics,
+    ProjectMetrics,
+    MetricsCollector
+}

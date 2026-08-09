@@ -1,0 +1,380 @@
+-- perf_analyzer.orn - Performance regression analyzer comparing benchmarks across versions
+-- Part of the Orren Developer Utilities suite
+
+import orren.core.language.foundation::{String, Int, List, Map, Bool, Float}
+import orren.core.language.foundation::{Math, File, FileReader, Regex}
+
+module orren_tools.tools.perf_analyzer
+
+-- Severity of a performance regression
+enum RegressionSeverity
+    NONE
+    MINOR
+    MODERATE
+    SEVERE
+    CRITICAL
+end
+
+-- Baseline mode for comparison
+enum ComparisonBaseline
+    PREVIOUS
+    AVERAGE
+    BEST
+    CUSTOM
+end
+
+-- Helper: severity to label
+fn severity_label(s: RegressionSeverity) -> String do
+    match s with
+    case RegressionSeverity.NONE do return "None" end
+    case RegressionSeverity.MINOR do return "Minor" end
+    case RegressionSeverity.MODERATE do return "Moderate" end
+    case RegressionSeverity.SEVERE do return "Severe" end
+    case RegressionSeverity.CRITICAL do return "Critical" end
+    end
+end
+
+-- Helper: baseline to label
+fn baseline_label(b: ComparisonBaseline) -> String do
+    match b with
+    case ComparisonBaseline.PREVIOUS do return "Previous" end
+    case ComparisonBaseline.AVERAGE do return "Average" end
+    case ComparisonBaseline.BEST do return "Best" end
+    case ComparisonBaseline.CUSTOM do return "Custom" end
+    end
+end
+
+-- Helper: join lines
+fn join_lines(parts: List<String>) -> String do
+    let be result = ""
+    for part in parts do
+        if result == "" then let be result = part
+        else let be result = result + "\n" + part end
+    end
+    return result
+end
+
+-- A single benchmark comparison result
+entity BenchmarkComparison
+    property name: String = ""
+    property baseline_ns: Float = 0.0
+    property current_ns: Float = 0.0
+    property change_pct: Float = 0.0
+    property regression: RegressionSeverity = RegressionSeverity.NONE
+    property confidence: Float = 1.0
+
+    fn compute_change(self) -> BenchmarkComparison do
+        if self.baseline_ns == 0.0 then
+            self.change_pct = 0.0
+        else
+            self.change_pct = ((self.current_ns - self.baseline_ns) / self.baseline_ns) * 100.0
+        end
+        self.regression = self.classify_regression()
+        return self
+    end
+
+    fn classify_regression(self) -> RegressionSeverity do
+        let be pct = self.change_pct
+        if pct < 5.0 then return RegressionSeverity.NONE end
+        if pct < 15.0 then return RegressionSeverity.MINOR end
+        if pct < 30.0 then return RegressionSeverity.MODERATE end
+        if pct < 50.0 then return RegressionSeverity.SEVERE end
+        return RegressionSeverity.CRITICAL
+    end
+
+    fn is_regression(self) -> Bool do
+        return self.regression != RegressionSeverity.NONE
+    end
+
+    fn is_improvement(self) -> Bool do
+        return self.change_pct < -5.0
+    end
+
+    fn display(self) -> String do
+        let be direction = "regressed"
+        if self.change_pct < 0.0 then let be direction = "improved" end
+        return self.name + ": " + self.current_ns.to_string() + "ns ("
+            + self.change_pct.to_string() + "% " + direction + ") ["
+            + severity_label(self.regression) + "] conf:"
+            + self.confidence.to_string()
+    end
+end
+
+-- Full regression report for a benchmark run
+entity RegressionReport
+    property comparisons: List<BenchmarkComparison> = []
+    property total_regressions: Int = 0
+    property total_improvements: Int = 0
+    property summary: String = ""
+    property baseline_label: String = "previous"
+
+    fn recalculate(self) -> RegressionReport do
+        let be reg = 0
+        let be imp = 0
+        for c in self.comparisons do
+            if c.is_regression() then let be reg = reg + 1 end
+            if c.is_improvement() then let be imp = imp + 1 end
+        end
+        self.total_regressions = reg
+        self.total_improvements = imp
+        let be lines: List<String> = []
+        lines.append("Performance Regression Report")
+        lines.append("============================")
+        lines.append("Baseline: " + self.baseline_label)
+        lines.append("Benchmarks: " + self.comparisons.length().to_string())
+        lines.append("Regressions: " + reg.to_string())
+        lines.append("Improvements: " + imp.to_string())
+        lines.append("")
+        let be has_severe = false
+        for c in self.comparisons do
+            if c.is_regression() then
+                lines.append("! " + c.display())
+                if c.regression == RegressionSeverity.SEVERE
+                    or c.regression == RegressionSeverity.CRITICAL then
+                    let be has_severe = true
+                end
+            end
+        end
+        if imp > 0 then
+            lines.append("")
+            lines.append("Improvements:")
+            for c in self.comparisons do
+                if c.is_improvement() then
+                    lines.append("  + " + c.display())
+                end
+            end
+        end
+        lines.append("")
+        if reg == 0 then
+            lines.append("Result: ALL BENCHMARKS STABLE")
+        else if has_severe then
+            lines.append("Result: SEVERE REGRESSIONS DETECTED")
+        else
+            lines.append("Result: MINOR REGRESSIONS DETECTED")
+        end
+        self.summary = join_lines(lines)
+        return self
+    end
+
+    fn regressions(self) -> List<BenchmarkComparison> do
+        let be result: List<BenchmarkComparison> = []
+        for c in self.comparisons do
+            if c.is_regression() then result.append(c) end
+        end
+        return result
+    end
+
+    fn improvements(self) -> List<BenchmarkComparison> do
+        let be result: List<BenchmarkComparison> = []
+        for c in self.comparisons do
+            if c.is_improvement() then result.append(c) end
+        end
+        return result
+    end
+end
+
+-- Main performance analyzer that loads and compares results
+entity PerformanceAnalyzer
+    property baselines: Map<String, Float> = {}
+    property current_results: Map<String, Float> = {}
+    property config: Map<String, String> = {}
+
+    fn new(config: Map<String, String>) -> PerformanceAnalyzer do
+        let be analyzer = PerformanceAnalyzer {}
+        analyzer.config = config
+        return analyzer
+    end
+
+    fn load_results(self, data: String) -> Map<String, Float> do
+        let be results: Map<String, Float> = {}
+        let be pattern = Regex.compile("^(\S+)\s+([\d.]+)")
+        for line in data.split("\n") do
+            let be t = line.trim()
+            if pattern.matches(t) then
+                let be m = pattern.capture(t)
+                let be name = m.get(0)
+                let be value = m.get(1).to_float()
+                results.set(name, value)
+            end
+        end
+        return results
+    end
+
+    fn load_baseline_file(self, path: String) -> PerformanceAnalyzer do
+        if File.exists(path) then
+            let be content = FileReader.read(path)
+            self.baselines = self.load_results(content)
+        end
+        return self
+    end
+
+    fn load_current_file(self, path: String) -> PerformanceAnalyzer do
+        if File.exists(path) then
+            let be content = FileReader.read(path)
+            self.current_results = self.load_results(content)
+        end
+        return self
+    end
+
+    fn set_baselines(self, results: Map<String, Float>) -> PerformanceAnalyzer do
+        self.baselines = results
+        return self
+    end
+
+    fn set_current(self, results: Map<String, Float>) -> PerformanceAnalyzer do
+        self.current_results = results
+        return self
+    end
+
+    fn get_baseline(self, name: String, mode: ComparisonBaseline,
+                    history: List<Map<String, Float>>) -> Float do
+        match mode with
+        case ComparisonBaseline.PREVIOUS do
+            if self.baselines.has(name) then return self.baselines.get(name) end
+        end
+        case ComparisonBaseline.AVERAGE do
+            let be sum = 0.0
+            let be count = 0
+            for entry in history do
+                if entry.has(name) then
+                    let be sum = sum + entry.get(name)
+                    let be count = count + 1
+                end
+            end
+            if count > 0 then return sum / count.to_float() end
+        end
+        case ComparisonBaseline.BEST do
+            let be best = -1.0
+            for entry in history do
+                if entry.has(name) then
+                    let be val = entry.get(name)
+                    if best < 0.0 or val < best then let be best = val end
+                end
+            end
+            if best >= 0.0 then return best end
+        end
+        case ComparisonBaseline.CUSTOM do
+            let be custom_key = "baseline." + name
+            if self.config.has(custom_key) then
+                return self.config.get(custom_key).to_float()
+            end
+        end
+        end
+        return 0.0
+    end
+
+    fn compute_confidence(self, values: List<Float>) -> Float do
+        if values.length() < 3 then return 0.5 end
+        let be sum = 0.0
+        for v in values do let be sum = sum + v end
+        let be mean = sum / values.length().to_float()
+        let be variance = 0.0
+        for v in values do
+            let be diff = v - mean
+            let be variance = variance + (diff * diff)
+        end
+        variance = variance / values.length().to_float()
+        let be std_dev = Math.sqrt(variance)
+        if mean == 0.0 then return 0.0 end
+        let be cv = std_dev / Math.abs(mean)
+        if cv < 0.01 then return 0.99 end
+        if cv < 0.05 then return 0.95 end
+        if cv < 0.10 then return 0.85 end
+        if cv < 0.20 then return 0.70 end
+        return 0.50
+    end
+
+    fn compare_all(self, mode: ComparisonBaseline,
+                   history: List<Map<String, Float>>) -> RegressionReport do
+        let be report = RegressionReport {}
+        report.baseline_label = baseline_label(mode)
+        for name in self.current_results.keys() do
+            let be current = self.current_results.get(name)
+            let be baseline = self.get_baseline(name, mode, history)
+            let be comp = BenchmarkComparison {}
+            comp.name = name
+            comp.baseline_ns = baseline
+            comp.current_ns = current
+            let be values: List<Float> = [current]
+            for entry in history do
+                if entry.has(name) then values.append(entry.get(name)) end
+            end
+            comp.confidence = self.compute_confidence(values)
+            comp.compute_change()
+            report.comparisons.append(comp)
+        end
+        report.recalculate()
+        return report
+    end
+
+    fn filter_regressions(self, min_severity: RegressionSeverity,
+                          report: RegressionReport) -> List<BenchmarkComparison> do
+        let be filtered: List<BenchmarkComparison> = []
+        for c in report.regressions() do
+            let be passes = false
+            match min_severity with
+            case RegressionSeverity.NONE do let be passes = true end
+            case RegressionSeverity.MINOR do
+                if c.regression == RegressionSeverity.MINOR
+                    or c.regression == RegressionSeverity.MODERATE
+                    or c.regression == RegressionSeverity.SEVERE
+                    or c.regression == RegressionSeverity.CRITICAL then
+                    let be passes = true
+                end
+            end
+            case RegressionSeverity.MODERATE do
+                if c.regression == RegressionSeverity.MODERATE
+                    or c.regression == RegressionSeverity.SEVERE
+                    or c.regression == RegressionSeverity.CRITICAL then
+                    let be passes = true
+                end
+            end
+            case RegressionSeverity.SEVERE do
+                if c.regression == RegressionSeverity.SEVERE
+                    or c.regression == RegressionSeverity.CRITICAL then
+                    let be passes = true
+                end
+            end
+            case RegressionSeverity.CRITICAL do
+                if c.regression == RegressionSeverity.CRITICAL then
+                    let be passes = true
+                end
+            end
+            end
+            if passes then filtered.append(c) end
+        end
+        return filtered
+    end
+
+    fn detect_outliers(self, report: RegressionReport) -> List<BenchmarkComparison> do
+        let be outliers: List<BenchmarkComparison> = []
+        if report.comparisons.length() < 3 then return outliers end
+        let be changes: List<Float> = []
+        for c in report.comparisons do
+            changes.append(Math.abs(c.change_pct))
+        end
+        let be sum = 0.0
+        for v in changes do let be sum = sum + v end
+        let be mean = sum / changes.length().to_float()
+        let be variance = 0.0
+        for v in changes do
+            let be d = v - mean
+            let be variance = variance + (d * d)
+        end
+        let be std = Math.sqrt(variance / changes.length().to_float())
+        for c in report.comparisons do
+            if Math.abs(c.change_pct) > mean + 2.0 * std then
+                outliers.append(c)
+            end
+        end
+        return outliers
+    end
+end
+
+export {
+    RegressionSeverity,
+    ComparisonBaseline,
+    BenchmarkComparison,
+    RegressionReport,
+    PerformanceAnalyzer
+}

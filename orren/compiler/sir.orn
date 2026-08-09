@@ -1,0 +1,412 @@
+module orren.compiler.sir
+import orren.core.language.foundation::{*}
+import orren.core.semantic.model::{*}
+import orren.parser.ast::{*}
+import orren.parser.tokens::{*}
+
+intent "Semantic Intermediate Representation — the bridge between AST and machine code, providing a structured instruction set with semantic domain annotations"
+
+// ──────────────────────────────────────────────
+// SIRInstruction — opcode enum for all operations
+// ──────────────────────────────────────────────
+enum SIRInstruction
+  LOAD_CONST
+  LOAD_VAR
+  STORE_VAR
+  BINARY_OP
+  UNARY_OP
+  CALL_FUNCTION
+  CALL_COGNITIVE
+  JUMP
+  JUMP_IF_FALSE
+  JUMP_IF_TRUE
+  RETURN
+  CONSTRUCT_ENTITY
+  ACCESS_FIELD
+  MATCH_DISPATCH
+  LIST_BUILD
+  MAP_BUILD
+  ENTER_SCOPE
+  EXIT_SCOPE
+  NOOP
+end
+
+// ──────────────────────────────────────────────
+// SIROperand — operand with semantic metadata
+// ──────────────────────────────────────────────
+entity SIROperand
+  property kind: String = "constant"
+  property value: String = ""
+  property type_name: String = "Any"
+  property attributes: SemanticAttributes = SemanticAttributes{}
+
+  fn constant(value: String, type_name: String) -> SIROperand do
+    return SIROperand{
+      kind = "constant",
+      value = value,
+      type_name = type_name,
+      attributes = SemanticAttributes{}
+    }
+  end
+
+  fn variable(name: String, type_name: String) -> SIROperand do
+    return SIROperand{
+      kind = "variable",
+      value = name,
+      type_name = type_name,
+      attributes = SemanticAttributes{}
+    }
+  end
+
+  fn label(label_name: String) -> SIROperand do
+    return SIROperand{
+      kind = "label",
+      value = label_name,
+      type_name = "Label",
+      attributes = SemanticAttributes{}
+    }
+  end
+
+  fn register(reg_name: String, type_name: String) -> SIROperand do
+    return SIROperand{
+      kind = "register",
+      value = reg_name,
+      type_name = type_name,
+      attributes = SemanticAttributes{}
+    }
+  end
+end
+
+// ──────────────────────────────────────────────
+// SIRInstruction_ — single instruction instance
+// ──────────────────────────────────────────────
+entity SIRInstruction_
+  property opcode: SIRInstruction = SIRInstruction.NOOP
+  property operands: List<SIROperand> = []
+  property result: Optional<SIROperand> = None
+  property line: Int = 0
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = SemanticDomainType.REASONING
+
+  fn to_string(self) -> String do
+    let op_name be self.opcode.to_string()
+    let parts be [op_name]
+    for operand in self.operands do
+      let part be operand.kind + ":" + operand.value
+      let _ be parts.push(part)
+    end
+    match self.result with
+      Some(r) =>
+        let result_str be " -> " + r.kind + ":" + r.value
+        let _ be parts.push(result_str),
+      None => None
+    end
+    return parts.join(" ")
+  end
+
+  // ── Constructors for common instructions ───
+  fn load_const(value: String, type_name: String, dest: String, line: Int) -> SIRInstruction_ do
+    return SIRInstruction_{
+      opcode = SIRInstruction.LOAD_CONST,
+      operands = [SIROperand.constant(value, type_name)],
+      result = Some(SIROperand.variable(dest, type_name)),
+      line = line,
+      attributes = SemanticAttributes{},
+      semantic_domain = SemanticDomainType.REASONING
+    }
+  end
+
+  fn load_var(src: String, type_name: String, dest: String, line: Int) -> SIRInstruction_ do
+    return SIRInstruction_{
+      opcode = SIRInstruction.LOAD_VAR,
+      operands = [SIROperand.variable(src, type_name)],
+      result = Some(SIROperand.variable(dest, type_name)),
+      line = line,
+      attributes = SemanticAttributes{},
+      semantic_domain = SemanticDomainType.REASONING
+    }
+  end
+
+  fn store_var(src: String, type_name: String, dest: String, line: Int) -> SIRInstruction_ do
+    return SIRInstruction_{
+      opcode = SIRInstruction.STORE_VAR,
+      operands = [SIROperand.variable(src, type_name)],
+      result = Some(SIROperand.variable(dest, type_name)),
+      line = line,
+      attributes = SemanticAttributes{},
+      semantic_domain = SemanticDomainType.REASONING
+    }
+  end
+
+  fn binary_op(op: String, left: String, right: String, type_name: String, dest: String, line: Int) -> SIRInstruction_ do
+    return SIRInstruction_{
+      opcode = SIRInstruction.BINARY_OP,
+      operands = [
+        SIROperand.constant(op, "OpKind"),
+        SIROperand.variable(left, type_name),
+        SIROperand.variable(right, type_name)
+      ],
+      result = Some(SIROperand.variable(dest, type_name)),
+      line = line,
+      attributes = SemanticAttributes{},
+      semantic_domain = SemanticDomainType.REASONING
+    }
+  end
+
+  fn call_function(name: String, args: List<String>, arg_types: List<String>, ret_type: String, dest: String, line: Int) -> SIRInstruction_ do
+    let operands be [SIROperand.constant(name, "FunctionRef")]
+    for i in 0..args.length() do
+      let _ be operands.push(SIROperand.variable(args[i], arg_types[i]))
+    end
+    return SIRInstruction_{
+      opcode = SIRInstruction.CALL_FUNCTION,
+      operands = operands,
+      result = Some(SIROperand.variable(dest, ret_type)),
+      line = line,
+      attributes = SemanticAttributes{},
+      semantic_domain = SemanticDomainType.REASONING
+    }
+  end
+
+  fn call_cognitive(keyword: String, strategy: String, constraints: String, dest: String, line: Int) -> SIRInstruction_ do
+    return SIRInstruction_{
+      opcode = SIRInstruction.CALL_COGNITIVE,
+      operands = [
+        SIROperand.constant(keyword, "CognitiveKeyword"),
+        SIROperand.constant(strategy, "CognitiveStrategy"),
+        SIROperand.constant(constraints, "CognitiveConstraints")
+      ],
+      result = Some(SIROperand.variable(dest, "CognitiveResult")),
+      line = line,
+      attributes = SemanticAttributes{},
+      semantic_domain = SemanticDomainType.COGNITIVE
+    }
+  end
+
+  fn jump(target: String, line: Int) -> SIRInstruction_ do
+    return SIRInstruction_{
+      opcode = SIRInstruction.JUMP,
+      operands = [SIROperand.label(target)],
+      result = None,
+      line = line,
+      attributes = SemanticAttributes{},
+      semantic_domain = SemanticDomainType.CONTROL_FLOW
+    }
+  end
+
+  fn jump_if_false(cond: String, target: String, line: Int) -> SIRInstruction_ do
+    return SIRInstruction_{
+      opcode = SIRInstruction.JUMP_IF_FALSE,
+      operands = [SIROperand.variable(cond, "Bool"), SIROperand.label(target)],
+      result = None,
+      line = line,
+      attributes = SemanticAttributes{},
+      semantic_domain = SemanticDomainType.CONTROL_FLOW
+    }
+  end
+
+  fn jump_if_true(cond: String, target: String, line: Int) -> SIRInstruction_ do
+    return SIRInstruction_{
+      opcode = SIRInstruction.JUMP_IF_TRUE,
+      operands = [SIROperand.variable(cond, "Bool"), SIROperand.label(target)],
+      result = None,
+      line = line,
+      attributes = SemanticAttributes{},
+      semantic_domain = SemanticDomainType.CONTROL_FLOW
+    }
+  end
+
+  fn ret(value: String, type_name: String, line: Int) -> SIRInstruction_ do
+    return SIRInstruction_{
+      opcode = SIRInstruction.RETURN,
+      operands = [SIROperand.variable(value, type_name)],
+      result = None,
+      line = line,
+      attributes = SemanticAttributes{},
+      semantic_domain = SemanticDomainType.CONTROL_FLOW
+    }
+  end
+
+  fn construct_entity(type_name: String, field_values: List<SIROperand>, dest: String, line: Int) -> SIRInstruction_ do
+    let operands be [SIROperand.constant(type_name, "TypeRef")]
+    for fv in field_values do
+      let _ be operands.push(fv)
+    end
+    return SIRInstruction_{
+      opcode = SIRInstruction.CONSTRUCT_ENTITY,
+      operands = operands,
+      result = Some(SIROperand.variable(dest, type_name)),
+      line = line,
+      attributes = SemanticAttributes{},
+      semantic_domain = SemanticDomainType.ENTITY
+    }
+  end
+
+  fn access_field(entity: String, entity_type: String, field_name: String, field_type: String, dest: String, line: Int) -> SIRInstruction_ do
+    return SIRInstruction_{
+      opcode = SIRInstruction.ACCESS_FIELD,
+      operands = [
+        SIROperand.variable(entity, entity_type),
+        SIROperand.constant(field_name, "FieldName")
+      ],
+      result = Some(SIROperand.variable(dest, field_type)),
+      line = line,
+      attributes = SemanticAttributes{},
+      semantic_domain = SemanticDomainType.ENTITY
+    }
+  end
+
+  fn match_dispatch(scrutinee: String, scrutinee_type: String, cases: List<String>, line: Int) -> SIRInstruction_ do
+    let operands be [SIROperand.variable(scrutinee, scrutinee_type)]
+    for c in cases do
+      let _ be operands.push(SIROperand.label(c))
+    end
+    return SIRInstruction_{
+      opcode = SIRInstruction.MATCH_DISPATCH,
+      operands = operands,
+      result = None,
+      line = line,
+      attributes = SemanticAttributes{},
+      semantic_domain = SemanticDomainType.CONTROL_FLOW
+    }
+  end
+
+  fn list_build(elements: List<SIROperand>, elem_type: String, dest: String, line: Int) -> SIRInstruction_ do
+    return SIRInstruction_{
+      opcode = SIRInstruction.LIST_BUILD,
+      operands = elements,
+      result = Some(SIROperand.variable(dest, "List<" + elem_type + ">")),
+      line = line,
+      attributes = SemanticAttributes{},
+      semantic_domain = SemanticDomainType.REASONING
+    }
+  end
+
+  fn map_build(keys: List<SIROperand>, values: List<SIROperand>, key_type: String, val_type: String, dest: String, line: Int) -> SIRInstruction_ do
+    let operands be []
+    for k in keys do
+      let _ be operands.push(k)
+    end
+    for v in values do
+      let _ be operands.push(v)
+    end
+    return SIRInstruction_{
+      opcode = SIRInstruction.MAP_BUILD,
+      operands = operands,
+      result = Some(SIROperand.variable(dest, "Map<" + key_type + ", " + val_type + ">")),
+      line = line,
+      attributes = SemanticAttributes{},
+      semantic_domain = SemanticDomainType.REASONING
+    }
+  end
+
+  fn enter_scope(line: Int) -> SIRInstruction_ do
+    return SIRInstruction_{
+      opcode = SIRInstruction.ENTER_SCOPE,
+      operands = [],
+      result = None,
+      line = line,
+      attributes = SemanticAttributes{},
+      semantic_domain = SemanticDomainType.SCOPE
+    }
+  end
+
+  fn exit_scope(line: Int) -> SIRInstruction_ do
+    return SIRInstruction_{
+      opcode = SIRInstruction.EXIT_SCOPE,
+      operands = [],
+      result = None,
+      line = line,
+      attributes = SemanticAttributes{},
+      semantic_domain = SemanticDomainType.SCOPE
+    }
+  end
+
+  fn noop(line: Int) -> SIRInstruction_ do
+    return SIRInstruction_{
+      opcode = SIRInstruction.NOOP,
+      operands = [],
+      result = None,
+      line = line,
+      attributes = SemanticAttributes{},
+      semantic_domain = SemanticDomainType.UNKNOWN
+    }
+  end
+end
+
+// ──────────────────────────────────────────────
+// SIRBlock — labeled sequence of instructions
+// ──────────────────────────────────────────────
+entity SIRBlock
+  property label: String = ""
+  property instructions: List<SIRInstruction_> = []
+
+  fn add(self, inst: SIRInstruction_) -> SIRBlock do
+    let _ be self.instructions.push(inst)
+    return self
+  end
+
+  fn instruction_count(self) -> Int do
+    return self.instructions.length()
+  end
+end
+
+// ──────────────────────────────────────────────
+// SIRFunction — function-level SIR container
+// ──────────────────────────────────────────────
+entity SIRFunction
+  property name: String = ""
+  property params: List<String> = []
+  property blocks: List<SIRBlock> = []
+  property entry_label: String = "entry"
+
+  fn entry_block(self) -> SIRBlock do
+    for blk in self.blocks do
+      if blk.label == self.entry_label then
+        return blk
+      end
+    end
+    let fallback be SIRBlock{ label = self.entry_label, instructions = [] }
+    let _ be self.blocks.push(fallback)
+    return fallback
+  end
+end
+
+// ──────────────────────────────────────────────
+// SIRModule — top-level module container
+// ──────────────────────────────────────────────
+entity SIRModule
+  property module_name: String = ""
+  property functions: Map<String, SIRFunction> = {}
+  property constants: List<SIROperand> = []
+
+  fn add_function(self, fn: SIRFunction) do
+    let _ be self.functions[fn.name] = fn
+  end
+
+  fn get_function(self, name: String) -> Optional<SIRFunction> do
+    if self.functions[name] exists then
+      return Some(self.functions[name])
+    else
+      return None
+    end
+  end
+
+  fn function_count(self) -> Int do
+    return self.functions.size()
+  end
+
+  fn total_instructions(self) -> Int do
+    let total be 0
+    for pair in self.functions do
+      let fn be pair.value
+      for blk in fn.blocks do
+        let _ = total + blk.instruction_count()
+        let total be total + blk.instruction_count()
+      end
+    end
+    return total
+  end
+end
+
+export { SIRInstruction, SIROperand, SIRInstruction_, SIRBlock, SIRFunction, SIRModule }

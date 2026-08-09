@@ -1,0 +1,368 @@
+-- runners.orn: CI runner configurations and execution environments for Orren CI.
+-- Manages runner registration, job assignment, health checks,
+-- lifecycle management, and status reporting with metrics.
+
+module orren_tools.ci.runners
+
+import module::{String, Int, Bool, Float, List, Map, Result, Time}
+import orren.core.language.foundation::{SourceLocation, ModuleResolver}
+
+-- The type of CI runner environment.
+enum RunnerKind
+    LOCAL
+    DOCKER
+    SSH
+    CLOUD
+end
+
+-- The current operational status of a runner.
+enum RunnerStatus
+    IDLE
+    BUSY
+    OFFLINE
+    ERROR
+end
+
+-- Converts a RunnerKind to a display string.
+fn runner_kind_label(k: RunnerKind) -> String do
+    return match k with
+        RunnerKind.LOCAL => "local"
+        RunnerKind.DOCKER => "docker"
+        RunnerKind.SSH => "ssh"
+        RunnerKind.CLOUD => "cloud"
+    end
+end
+
+-- Converts a RunnerStatus to a display string.
+fn runner_status_label(s: RunnerStatus) -> String do
+    return match s with
+        RunnerStatus.IDLE => "idle"
+        RunnerStatus.BUSY => "busy"
+        RunnerStatus.OFFLINE => "offline"
+        RunnerStatus.ERROR => "error"
+    end
+end
+
+-- A capability that a runner supports.
+entity RunnerCapability
+    property name: String = ""
+    property version: String = ""
+    property supported: Bool = true
+
+    intent "Describe a single capability of a CI runner"
+
+    -- Returns a formatted string of this capability.
+    fn label(self) -> String do
+        if self.version.length > 0 then
+            return self.name + " v" + self.version
+        end
+        return self.name
+    end
+
+    -- Checks if this capability matches a required name and minimum version.
+    fn matches(self, required_name: String, min_version: String) -> Bool do
+        if not self.supported then
+            return false
+        end
+        if self.name != required_name then
+            return false
+        end
+        if min_version.length == 0 then
+            return true
+        end
+        return self.compare_versions(self.version, min_version) >= 0
+    end
+
+    -- Compares two version strings. Returns -1, 0, or 1.
+    fn compare_versions(self, a: String, b: String) -> Int do
+        let parts_a be a.split(".")
+        let parts_b be b.split(".")
+        let max_len be parts_a.length
+        if parts_b.length > max_len then
+            max_len = parts_b.length
+        end
+        let mut i be 0
+        while i < max_len do
+            let va be 0
+            let vb be 0
+            if i < parts_a.length then
+                va = String.to_int(parts_a.get(i))
+            end
+            if i < parts_b.length then
+                vb = String.to_int(parts_b.get(i))
+            end
+            if va < vb then
+                return -1
+            end
+            if va > vb then
+                return 1
+            end
+            i = i + 1
+        end
+        return 0
+    end
+end
+
+-- Configuration for a CI runner instance.
+entity RunnerConfig
+    property kind: RunnerKind = RunnerKind.LOCAL
+    property name: String = ""
+    property labels: List<String> = List<String>.new()
+    property env: Map<String, String> = Map<String, String>.new()
+    property workspace: String = "/tmp/orren-ci"
+    property max_parallel: Int = 1
+    property timeout: Int = 3600000
+
+    intent "Define the configuration for a CI runner instance"
+
+    -- Returns an environment variable value, or default if unset.
+    fn env_var(self, key: String, default: String) -> String do
+        let val be self.env.get(key)
+        if val == nothing then
+            return default
+        end
+        return val
+    end
+
+    -- Sets an environment variable in the runner config.
+    fn set_env(self, key: String, value: String) do
+        self.env.set(key, value)
+    end
+
+    -- Returns whether the runner has a specific label.
+    fn has_label(self, label: String) -> Bool do
+        for l in self.labels do
+            if l == label then
+                return true
+            end
+        end
+        return false
+    end
+
+    -- Returns the timeout in seconds.
+    fn timeout_seconds(self) -> Int do
+        return self.timeout / 1000
+    end
+
+    -- Returns a summary string for the configuration.
+    fn summary(self) -> String do
+        let kind be runner_kind_label(self.kind)
+        let labels_str be ""
+        for label in self.labels do
+            if labels_str.length > 0 then
+                labels_str = labels_str + ","
+            end
+            labels_str = labels_str + label
+        end
+        return "RunnerConfig(\"" + self.name + "\", kind=" + kind + ", labels=[" + labels_str + "], parallel=" + String.from_int(self.max_parallel) + ")"
+    end
+
+    -- Returns the workspace path for a specific job.
+    fn job_workspace(self, job_id: String) -> String do
+        return self.workspace + "/jobs/" + job_id
+    end
+end
+
+-- A record of a completed job on this runner.
+entity JobRecord
+    property job_id: String = ""
+    property stage_name: String = ""
+    property status: String = ""
+    property start_time: Int = 0
+    property end_time: Int = 0
+    property duration_ns: Int = 0
+
+    intent "Record metadata about a completed CI job"
+
+    -- Returns the job duration in milliseconds.
+    fn duration_ms(self) -> Int do
+        return self.duration_ns / 1000000
+    end
+
+    -- Returns a summary string.
+    fn summary(self) -> String do
+        return self.job_id + " (" + self.stage_name + "): " + self.status + " (" + String.from_int(self.duration_ms()) + "ms)"
+    end
+end
+
+-- A CI runner that can execute pipeline stages.
+entity CIRunner
+    property config: RunnerConfig = RunnerConfig.new()
+    property status: RunnerStatus = RunnerStatus.IDLE
+    property current_jobs: List<JobRecord> = List<JobRecord>.new()
+    property completed_jobs: List<JobRecord> = List<JobRecord>.new()
+    property capabilities: List<RunnerCapability> = List<RunnerCapability>.new()
+    property registered_at: Int = 0
+    property last_heartbeat: Int = 0
+
+    intent "Manage a CI runner that executes pipeline stages and reports status"
+
+    -- Registers this runner, marking it online.
+    fn register(self) do
+        self.registered_at = Time.now_ns()
+        self.last_heartbeat = Time.now_ns()
+        self.status = RunnerStatus.IDLE
+    end
+
+    -- Unregisters this runner, marking it offline.
+    fn unregister(self) do
+        self.status = RunnerStatus.OFFLINE
+    end
+
+    -- Assigns a job to this runner if capacity is available.
+    fn assign_job(self, job_id: String, stage_name: String) -> Bool do
+        if self.status == RunnerStatus.OFFLINE then
+            return false
+        end
+        if self.current_jobs.length >= self.config.max_parallel then
+            return false
+        end
+        let job be JobRecord.new()
+        job.job_id = job_id
+        job.stage_name = stage_name
+        job.status = "running"
+        job.start_time = Time.now_ns()
+        self.current_jobs.append(job)
+        if self.current_jobs.length >= self.config.max_parallel then
+            self.status = RunnerStatus.BUSY
+        end
+        self.last_heartbeat = Time.now_ns()
+        return true
+    end
+
+    -- Completes a currently running job.
+    fn complete_job(self, job_id: String, success: Bool) do
+        let mut i be 0
+        while i < self.current_jobs.length do
+            let job be self.current_jobs.get(i)
+            if job.job_id == job_id then
+                let completed be job
+                completed.end_time = Time.now_ns()
+                completed.duration_ns = completed.end_time - completed.start_time
+                if success then
+                    completed.status = "passed"
+                else
+                    completed.status = "failed"
+                end
+                self.completed_jobs.append(completed)
+                self.current_jobs.remove_at(i)
+                if self.current_jobs.length < self.config.max_parallel then
+                    self.status = RunnerStatus.IDLE
+                end
+                self.last_heartbeat = Time.now_ns()
+                return
+            end
+            i = i + 1
+        end
+    end
+
+    -- Checks runner health by verifying heartbeat recency.
+    fn check_health(self, max_idle_ns: Int) -> Bool do
+        if self.status == RunnerStatus.OFFLINE then
+            return false
+        end
+        let idle be Time.now_ns() - self.last_heartbeat
+        if idle > max_idle_ns then
+            self.status = RunnerStatus.ERROR
+            return false
+        end
+        return true
+    end
+
+    -- Updates the heartbeat timestamp.
+    fn heartbeat(self) do
+        self.last_heartbeat = Time.now_ns()
+    end
+
+    -- Returns whether the runner has a specific capability.
+    fn has_capability(self, name: String, min_version: String) -> Bool do
+        for cap in self.capabilities do
+            if cap.matches(name, min_version) then
+                return true
+            end
+        end
+        return false
+    end
+
+    -- Adds a capability to this runner.
+    fn add_capability(self, cap: RunnerCapability) do
+        self.capabilities.append(cap)
+    end
+
+    -- Returns the number of completed jobs.
+    fn completed_count(self) -> Int do
+        return self.completed_jobs.length
+    end
+
+    -- Returns the number of currently running jobs.
+    fn active_count(self) -> Int do
+        return self.current_jobs.length
+    end
+
+    -- Calculates the success rate of completed jobs.
+    fn success_rate(self) -> Float do
+        if self.completed_jobs.length == 0 then
+            return 0.0
+        end
+        let passed be 0
+        for job in self.completed_jobs do
+            if job.status == "passed" then
+                passed = passed + 1
+            end
+        end
+        let rate be Float.from_int(passed) / Float.from_int(self.completed_jobs.length)
+        return rate * 100.0
+    end
+
+    -- Returns the total execution time of completed jobs in milliseconds.
+    fn total_job_time_ms(self) -> Int do
+        let mut total be 0
+        for job in self.completed_jobs do
+            total = total + job.duration_ns
+        end
+        return total / 1000000
+    end
+
+    -- Returns average job duration in milliseconds.
+    fn avg_job_duration_ms(self) -> Int do
+        if self.completed_jobs.length == 0 then
+            return 0
+        end
+        return self.total_job_time_ms() / self.completed_jobs.length
+    end
+
+    -- Returns a list of capability labels.
+    fn capability_labels(self) -> List<String> do
+        let labels be List<String>.new()
+        for cap in self.capabilities do
+            labels.append(cap.label())
+        end
+        return labels
+    end
+
+    -- Produces a status report for this runner.
+    fn status_report(self) -> String do
+        let status be runner_status_label(self.status)
+        let kind be runner_kind_label(self.config.kind)
+        let active be String.from_int(self.active_count())
+        let completed be String.from_int(self.completed_count())
+        let rate be String.from_float(self.success_rate()) + "%"
+        return "Runner(\"" + self.config.name + "\", status=" + status + ", kind=" + kind + ", active=" + active + ", completed=" + completed + ", success_rate=" + rate + ")"
+    end
+
+    -- Collects runner metrics as a map.
+    fn metrics(self) -> Map<String, String> do
+        let m be Map<String, String>.new()
+        m.set("name", self.config.name)
+        m.set("status", runner_status_label(self.status))
+        m.set("kind", runner_kind_label(self.config.kind))
+        m.set("active_jobs", String.from_int(self.active_count()))
+        m.set("completed_jobs", String.from_int(self.completed_count()))
+        m.set("success_rate", String.from_float(self.success_rate()) + "%")
+        m.set("avg_duration_ms", String.from_int(self.avg_job_duration_ms()))
+        m.set("total_time_ms", String.from_int(self.total_job_time_ms()))
+        return m
+    end
+end
+
+export {RunnerKind, RunnerStatus, runner_kind_label, runner_status_label, RunnerCapability, RunnerConfig, JobRecord, CIRunner}

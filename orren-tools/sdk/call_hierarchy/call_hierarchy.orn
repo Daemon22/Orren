@@ -1,0 +1,550 @@
+-- call_hierarchy.orn: Call hierarchy analysis for the Orren LSP.
+-- Builds call graphs, finds incoming and outgoing calls, and supports
+-- hierarchical traversal of function call relationships.
+
+module orren_tools.sdk.call_hierarchy
+
+import module::{String, Int, Bool, List, Map, Result, File, Path, Time}
+import orren.core.language.foundation::{SourceLocation, ModuleResolver}
+
+-- Direction of call hierarchy traversal.
+enum CallDirection
+    INCOMING
+    OUTGOING
+end
+
+-- A single item in the call hierarchy.
+entity CallHierarchyItem
+    property name: String = ""
+    property kind: String = "function"
+    property file: String = ""
+    property line: Int = 0
+    property detail: String = ""
+    property module_path: String = ""
+    property selection_range: SourceRange = SourceRange.new()
+
+    -- Returns a formatted string for display.
+    fn to_string(self) -> String do
+        let detail_str be ""
+        if self.detail.length > 0 then
+            detail_str be " (" + self.detail + ")"
+        end
+        return self.name + detail_str + " [" + self.file + ":" + String.from_int(self.line).to_string() + "]"
+    end
+
+    -- Returns a URI-style identifier for this item.
+    fn uri(self) -> String do
+        return "orren://" + self.file + ":" + String.from_int(self.line).to_string() + ":" + self.name
+    end
+
+    -- Checks whether this item is the same as another.
+    fn equals(self, other: CallHierarchyItem) -> Bool do
+        if self.file != other.file then
+            return false
+        end
+        if self.name != other.name then
+            return false
+        end
+        if self.line != other.line then
+            return false
+        end
+        return true
+    end
+end
+
+-- A source range for text selection.
+entity SourceRange
+    property start_line: Int = 0
+    property start_col: Int = 0
+    property end_line: Int = 0
+    property end_col: Int = 0
+
+    -- Returns a formatted string representation.
+    fn to_string(self) -> String do
+        return "[" + String.from_int(self.start_line).to_string() + ":" + String.from_int(self.start_col).to_string() + " - " + String.from_int(self.end_line).to_string() + ":" + String.from_int(self.end_col).to_string() + "]"
+    end
+end
+
+-- Result of a call hierarchy query.
+entity CallHierarchyResult
+    property items: List<CallHierarchyItem> = List<CallHierarchyItem>.new()
+    property direction: CallDirection = CallDirection.OUTGOING
+    property root_symbol: String = ""
+
+    -- Returns the number of items in this result.
+    fn count(self) -> Int do
+        return self.items.length
+    end
+
+    -- Returns a formatted summary.
+    fn summary(self) -> String do
+        let dir_str be match self.direction with
+            CallDirection.INCOMING => "incoming"
+            CallDirection.OUTGOING => "outgoing"
+        end
+        let lines be List<String>.new()
+        lines.append("Call Hierarchy (" + dir_str + ") for: " + self.root_symbol)
+        lines.append("  Items: " + String.from_int(self.count()).to_string())
+        for item in self.items do
+            lines.append("  - " + item.to_string())
+        end
+        return lines.join("\n")
+    end
+end
+
+-- The main call hierarchy provider.
+entity CallHierarchyProvider
+    property symbol_index: Map<String, CallHierarchyItem> = Map<String, CallHierarchyItem>.new()
+    property call_graph: Map<String, List<String>> = Map<String, List<String>>.new()
+    property reverse_graph: Map<String, List<String>> = Map<String, List<String>>.new()
+
+    -- Initializes the call graph by analyzing a project.
+    fn initialize(self, project_root: String) -> Result<Bool> do
+        let module_files be self.discover_orn_files(project_root)
+        for file_path in module_files do
+            let module_path be self.file_to_module_path(file_path, project_root)
+            self.analyze_file_calls(file_path, module_path)
+        end
+        self.build_reverse_graph()
+        return Result.ok(true)
+    end
+
+    -- Discovers all .orn files in a directory tree.
+    fn discover_orn_files(self, root: String) -> List<String> do
+        let files be List<String>.new()
+        let entries be Path.list_directory(root)
+        for entry in entries do
+            let full_path be root + "/" + entry
+            if Path.is_directory(full_path) then
+                let sub_files be self.discover_orn_files(full_path)
+                for sf in sub_files do
+                    files.append(sf)
+                end
+            else if entry.ends_with(".orn") then
+                files.append(full_path)
+            end
+        end
+        return files
+    end
+
+    -- Converts a file path to a dotted module path.
+    fn file_to_module_path(self, file_path: String, root: String) -> String do
+        let rel be file_path.substring(root.length + 1)
+        let no_ext be rel.replace(".orn", "")
+        return no_ext.replace("/", ".")
+    end
+
+    -- Analyzes all function calls within a single source file.
+    fn analyze_file_calls(self, file_path: String, module_path: String) do
+        let raw be File.read(file_path)
+        if raw.is_error then
+            return
+        end
+        let lines be raw.value.split_lines()
+        let idx be 0
+        while idx < lines.length do
+            let trimmed be lines.get(idx).strip()
+            if trimmed.contains("fn ") and trimmed.contains(" do") then
+                let fn_name be self.parse_fn_name(trimmed)
+                if fn_name.length > 0 then
+                    let item be CallHierarchyItem.new()
+                    item.name = fn_name
+                    item.kind = "function"
+                    item.file = file_path
+                    item.line = idx
+                    item.detail = self.build_detail(trimmed)
+                    item.module_path = module_path
+                    let range be SourceRange.new()
+                    range.start_line = idx
+                    range.start_col = trimmed.find(fn_name)
+                    range.end_line = idx
+                    range.end_col = range.start_col + fn_name.length
+                    item.selection_range = range
+                    self.symbol_index.set(fn_name + "@" + file_path, item)
+                    let fn_end be self.find_fn_end(lines, idx)
+                    let callees be self.extract_callees(lines, idx, fn_end)
+                    let caller_key be fn_name + "@" + file_path
+                    for callee in callees do
+                        let existing be self.call_graph.get(caller_key)
+                        if existing == nothing then
+                            existing = List<String>.new()
+                            self.call_graph.set(caller_key, existing)
+                        end
+                        if not existing.contains(callee) then
+                            existing.append(callee)
+                        end
+                    end
+                end
+            end
+            idx = idx + 1
+        end
+    end
+
+    -- Finds the end line of a function block.
+    fn find_fn_end(self, lines: List<String>, start: Int) -> Int do
+        let depth be 1
+        let idx be start + 1
+        while idx < lines.length and depth > 0 do
+            let line be lines.get(idx).strip()
+            if line.contains(" do") and not line.starts_with("--") then
+                depth = depth + 1
+            end
+            if line == "end" then
+                depth = depth - 1
+            end
+            idx = idx + 1
+        end
+        return idx - 2
+    end
+
+    -- Extracts all function names called within a function body.
+    fn extract_callees(self, lines: List<String>, start: Int, end_line: Int) -> List<String> do
+        let callees be List<String>.new()
+        let idx be start
+        while idx <= end_line and idx < lines.length do
+            let line be lines.get(idx).strip()
+            if not line.starts_with("--") then
+                let call_names be self.find_call_sites(line)
+                for name in call_names do
+                    if not callees.contains(name) then
+                        callees.append(name)
+                    end
+                end
+            end
+            idx = idx + 1
+        end
+        return callees
+    end
+
+    -- Finds function call sites in a single line.
+    fn find_call_sites(self, line: String) -> List<String> do
+        let calls be List<String>.new()
+        let idx be 0
+        while idx < line.length do
+            let ch be line.char_at(idx)
+            if ch == "." then
+                let after_dot be idx + 1
+                if after_dot < line.length then
+                    let next_ch be line.char_at(after_dot)
+                    if next_ch.is_alpha() or next_ch == "_" then
+                        let name_start be after_dot
+                        let name_end be name_start + 1
+                        while name_end < line.length and self.is_id_char(line.char_at(name_end)) do
+                            name_end = name_end + 1
+                        end
+                        if name_end < line.length and line.char_at(name_end) == "(" then
+                            let call_name be line.substring(name_start, name_end)
+                            calls.append(call_name)
+                        end
+                    end
+                end
+            end
+            idx = idx + 1
+        end
+        -- Also check for direct function calls like self.method_name()
+        let self_pattern be "self."
+        let self_pos be 0
+        while self_pos < line.length do
+            let found be line.find_from(self_pattern, self_pos)
+            if found < 0 then
+                break
+            end
+            let after_self be found + 5
+            if after_self < line.length then
+                let name_start be after_self
+                let name_end be name_start
+                while name_end < line.length and self.is_id_char(line.char_at(name_end)) do
+                    name_end = name_end + 1
+                end
+                if name_end < line.length and line.char_at(name_end) == "(" then
+                    let call_name be line.substring(name_start, name_end)
+                    if not calls.contains(call_name) then
+                        calls.append(call_name)
+                    end
+                end
+            end
+            self_pos = found + 1
+        end
+        return calls
+    end
+
+    -- Checks if a character is an identifier character.
+    fn is_id_char(self, ch: String) -> Bool do
+        return ch.is_alpha() or ch.is_digit() or ch == "_"
+    end
+
+    -- Parses a function name from a declaration line.
+    fn parse_fn_name(self, line: String) -> String do
+        let fn_pos be line.find("fn ")
+        if fn_pos < 0 then
+            return ""
+        end
+        let after_fn be line.substring(fn_pos + 3).strip()
+        let paren_pos be after_fn.find("(")
+        if paren_pos < 0 then
+            return after_fn
+        end
+        return after_fn.substring(0, paren_pos).strip()
+    end
+
+    -- Builds a detail string from a function declaration.
+    fn build_detail(self, line: String) -> String do
+        let fn_pos be line.find("fn ")
+        if fn_pos < 0 then
+            return ""
+        end
+        let after_fn be line.substring(fn_pos + 3).strip()
+        let paren_pos be after_fn.find(")")
+        if paren_pos >= 0 then
+            return after_fn.substring(0, paren_pos + 1)
+        end
+        return after_fn
+    end
+
+    -- Builds the reverse call graph from the forward graph.
+    fn build_reverse_graph(self) do
+        for caller_key in self.call_graph.keys() do
+            let callees be self.call_graph.get(caller_key)
+            if callees != nothing then
+                for callee in callees do
+                    let reverse_entry be self.reverse_graph.get(callee)
+                    if reverse_entry == nothing then
+                        reverse_entry = List<String>.new()
+                        self.reverse_graph.set(callee, reverse_entry)
+                    end
+                    if not reverse_entry.contains(caller_key) then
+                        reverse_entry.append(caller_key)
+                    end
+                end
+            end
+        end
+    end
+
+    -- Finds the call hierarchy item at a given position in a file.
+    fn prepare_call_hierarchy(self, file_path: String, line: Int, column: Int) -> Result<CallHierarchyItem> do
+        let key be self.find_function_at(file_path, line)
+        if key.length > 0 then
+            let item be self.symbol_index.get(key)
+            if item != nothing then
+                return Result.ok(item)
+            end
+        end
+        -- Search by iterating symbols in the file.
+        for sym_key in self.symbol_index.keys() do
+            let item be self.symbol_index.get(sym_key)
+            if item != nothing then
+                if item.file == file_path then
+                    return Result.ok(item)
+                end
+            end
+        end
+        return Result.error("No callable symbol at position: " + file_path + ":" + String.from_int(line).to_string())
+    end
+
+    -- Finds the function key at a given line in a file.
+    fn find_function_at(self, file_path: String, line: Int) -> String do
+        for sym_key in self.symbol_index.keys() do
+            let item be self.symbol_index.get(sym_key)
+            if item != nothing then
+                if item.file == file_path and item.line == line then
+                    return sym_key
+                end
+            end
+        end
+        return ""
+    end
+
+    -- Finds all incoming calls (who calls this function).
+    fn incoming_calls(self, item: CallHierarchyItem) -> CallHierarchyResult do
+        let result be CallHierarchyResult.new()
+        result.direction = CallDirection.INCOMING
+        result.root_symbol = item.name
+        let fn_name be item.name
+        let callers be self.reverse_graph.get(fn_name)
+        if callers != nothing then
+            for caller_key in callers do
+                let caller_item be self.symbol_index.get(caller_key)
+                if caller_item != nothing then
+                    result.items.append(caller_item)
+                else
+                    -- Build a partial item from the key.
+                    let parts be caller_key.split("@")
+                    if parts.length == 2 then
+                        let partial be CallHierarchyItem.new()
+                        partial.name = parts.get(0)
+                        partial.file = parts.get(1)
+                        partial.kind = "function"
+                        result.items.append(partial)
+                    end
+                end
+            end
+        end
+        return result
+    end
+
+    -- Finds all outgoing calls (what does this function call).
+    fn outgoing_calls(self, item: CallHierarchyItem) -> CallHierarchyResult do
+        let result be CallHierarchyResult.new()
+        result.direction = CallDirection.OUTGOING
+        result.root_symbol = item.name
+        let caller_key be item.name + "@" + item.file
+        let callees be self.call_graph.get(caller_key)
+        if callees != nothing then
+            for callee_name in callees do
+                let callee_key be self.find_callee_key(callee_name, item.file)
+                if callee_key.length > 0 then
+                    let callee_item be self.symbol_index.get(callee_key)
+                    if callee_item != nothing then
+                        result.items.append(callee_item)
+                    end
+                else
+                    let partial be CallHierarchyItem.new()
+                    partial.name = callee_name
+                    partial.kind = "function"
+                    result.items.append(partial)
+                end
+            end
+        end
+        return result
+    end
+
+    -- Finds the symbol index key for a callee function name.
+    fn find_callee_key(self, callee_name: String, from_file: String) -> String do
+        -- Try same file first.
+        let same_file_key be callee_name + "@" + from_file
+        let item be self.symbol_index.get(same_file_key)
+        if item != nothing then
+            return same_file_key
+        end
+        -- Search across all files.
+        for sym_key in self.symbol_index.keys() do
+            if sym_key.starts_with(callee_name + "@") then
+                return sym_key
+            end
+        end
+        return ""
+    end
+
+    -- Detects recursive calls in the call graph.
+    fn detect_recursive_calls(self) -> List<List<String>> do
+        let cycles be List<List<String>>.new()
+        let visited be Map<String, Int>.new()
+        let path be List<String>.new()
+        let path_set be Map<String, Bool>.new()
+        for caller_key in self.call_graph.keys() do
+            visited.set(caller_key, 0)
+        end
+        for caller_key in self.call_graph.keys() do
+            let state be visited.get(caller_key)
+            if state != nothing and state == 0 then
+                self.detect_cycles_dfs(caller_key, visited, path, path_set, cycles)
+            end
+        end
+        return cycles
+    end
+
+    -- DFS to detect cycles in the call graph.
+    fn detect_cycles_dfs(self, node: String, visited: Map<String, Int>, path: List<String>, path_set: Map<String, Bool>, cycles: List<List<String>>) do
+        visited.set(node, 1)
+        path.append(node)
+        path_set.set(node, true)
+        let callees be self.call_graph.get(node)
+        if callees != nothing then
+            for callee in callees do
+                let callee_key be self.resolve_callee_key(callee, node)
+                if callee_key.length > 0 then
+                    let in_path be path_set.get(callee_key)
+                    if in_path != nothing and in_path then
+                        let cycle be List<String>.new()
+                        let started be false
+                        for entry in path do
+                            if entry == callee_key then
+                                started = true
+                            end
+                            if started then
+                                cycle.append(entry)
+                            end
+                        end
+                        cycle.append(callee_key)
+                        if cycle.length > 1 then
+                            cycles.append(cycle)
+                        end
+                    else
+                        let state be visited.get(callee_key)
+                        if state != nothing and state == 0 then
+                            self.detect_cycles_dfs(callee_key, visited, path, path_set, cycles)
+                        end
+                    end
+                end
+            end
+        end
+        path_set.set(node, false)
+        let last be path.pop_last()
+        visited.set(node, 2)
+    end
+
+    -- Resolves a callee name to a full key using the caller's file context.
+    fn resolve_callee_key(self, callee_name: String, caller_key: String) -> String do
+        let parts be caller_key.split("@")
+        if parts.length >= 2 then
+            let file be parts.get(1)
+            let same_file_key be callee_name + "@" + file
+            let item be self.symbol_index.get(same_file_key)
+            if item != nothing then
+                return same_file_key
+            end
+        end
+        for sym_key in self.symbol_index.keys() do
+            if sym_key.starts_with(callee_name + "@") then
+                return sym_key
+            end
+        end
+        return ""
+    end
+
+    -- Performs hierarchical traversal from a root function.
+    fn hierarchical_traversal(self, root: CallHierarchyItem, max_depth: Int, direction: CallDirection) -> List<CallHierarchyItem> do
+        let all_items be List<CallHierarchyItem>.new()
+        let visited_keys be Map<String, Bool>.new()
+        let queue be List<HierNode>.new()
+        let root_node be HierNode.new()
+        root_node.item = root
+        root_node.depth = 0
+        queue.append(root_node)
+        while queue.length > 0 do
+            let node be queue.remove_at(0)
+            let node_key be node.item.name + "@" + node.item.file
+            let was_visited be visited_keys.get(node_key)
+            if was_visited != nothing and was_visited then
+                continue
+            end
+            visited_keys.set(node_key, true)
+            all_items.append(node.item)
+            if node.depth < max_depth then
+                let children be List<CallHierarchyItem>.new()
+                if direction == CallDirection.OUTGOING then
+                    let result be self.outgoing_calls(node.item)
+                    children = result.items
+                else
+                    let result be self.incoming_calls(node.item)
+                    children = result.items
+                end
+                for child in children do
+                    let child_node be HierNode.new()
+                    child_node.item = child
+                    child_node.depth = node.depth + 1
+                    queue.append(child_node)
+                end
+            end
+        end
+        return all_items
+    end
+end
+
+-- Internal node for breadth-first hierarchical traversal.
+entity HierNode
+    property item: CallHierarchyItem = CallHierarchyItem.new()
+    property depth: Int = 0
+end
+
+export {CallDirection, CallHierarchyItem, SourceRange, CallHierarchyResult, CallHierarchyProvider, HierNode}

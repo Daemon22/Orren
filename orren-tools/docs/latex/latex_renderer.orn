@@ -1,0 +1,448 @@
+module orren_tools.docs.latex
+
+import module::{String, Int, Float, Bool, List, Map}
+
+intent "Render Orren documentation as publication-quality LaTeX PDF output with syntax-highlighted code listings, structured tables, and professional formatting."
+
+enum LatexDocClass
+    ARTICLE
+    REPORT
+    BOOK
+    TECHREPORT
+end
+
+enum LatexFontSize
+    TINY
+    SCRIPTSIZE
+    FOOTNOTESIZE
+    SMALL
+    NORMAL
+    LARGE
+    LARGE2
+    LARGE3
+    HUGE
+    HUGE2
+end
+
+entity LatexConfig
+    property doc_class: LatexDocClass = LatexDocClass.ARTICLE
+    property font_size: LatexFontSize = LatexFontSize.NORMAL
+    property paper_size: String = "a4paper"
+    property margin: String = "1in"
+    property include_toc: Bool = true
+    property include_index: Bool = true
+    property include_code_listings: Bool = true
+    property two_column: Bool = false
+    property title: String = "Orren Documentation"
+    property author: String = ""
+    property date: String = ""
+    property abstract: String = ""
+end
+
+entity LatexRenderer
+    property config: LatexConfig = LatexConfig.new()
+    property preamble_buffer: List<String> = List<String>.new()
+    property content_buffer: List<String> = List<String>.new()
+end
+
+fn doc_class_string(self, cls: LatexDocClass) -> String do
+    match cls with
+        LatexDocClass.ARTICLE do
+            return "article"
+        end
+        LatexDocClass.REPORT do
+            return "report"
+        end
+        LatexDocClass.BOOK do
+            return "book"
+        end
+        LatexDocClass.TECHREPORT do
+            return "report"
+        end
+    end
+end
+
+fn font_size_string(self, size: LatexFontSize) -> String do
+    match size with
+        LatexFontSize.TINY do
+            return "\\tiny"
+        end
+        LatexFontSize.SCRIPTSIZE do
+            return "\\scriptsize"
+        end
+        LatexFontSize.FOOTNOTESIZE do
+            return "\\footnotesize"
+        end
+        LatexFontSize.SMALL do
+            return "\\small"
+        end
+        LatexFontSize.NORMAL do
+            return "\\normalsize"
+        end
+        LatexFontSize.LARGE do
+            return "\\large"
+        end
+        LatexFontSize.LARGE2 do
+            return "\\Large"
+        end
+        LatexFontSize.LARGE3 do
+            return "\\LARGE"
+        end
+        LatexFontSize.HUGE do
+            return "\\huge"
+        end
+        LatexFontSize.HUGE2 do
+            return "\\Huge"
+        end
+    end
+end
+
+fn escape_latex(self, text: String) -> String do
+    let result be text
+    result = result.replace("\\", "\\textbackslash{}")
+    result = result.replace("{", "\\{")
+    result = result.replace("}", "\\}")
+    result = result.replace("$", "\\$")
+    result = result.replace("&", "\\&")
+    result = result.replace("#", "\\#")
+    result = result.replace("^", "\\textasciicircum{}")
+    result = result.replace("_", "\\_")
+    result = result.replace("~", "\\textasciitilde{}")
+    result = result.replace("%", "\\%")
+    return result
+end
+
+fn escape_listing(self, text: String) -> String do
+    let result be text
+    result = result.replace("\\", "\\textbackslash")
+    result = result.replace("{", "\\{\n")
+    result = result.replace("}", "\\}\n")
+    return result
+end
+
+fn generate_preamble(self, renderer: LatexRenderer) -> List<String> do
+    let lines be List<String>.new()
+    let cls_str be self.doc_class_string(renderer.config.doc_class)
+    lines.append("\\documentclass[" + renderer.config.paper_size + ",11pt]{" + cls_str + "}")
+    lines.append("")
+    -- Font and encoding packages.
+    lines.append("\\usepackage[utf8]{inputenc}")
+    lines.append("\\usepackage[T1]{fontenc}")
+    lines.append("\\usepackage{lmodern}")
+    lines.append("\\usepackage{textcomp}")
+    lines.append("")
+    -- Page geometry.
+    lines.append("\\usepackage[margin=" + renderer.config.margin + "]{geometry}")
+    if renderer.config.two_column then
+        lines.append("\\usepackage{multicol}")
+    end
+    lines.append("")
+    -- Code listings setup.
+    if renderer.config.include_code_listings then
+        lines.append("\\usepackage{listings}")
+        lines.append("\\usepackage{xcolor}")
+        lines.append("")
+        lines.append("\\definecolor{kwcolor}{RGB}{0,112,192}")
+        lines.append("\\definecolor{strcolor}{RGB}{163,21,21}")
+        lines.append("\\definecolor{cmtcolor}{RGB}{106,153,85}")
+        lines.append("\\definecolor{bgcode}{RGB}{245,245,245}")
+        lines.append("")
+        lines.append("\\lstdefinestyle{orrenstyle}{")
+        lines.append("  backgroundcolor=\\color{bgcode},")
+        lines.append("  keywordstyle=\\color{kwcolor}\\bfseries,")
+        lines.append("  stringstyle=\\color{strcolor},")
+        lines.append("  commentstyle=\\color{cmtcolor}\\itshape,")
+        lines.append("  basicstyle=\\ttfamily\\small,")
+        lines.append("  breaklines=true,")
+        lines.append("  frame=single,")
+        lines.append("  numbers=left,")
+        lines.append("  numberstyle=\\tiny\\color{gray},")
+        lines.append("  tabsize=4,")
+        lines.append("  showstringspaces=false")
+        lines.append("}")
+        lines.append("\\lstset{style=orrenstyle}")
+        lines.append("")
+    end
+    -- Tables and figures.
+    lines.append("\\usepackage{booktabs}")
+    lines.append("\\usepackage{longtable}")
+    lines.append("\\usepackage{array}")
+    lines.append("")
+    -- Hyperlinks and cross-references.
+    lines.append("\\usepackage{hyperref}")
+    lines.append("\\usepackage{cleveref}")
+    lines.append("")
+    -- Index generation.
+    if renderer.config.include_index then
+        lines.append("\\usepackage{makeidx}")
+        lines.append("\\makeindex")
+        lines.append("")
+    end
+    -- Title and author.
+    lines.append("\\title{" + self.escape_latex(renderer.config.title) + "}")
+    if renderer.config.author != "" then
+        lines.append("\\author{" + self.escape_latex(renderer.config.author) + "}")
+    end
+    if renderer.config.date != "" then
+        lines.append("\\date{" + self.escape_latex(renderer.config.date) + "}")
+    else
+        lines.append("\\date{\\today}")
+    end
+    renderer.preamble_buffer = lines
+    return lines
+end
+
+fn render_document_begin(self, renderer: LatexRenderer) -> List<String> do
+    let lines be List<String>.new()
+    lines.append("\\begin{document}")
+    if renderer.config.two_column then
+        lines.append("\\begin{multicols}{2}")
+    end
+    lines.append("\\maketitle")
+    -- Render abstract if provided.
+    if renderer.config.abstract != "" then
+        lines.append("")
+        lines.append("\\begin{abstract}")
+        lines.append(self.escape_latex(renderer.config.abstract))
+        lines.append("\\end{abstract}")
+    end
+    -- Generate table of contents.
+    if renderer.config.include_toc then
+        lines.append("")
+        lines.append("\\tableofcontents")
+        lines.append("\\newpage")
+    end
+    return lines
+end
+
+fn render_document_end(self, renderer: LatexRenderer) -> List<String> do
+    let lines be List<String>.new()
+    if renderer.config.two_column then
+        lines.append("\\end{multicols}")
+    end
+    if renderer.config.include_index then
+        lines.append("")
+        lines.append("\\printindex")
+    end
+    lines.append("\\end{document}")
+    return lines
+end
+
+fn render_module_header(self, module_name: String, module_path: String) -> String do
+    let label be module_path.replace(".", "-")
+    let header be "\\section{" + self.escape_latex(module_name) + "}\\label{sec:" + label + "}"
+    let path_line be "\\begin{center}\\texttt{" + self.escape_latex(module_path) + "}\\end{center}"
+    return header + "\n" + path_line + "\n"
+end
+
+fn render_subsection(self, name: String, element_type: String) -> String do
+    let label be name.to_lower().replace("_", "-")
+    let type_badge be "\\texttt{[" + element_type + "]}"
+    return "\\subsection{" + type_badge + " " + self.escape_latex(name) + "}\\label{" + label + "}\n"
+end
+
+fn render_entity_table(self, entity_name: String, properties: List<Map<String, String>>) -> String do
+    let lines be List<String>.new()
+    let caption be "Properties of " + entity_name
+    lines.append("\\begin{longtable}{l p{0.6\\textwidth} l}")
+    lines.append("\\caption{" + self.escape_latex(caption) + "}\\\\")
+    lines.append("\\toprule")
+    lines.append("Property & Description & Default \\\\ ")
+    lines.append("\\midrule")
+    lines.append("\\endfirsthead")
+    lines.append("\\toprule")
+    lines.append("Property & Description & Default \\\\ ")
+    lines.append("\\midrule")
+    lines.append("\\endhead")
+    for prop in properties do
+        let prop_name be prop.get_or_default("name", "")
+        let prop_desc be prop.get_or_default("description", "")
+        let prop_default be prop.get_or_default("default", "-")
+        let name_cell be "\\texttt{" + self.escape_latex(prop_name) + "}"
+        let desc_cell be self.escape_latex(prop_desc)
+        let default_cell be "\\texttt{" + self.escape_latex(prop_default) + "}"
+        lines.append(name_cell + " & " + desc_cell + " & " + default_cell + " \\\")
+    end
+    lines.append("\\bottomrule")
+    lines.append("\\end{longtable}")
+    return lines.join("\n")
+end
+
+fn render_function_signature(self, fn_name: String, params: List<Map<String, String>>, return_type: String) -> String do
+    let lines be List<String>.new()
+    let param_parts be List<String>.new()
+    for p in params do
+        let pname be p.get_or_default("name", "")
+        let ptype be p.get_or_default("type", "")
+ param_parts.append("\\texttt{" + self.escape_latex(pname) + ": " + self.escape_latex(ptype) + "}")
+    end
+    let param_str be param_parts.join(", ")
+    lines.append("\\begin{center}")
+    lines.append("\\fbox{\\parbox{0.9\\textwidth}{")
+    lines.append("\\textbf{" + self.escape_latex(fn_name) + "}(" + param_str + ") \\(")
+    lines.append("\\texttt{" + self.escape_latex(return_type) + "}")
+    lines.append("\\)}")
+    lines.append("\\end{center}")
+    return lines.join("\n")
+end
+
+fn render_code_listing(self, code: String, caption: String) -> String do
+    let lines be List<String>.new()
+    lines.append("\\begin{lstlisting}[language={}, caption={" + self.escape_latex(caption) + "}]")
+    lines.append(code)
+    lines.append("\\end{lstlisting}")
+    return lines.join("\n")
+end
+
+fn render_enum_variants(self, enum_name: String, variants: List<String>) -> String do
+    let lines be List<String>.new()
+    lines.append("\\begin{description}")
+    for v in variants do
+        let label be "\\texttt{" + self.escape_latex(v) + "}"
+        lines.append("  \\item[" + label + "] Variant of " + self.escape_latex(enum_name))
+    end
+    lines.append("\\end{description}")
+    return lines.join("\n")
+end
+
+fn render_paragraph(self, text: String) -> String do
+    return self.escape_latex(text) + "\n\n"
+end
+
+fn render_intent(self, intent_text: String) -> String do
+    let lines be List<String>.new()
+    lines.append("\\begin{center}")
+    lines.append("\\fcolorbox{kwcolor}{bgcode}{\\parbox{0.9\\textwidth}{")
+    lines.append("\\textbf{Intent:} " + self.escape_latex(intent_text))
+    lines.append("}}")
+    lines.append("\\end{center}")
+    return lines.join("\n")
+end
+
+fn assemble_document(self, renderer: LatexRenderer) -> String do
+    let parts be List<String>.new()
+    -- Preamble.
+    for line in renderer.preamble_buffer do
+        parts.append(line)
+    end
+    parts.append("")
+    -- Document body.
+    let begin_lines be self.render_document_begin(renderer)
+    for line in begin_lines do
+        parts.append(line)
+    end
+    parts.append("")
+    -- Content.
+    for line in renderer.content_buffer do
+        parts.append(line)
+    end
+    -- Document end.
+    let end_lines be self.render_document_end(renderer)
+    for line in end_lines do
+        parts.append(line)
+    end
+    return parts.join("\n")
+end
+
+fn render_module(self, renderer: LatexRenderer, module_name: String, module_path: String, description: String, elements: List<Map<String, String>>) -> Unit do
+    -- Module header.
+    let header be self.render_module_header(module_name, module_path)
+    renderer.content_buffer.append(header)
+    renderer.content_buffer.append("")
+    -- Module description.
+    if description != "" then
+        renderer.content_buffer.append(self.render_paragraph(description))
+    end
+    -- Render each element.
+    for elem in elements do
+        let elem_type be elem.get_or_default("type", "function")
+        let elem_name be elem.get_or_default("name", "")
+        let elem_desc be elem.get_or_default("description", "")
+        let section be self.render_subsection(elem_name, elem_type)
+        renderer.content_buffer.append(section)
+        if elem_desc != "" then
+            renderer.content_buffer.append(self.render_paragraph(elem_desc))
+        end
+        -- Render properties table if present.
+        if elem_type == "entity" then
+            let props be elem.get_or_default("properties", List<Map<String, String>>.new())
+            if props.length() > 0 then
+                renderer.content_buffer.append(self.render_entity_table(elem_name, props))
+            end
+        end
+        -- Render function signature if present.
+        if elem_type == "function" then
+            let params be elem.get_or_default("params", List<Map<String, String>>.new())
+            let ret be elem.get_or_default("return_type", "Unit")
+            renderer.content_buffer.append(self.render_function_signature(elem_name, params, ret))
+        end
+        -- Render code example if present.
+        let code be elem.get_or_default("example", "")
+        if code != "" then
+            let cap be "Example: " + elem_name
+            renderer.content_buffer.append(self.render_code_listing(code, cap))
+        end
+    end
+end
+
+fn render_module_index(self, renderer: LatexRenderer, modules: List<Map<String, String>>) -> Unit do
+    renderer.content_buffer.append("\\section{Module Index}")
+    renderer.content_buffer.append("")
+    renderer.content_buffer.append("\\begin{longtable}{l p{0.7\\textwidth}}")
+    renderer.content_buffer.append("\\caption{All Modules}\\\\")
+    renderer.content_buffer.append("\\toprule")
+    renderer.content_buffer.append("Module & Description \\\\ ")
+    renderer.content_buffer.append("\\midrule")
+    renderer.content_buffer.append("\\endfirsthead")
+    renderer.content_buffer.append("\\toprule")
+    renderer.content_buffer.append("Module & Description \\\\ ")
+    renderer.content_buffer.append("\\midrule")
+    renderer.content_buffer.append("\\endhead")
+    for mod in modules do
+        let name be mod.get_or_default("name", "")
+        let desc be mod.get_or_default("description", "")
+        let path be mod.get_or_default("path", "")
+        let label be path.replace(".", "-")
+        let link be "\\hyperlink{sec:" + label + "}{\\texttt{" + self.escape_latex(name) + "}}"
+        renderer.content_buffer.append(link + " & " + self.escape_latex(desc) + " \\\")
+    end
+    renderer.content_buffer.append("\\bottomrule")
+    renderer.content_buffer.append("\\end{longtable}")
+end
+
+fn new_renderer(self, config: LatexConfig) -> LatexRenderer do
+    let renderer be LatexRenderer.new()
+    renderer.config = config
+    self.generate_preamble(renderer)
+    return renderer
+end
+fn reset_content(self, renderer: LatexRenderer) -> Unit do
+    renderer.content_buffer = List<String>.new()
+end
+
+export {
+    LatexDocClass,
+    LatexFontSize,
+    LatexConfig,
+    LatexRenderer,
+    doc_class_string,
+    font_size_string,
+    escape_latex,
+    escape_listing,
+    generate_preamble,
+    render_document_begin,
+    render_document_end,
+    render_module_header,
+    render_subsection,
+    render_entity_table,
+    render_function_signature,
+    render_code_listing,
+    render_enum_variants,
+    render_paragraph,
+    render_intent,
+    assemble_document,
+    render_module,
+    render_module_index,
+    new_renderer,
+    reset_content
+}

@@ -1,0 +1,335 @@
+module orren_tools.tools.api_extractor
+
+import orren.core.language.foundation::{String, Int, Bool, List, Map}
+
+intent "Extract and document the public API surface of an Orren module or project"
+
+-- Kind of API member being extracted
+enum APIMemberKind
+  ENTITY
+  FUNCTION
+  ENUM
+  CONST
+  TYPE_ALIAS
+  COGNITIVE_VERB
+end
+
+-- Visibility classification for API members
+enum Visibility
+  PUBLIC
+  INTERNAL
+  PRIVATE
+  SEMANTIC_PUBLIC
+end
+
+-- A single extracted API member with full metadata
+entity APIMember
+  property name: String = ""
+  property kind: APIMemberKind = APIMemberKind.FUNCTION
+  property visibility: Visibility = Visibility.PRIVATE
+  property module: String = ""
+  property signature: String = ""
+  property description: String = ""
+  property semantic_requirements: List<String> = []
+  property cognitive_keywords_used: List<String> = []
+end
+
+-- Complete API surface for a module or project
+entity APISurface
+  property members: List<APIMember> = []
+  property by_kind: Map<APIMemberKind, Int> = {}
+  property by_module: Map<String, List<APIMember>> = {}
+  property total_members: Int = 0
+  property public_count: Int = 0
+  property cognitive_verbs_count: Int = 0
+end
+
+-- Configuration controlling extraction behavior
+entity ExtractorConfig
+  property include_private: Bool = false
+  property include_internal: Bool = true
+  property resolve_signatures: Bool = true
+  property detect_cognitive_verbs: Bool = true
+  property group_by_module: Bool = true
+  property entry_module: String = ""
+  property recursive: Bool = true
+end
+
+-- A semantic diff between two API surfaces for breaking change detection
+entity BreakingChange
+  property kind: String = ""
+  property member_name: String = ""
+  property old_signature: String = ""
+  property new_signature: String = ""
+  property description: String = ""
+end
+
+-- Main API extractor engine
+entity APIExtractor
+  property config: ExtractorConfig = ExtractorConfig()
+  property surfaces: Map<String, APISurface> = {}
+
+  -- Extract the API surface from a single module's source lines
+  fn extract_module(self, module_name: String, lines: List<String>) -> APISurface do
+    let surface be APISurface()
+    let in_entity be false
+    let current_entity be ""
+    let idx be 0
+    while idx < lines.len() do
+      let line be lines.get(idx).trim()
+      -- Detect entity definitions
+      if line.starts_with("entity ") then
+        in_entity = true
+        let parts be line.split(" ")
+        current_entity = parts.get(1)
+        let member be APIMember()
+        member.name = current_entity
+        member.kind = APIMemberKind.ENTITY
+        member.module = module_name
+        member.visibility = Visibility.PUBLIC
+        member.signature = "entity " + current_entity
+        surface.members.append(member)
+      else
+        -- Detect function definitions
+        if line.starts_with("fn ") then
+          let sig be self.parse_function_signature(line, current_entity)
+          let member be APIMember()
+          member.name = sig
+          member.kind = APIMemberKind.FUNCTION
+          member.module = module_name
+          member.signature = line
+          member.visibility = self.determine_visibility(line, module_name)
+          if self.config.detect_cognitive_verbs then
+            member.cognitive_keywords_used = self.extract_cognitive_keywords(line)
+            if member.cognitive_keywords_used.len() > 0 then
+              member.kind = APIMemberKind.COGNITIVE_VERB
+            end
+          end
+          surface.members.append(member)
+        else
+          -- Detect enum definitions
+          if line.starts_with("enum ") then
+            let parts be line.split(" ")
+            let name be parts.get(1)
+            let member be APIMember()
+            member.name = name
+            member.kind = APIMemberKind.ENUM
+            member.module = module_name
+            member.visibility = Visibility.PUBLIC
+            member.signature = "enum " + name
+            surface.members.append(member)
+          else
+            -- Detect intent declarations
+            if line.starts_with("intent ") then
+              let member be APIMember()
+              member.name = "module_intent"
+              member.kind = APIMemberKind.CONST
+              member.module = module_name
+              member.visibility = Visibility.PUBLIC
+              member.signature = line
+              member.description = self.extract_intent_text(line)
+              surface.members.append(member)
+            end
+          end
+        end
+      end
+      -- Track entity block end
+      if line == "end" and in_entity then
+        in_entity = false
+        current_entity = ""
+      end
+      idx = idx + 1
+    end
+    self.compute_surface_stats(surface)
+    self.surfaces.set(module_name, surface)
+    return surface
+  end
+
+  -- Parse function name from a function definition line
+  fn parse_function_signature(self, line: String, entity_name: String) -> String do
+    let rest be line.slice("fn ".len())
+    let parts be rest.split("(")
+    let raw_name be parts.get(0).trim()
+    if entity_name != "" then
+      return entity_name + "." + raw_name
+    end
+    return raw_name
+  end
+
+  -- Determine visibility of a member from context
+  fn determine_visibility(self, line: String, module_name: String) -> Visibility do
+    if line.contains("self.") then
+      return Visibility.INTERNAL
+    end
+    return Visibility.PUBLIC
+  end
+
+  -- Extract cognitive keywords from a function or intent line
+  fn extract_cognitive_keywords(self, line: String) -> List<String> do
+    let keywords be List<String>()
+    let cognitive_terms be ["analyze", "assess", "evaluate", "determine", "recognize", "infer", "classify", "predict", "reason", "decide", "validate", "verify", "estimate", "calculate", "optimize"]
+    let lower_line be line.to_lower()
+    for term in cognitive_terms do
+      if lower_line.contains(term) then
+        keywords.append(term)
+      end
+    end
+    return keywords
+  end
+
+  -- Extract the intent text from an intent declaration line
+  fn extract_intent_text(self, line: String) -> String do
+    if line.contains("\"") then
+      let start be line.index_of("\"") + 1
+      let end_pos be line.last_index_of("\"")
+      return line.slice(start, end_pos)
+    end
+    return ""
+  end
+
+  -- Compute aggregate statistics for an API surface
+  fn compute_surface_stats(self, surface: APISurface) -> Unit do
+    surface.total_members = surface.members.len()
+    let public be 0
+    let cognitive be 0
+    for member in surface.members do
+      if member.visibility == Visibility.PUBLIC or member.visibility == Visibility.SEMANTIC_PUBLIC then
+        public = public + 1
+      end
+      if member.kind == APIMemberKind.COGNITIVE_VERB then
+        cognitive = cognitive + 1
+      end
+    end
+    surface.public_count = public
+    surface.cognitive_verbs_count = cognitive
+    -- Tally members by kind
+    let by_kind be Map<APIMemberKind, Int>()
+    by_kind.set(APIMemberKind.ENTITY, 0)
+    by_kind.set(APIMemberKind.FUNCTION, 0)
+    by_kind.set(APIMemberKind.ENUM, 0)
+    by_kind.set(APIMemberKind.CONST, 0)
+    by_kind.set(APIMemberKind.TYPE_ALIAS, 0)
+    by_kind.set(APIMemberKind.COGNITIVE_VERB, 0)
+    for member in surface.members do
+      let count be by_kind.get_or(member.kind, 0)
+      by_kind.set(member.kind, count + 1)
+    end
+    surface.by_kind = by_kind
+  end
+
+  -- Group surface members by their module origin
+  fn group_by_module(self, surface: APISurface) -> Map<String, List<APIMember>> do
+    let groups be Map<String, List<APIMember>>()
+    for member in surface.members do
+      let mod_name be member.module
+      if not groups.contains(mod_name) then
+        groups.set(mod_name, List<APIMember>())
+      end
+      let list be groups.get(mod_name).unwrap()
+      list.append(member)
+    end
+    surface.by_module = groups
+    return groups
+  end
+
+  -- Detect breaking changes between two API surfaces
+  fn detect_breaking_changes(self, old_surface: APISurface, new_surface: APISurface) -> List<BreakingChange> do
+    let changes be List<BreakingChange>()
+    let old_map be self.member_map(old_surface)
+    let new_map be self.member_map(new_surface)
+    -- Check for removed members
+    for name in old_map.keys() do
+      if not new_map.contains(name) then
+        let old_member be old_map.get(name).unwrap()
+        let change be BreakingChange()
+        change.kind = "REMOVED"
+        change.member_name = name
+        change.old_signature = old_member.signature
+        change.description = "Member '" + name + "' was removed from the public API."
+        changes.append(change)
+      end
+    end
+    -- Check for signature changes
+    for name in new_map.keys() do
+      if old_map.contains(name) then
+        let old_member be old_map.get(name).unwrap()
+        let new_member be new_map.get(name).unwrap()
+        if old_member.signature != new_member.signature then
+          let change be BreakingChange()
+          change.kind = "SIGNATURE_CHANGED"
+          change.member_name = name
+          change.old_signature = old_member.signature
+          change.new_signature = new_member.signature
+          change.description = "Signature of '" + name + "' changed."
+          changes.append(change)
+        end
+      else
+        -- New member added
+        let new_member be new_map.get(name).unwrap()
+        let change be BreakingChange()
+        change.kind = "ADDED"
+        change.member_name = name
+        change.new_signature = new_member.signature
+        change.description = "New member '" + name + "' was added to the API."
+        changes.append(change)
+      end
+    end
+    return changes
+  end
+
+  -- Build a name-to-member map for quick lookup
+  fn member_map(self, surface: APISurface) -> Map<String, APIMember> do
+    let result be Map<String, APIMember>()
+    for member in surface.members do
+      result.set(member.name, member)
+    end
+    return result
+  end
+
+  -- Generate an API reference document as a formatted string
+  fn generate_reference(self, surface: APISurface) -> String do
+    let buf be "API Reference"
+    buf = buf + "\nModule: " + (surface.members.get(0).module)
+    buf = buf + "\nTotal members: " + (surface.total_members as String)
+    buf = buf + "\nPublic members: " + (surface.public_count as String)
+    buf = buf + "\nCognitive verbs: " + (surface.cognitive_verbs_count as String)
+    buf = buf + "\n---"
+    -- Group by kind for organized output
+    let kinds be [APIMemberKind.ENTITY, APIMemberKind.ENUM, APIMemberKind.FUNCTION, APIMemberKind.COGNITIVE_VERB, APIMemberKind.CONST]
+    for kind in kinds do
+      let count be surface.by_kind.get_or(kind, 0)
+      if count > 0 then
+        buf = buf + "\n\n## " + (kind as String) + " (" + (count as String) + ")"
+        for member in surface.members do
+          if member.kind == kind then
+            buf = buf + "\n  " + member.name
+            if self.config.resolve_signatures then
+              buf = buf + "\n    " + member.signature
+            end
+            if member.description != "" then
+              buf = buf + "\n    " + member.description
+            end
+          end
+        end
+      end
+    end
+    return buf
+  end
+
+  -- Run full extraction on a multi-module project
+  fn run(self, modules: Map<String, List<String>>) -> APISurface do
+    let combined be APISurface()
+    for mod_name in modules.keys() do
+      let lines be modules.get(mod_name).unwrap()
+      let surface be self.extract_module(mod_name, lines)
+      for member in surface.members do
+        combined.members.append(member)
+      end
+    end
+    self.compute_surface_stats(combined)
+    self.group_by_module(combined)
+    return combined
+  end
+end
+
+export { APIMemberKind, Visibility, APIMember, APISurface, ExtractorConfig, BreakingChange, APIExtractor }

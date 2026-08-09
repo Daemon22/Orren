@@ -1,0 +1,339 @@
+-- orren_tools.build.config
+-- Build configuration with targets, profiles, dependencies, feature flags, and toolchain.
+-- Provides defaults, profile merging, validation, and dependency/feature management.
+
+import orren.core.language.foundation::{String, Int, Bool, List, Map, Result, Ok, Err, None}
+
+module orren_tools.build.config
+
+-- Enumeration of supported build targets for the Orren compiler toolchain.
+enum BuildTarget
+  VM
+  C
+  WASM
+  NATIVE
+  IR
+end
+
+-- Optimization levels available for compilation passes.
+enum OptimizationLevel
+  NONE
+  BASIC
+  STANDARD
+  AGGRESSIVE
+end
+
+-- State of a feature flag within the build configuration.
+enum FeatureState
+  ENABLED
+  DISABLED
+  AUTO
+end
+
+-- A single feature flag that can toggle conditional compilation or behavior.
+entity FeatureFlag
+  property name: String = ""
+  property state: FeatureState = FeatureState.AUTO
+  property description: String = ""
+  property dependencies: List<String> = List<String>.new()
+
+  -- Determine if this flag is active given its current state.
+  fn is_active(self) -> Bool do
+    match self.state with
+      FeatureState.ENABLED then
+        return true
+      FeatureState.DISABLED then
+        return false
+      FeatureState.AUTO then
+        return self.dependencies.length() > 0
+    end
+  end
+end
+
+-- Declaration of an external dependency with version constraints.
+entity DependencyDecl
+  property name: String = ""
+  property version_constraint: String = "*"
+  property optional: Bool = false
+  property source_path: String = ""
+
+  -- Check if this dependency specifies a local source path.
+  fn is_local(self) -> Bool do
+    return self.source_path != ""
+  end
+end
+
+-- Toolchain configuration specifying compiler, linker, and runtime paths.
+entity ToolchainConfig
+  property compiler_path: String = "orrenc"
+  property linker_path: String = "orrenld"
+  property runtime_path: String = "orrenrt"
+  property target_triple: String = ""
+  property sysroot: String = ""
+
+  -- Check whether the toolchain paths are all non-empty.
+  fn is_configured(self) -> Bool do
+    if self.compiler_path == "" then
+      return false
+    else if self.linker_path == "" then
+      return false
+    else if self.runtime_path == "" then
+      return false
+    else
+      return true
+    end
+  end
+
+  -- Produce a summary string of the toolchain.
+  fn summary(self) -> String do
+    return "Toolchain(" + self.compiler_path + ", " + self.linker_path + ", " + self.target_triple + ")"
+  end
+end
+
+-- A named build profile containing target, optimization, and feature settings.
+entity BuildProfile
+  property name: String = "debug"
+  property target: BuildTarget = BuildTarget.VM
+  property optimization: OptimizationLevel = OptimizationLevel.NONE
+  property debug_symbols: Bool = true
+  property lto: Bool = false
+  property features: List<String> = List<String>.new()
+
+  -- Return true if this is a release-oriented profile.
+  fn is_release(self) -> Bool do
+    return self.optimization != OptimizationLevel.NONE
+  end
+
+  -- Return a short label for the profile.
+  fn label(self) -> String do
+    let opt be self.optimization.to_string()
+    let tgt be self.target.to_string()
+    return self.name + " [" + tgt + "/" + opt + "]"
+  end
+end
+
+-- Source glob pattern specifying which files to include or exclude.
+entity SourceGlob
+  property pattern: String = "**/*.orn"
+  property exclude_patterns: List<String> = List<String>.new()
+  property language: String = "orren"
+
+  -- Check if a given file path matches this glob.
+  fn matches(self, file_path: String) -> Bool do
+    if file_path.ends_with(".orn") == false then
+      return false
+    end
+    for excl in self.exclude_patterns do
+      if file_path.contains(excl) then
+        return false
+      end
+    end
+    return true
+  end
+end
+
+-- Root build configuration combining all build-related settings.
+entity BuildConfig
+  property project_name: String = "unnamed"
+  property version: String = "0.0.0"
+  property profiles: Map<String, BuildProfile> = Map<String, BuildProfile>.new()
+  property active_profile: String = "debug"
+  property dependencies: List<DependencyDecl> = List<DependencyDecl>.new()
+  property source_globs: List<SourceGlob> = List<SourceGlob>.new()
+  property toolchain: ToolchainConfig = ToolchainConfig.new()
+  property feature_flags: Map<String, FeatureFlag> = Map<String, FeatureFlag>.new()
+  property output_dir: String = "./build"
+
+  -- Create a default build configuration with standard profiles.
+  fn create_default() -> BuildConfig do
+    let config be BuildConfig.new()
+    config.project_name = "orren-project"
+    config.version = "0.1.0"
+    let debug_profile be BuildProfile.new()
+    debug_profile.name = "debug"
+    debug_profile.target = BuildTarget.VM
+    debug_profile.optimization = OptimizationLevel.NONE
+    debug_profile.debug_symbols = true
+    config.profiles.set("debug", debug_profile)
+    let release_profile be BuildProfile.new()
+    release_profile.name = "release"
+    release_profile.target = BuildTarget.NATIVE
+    release_profile.optimization = OptimizationLevel.AGGRESSIVE
+    release_profile.debug_symbols = false
+    release_profile.lto = true
+    config.profiles.set("release", release_profile)
+    let glob be SourceGlob.new()
+    glob.pattern = "src/**/*.orn"
+    config.source_globs.append(glob)
+    return config
+  end
+
+  -- Resolve the currently active build profile.
+  fn resolve_active_profile(self) -> Result<BuildProfile, String> do
+    let profile be self.profiles.get(self.active_profile)
+    if profile == None then
+      return Err("No profile named '" + self.active_profile + "' found")
+    end
+    return Ok(profile)
+  end
+
+  -- Merge two profiles, with the override taking precedence.
+  fn merge_profiles(base: BuildProfile, override: BuildProfile) -> BuildProfile do
+    let merged be BuildProfile.new()
+    merged.name = override.name
+    if override.target != BuildTarget.VM then
+      merged.target = override.target
+    else
+      merged.target = base.target
+    end
+    if override.optimization != OptimizationLevel.NONE then
+      merged.optimization = override.optimization
+    else
+      merged.optimization = base.optimization
+    end
+    merged.debug_symbols = override.debug_symbols
+    merged.lto = override.lto
+    for feat in base.features do
+      merged.features.append(feat)
+    end
+    for feat in override.features do
+      merged.features.append(feat)
+    end
+    return merged
+  end
+
+  -- Validate the entire build configuration for correctness.
+  fn validate(self) -> List<String> do
+    let errors be List<String>.new()
+    if self.project_name == "" then
+      errors.append("project_name must not be empty")
+    end
+    if self.version == "" then
+      errors.append("version must not be empty")
+    end
+    if self.profiles.size() == 0 then
+      errors.append("at least one build profile is required")
+    end
+    let profile_result be self.resolve_active_profile()
+    match profile_result with
+      Ok(_) then
+        -- active profile is valid
+      Err(msg) then
+        errors.append(msg)
+    end
+    if self.toolchain.is_configured() == false then
+      errors.append("toolchain is not fully configured")
+    end
+    for dep in self.dependencies do
+      if dep.name == "" then
+        errors.append("dependency with empty name found")
+      end
+    end
+    return errors
+  end
+
+  -- Add a dependency to the configuration.
+  fn add_dependency(self, name: String, version: String, optional: Bool) -> Bool do
+    let decl be DependencyDecl.new()
+    decl.name = name
+    decl.version_constraint = version
+    decl.optional = optional
+    self.dependencies.append(decl)
+    return true
+  end
+
+  -- Remove a dependency by name, returning true if found and removed.
+  fn remove_dependency(self, name: String) -> Bool do
+    let mut idx be 0
+    let mut found be false
+    for dep in self.dependencies do
+      if dep.name == name then
+        self.dependencies.remove_at(idx)
+        found = true
+        return true
+      end
+      idx = idx + 1
+    end
+    return false
+  end
+
+  -- Toggle a feature flag by name, creating it if necessary.
+  fn toggle_feature(self, name: String, state: FeatureState) -> Bool do
+    let existing be self.feature_flags.get(name)
+    if existing == None then
+      let flag be FeatureFlag.new()
+      flag.name = name
+      flag.state = state
+      self.feature_flags.set(name, flag)
+      return true
+    end
+    existing.state = state
+    return true
+  end
+
+  -- Collect all active feature names into a list.
+  fn active_features(self) -> List<String> do
+    let active be List<String>.new()
+    for entry in self.feature_flags do
+      if entry.value.is_active() then
+        active.append(entry.key)
+      end
+    end
+    return active
+  end
+
+  -- List all profile names registered in the configuration.
+  fn profile_names(self) -> List<String> do
+    let names be List<String>.new()
+    for entry in self.profiles do
+      names.append(entry.key)
+    end
+    return names
+  end
+
+  -- Find a dependency by name, returning None if not found.
+  fn find_dependency(self, name: String) -> Result<DependencyDecl, String> do
+    for dep in self.dependencies do
+      if dep.name == name then
+        return Ok(dep)
+      end
+    end
+    return Err("dependency '" + name + "' not found")
+  end
+
+  -- Check whether a named feature flag exists.
+  fn has_feature(self, name: String) -> Bool do
+    let flag be self.feature_flags.get(name)
+    return flag != None
+  end
+
+  -- Set the active profile, validating that it exists first.
+  fn set_active_profile(self, name: String) -> Result<Bool, String> do
+    let profile be self.profiles.get(name)
+    if profile == None then
+      return Err("cannot set active profile: '" + name + "' does not exist")
+    end
+    self.active_profile = name
+    return Ok(true)
+  end
+
+  -- Collect source files that match at least one glob.
+  fn matching_source_files(self, candidates: List<String>) -> List<String> do
+    let matched be List<String>.new()
+    for candidate in candidates do
+      let mut hits be 0
+      for glob in self.source_globs do
+        if glob.matches(candidate) then
+          hits = hits + 1
+        end
+      end
+      if hits > 0 then
+        matched.append(candidate)
+      end
+    end
+    return matched
+  end
+end
+
+export { BuildTarget, OptimizationLevel, FeatureState, FeatureFlag, DependencyDecl,
+         ToolchainConfig, BuildProfile, SourceGlob, BuildConfig }

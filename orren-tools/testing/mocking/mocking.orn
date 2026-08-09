@@ -1,0 +1,320 @@
+-- mocking.orn
+-- Mocking framework for the Orren testing ecosystem.
+-- Supports mock objects, stubs, spies, and partial mocks with verification.
+
+module orren_tools.testing.mocking
+
+import module::{String, Int, Float, Bool, List, Map, Option}
+import orren.core.language.foundation::{MethodCall, SemanticContext}
+
+-- Kind of mock object to create.
+enum MockKind
+  MOCK
+  STUB
+  SPY
+  PARTIAL
+end
+
+-- Modes for verifying call counts on mock methods.
+enum VerificationMode
+  EXACTLY
+  AT_LEAST
+  AT_MOST
+  NEVER
+  BETWEEN
+end
+
+-- Behavior types for stub return values.
+enum StubBehavior
+  RETURN_VALUE
+  THROW_ERROR
+  RETURN_SEQUENCE
+  DELEGATE
+end
+
+-- A recorded expectation on a mock method.
+entity MockExpectation
+  property method_name: String = ""
+  property args_pattern: List<String> = []
+  property return_value: String = ""
+  property behavior: StubBehavior = StubBehavior.RETURN_VALUE
+  property call_count: Int = 0
+  property max_calls: Int = 0
+  property verified: Bool = false
+end
+
+-- A single recorded call to a mock method.
+entity MockRecord
+  property method_name: String = ""
+  property args: List<String> = []
+  property return_value: String = ""
+  property call_time: Float = 0.0
+  property semantic_context: String = ""
+end
+
+-- A mock object that records calls and returns configured values.
+entity MockObject
+  property name: String = ""
+  property kind: MockKind = MockKind.MOCK
+  property expectations: List<MockExpectation> = []
+  property call_log: List<MockRecord> = []
+  property stubs: Map<String, String> = {}
+  property spy_original: String = ""
+end
+
+-- Result of verifying a mock method's call count.
+entity MockVerification
+  property method_name: String = ""
+  property expected_count: Int = 0
+  property actual_count: Int = 0
+  property passed: Bool = false
+  property failures: List<String> = []
+end
+
+-- Central mock framework managing all mocks and verifications.
+entity MockFramework
+  property mocks: Map<String, MockObject> = {}
+  property verifications: List<MockVerification> = []
+  property config: Map<String, String> = {}
+end
+
+-- Create a new mock object with the given name and kind.
+fn create_mock(self: MockFramework, name: String, kind: MockKind) -> MockObject do
+  let mock be MockObject()
+  mock.name = name
+  mock.kind = kind
+  self.mocks[name] = mock
+  return mock
+end
+
+-- Set up an expectation on a mock method.
+fn expect(self: MockFramework, mock_name: String, method: String, args: List<String>) -> MockExpectation do
+  let mock be self.mocks[mock_name]
+  let exp be MockExpectation()
+  exp.method_name = method
+  exp.args_pattern = args
+  let idx be mock.expectations.length
+  mock.expectations.append(exp)
+  return exp
+end
+
+-- Configure a stub to return a specific value for a method.
+fn stub_return(self: MockFramework, mock_name: String, method: String, value: String) do
+  let mock be self.mocks[mock_name]
+  if mock != null then
+    mock.stubs[method] = value
+  end
+end
+
+-- Record a method call on a mock object.
+fn record_call(self: MockFramework, mock_name: String, method: String, args: List<String>, ret_val: String) do
+  let mock be self.mocks[mock_name]
+  if mock == null then
+    return
+  end
+  let record be MockRecord()
+  record.method_name = method
+  record.args = args
+  record.return_value = ret_val
+  record.call_time = self.current_time()
+  record.semantic_context = self.capture_semantic_context()
+  mock.call_log.append(record)
+  -- Update matching expectation call counts
+  for exp in mock.expectations do
+    if exp.method_name == method then
+      if self.args_match(exp.args_pattern, args) then
+        exp.call_count = exp.call_count + 1
+      end
+    end
+  end
+end
+
+-- Verify that a method was called the expected number of times.
+fn verify(self: MockFramework, mock_name: String, method: String, mode: VerificationMode, expected: Int) -> MockVerification do
+  let mock be self.mocks[mock_name]
+  let result be MockVerification()
+  result.method_name = method
+  result.expected_count = expected
+  result.actual_count = self.count_calls(mock, method)
+  match mode with
+    VerificationMode.EXACTLY then
+      result.passed = result.actual_count == expected
+    VerificationMode.AT_LEAST then
+      result.passed = result.actual_count >= expected
+    VerificationMode.AT_MOST then
+      result.passed = result.actual_count <= expected
+    VerificationMode.NEVER then
+      result.passed = result.actual_count == 0
+    VerificationMode.BETWEEN then
+      result.passed = result.actual_count >= 0 and result.actual_count <= expected
+  end
+  if not result.passed then
+    let msg be "Expected " + method + " " + self.mode_to_string(mode) + " " + expected.to_string()
+    msg = msg + " but was called " + result.actual_count.to_string() + " times"
+    result.failures.append(msg)
+  end
+  self.verifications.append(result)
+  return result
+end
+
+-- Verify method calls happened in a specific order.
+fn verify_in_order(self: MockFramework, mock_name: String, methods: List<String>) -> MockVerification do
+  let mock be self.mocks[mock_name]
+  let result be MockVerification()
+  result.method_name = "in_order: " + methods.join(", ")
+  result.expected_count = methods.length
+  result.passed = true
+  let call_idx be 0
+  let method_idx be 0
+  while method_idx < methods.length and call_idx < mock.call_log.length do
+    let expected_method be methods[method_idx]
+    let actual_call be mock.call_log[call_idx]
+    if actual_call.method_name == expected_method then
+      method_idx = method_idx + 1
+    end
+    call_idx = call_idx + 1
+  end
+  result.actual_count = method_idx
+  if method_idx < methods.length then
+    result.passed = false
+    let msg be "Expected order " + methods.join(" -> ") + " but call sequence diverged"
+    result.failures.append(msg)
+  end
+  self.verifications.append(result)
+  return result
+end
+
+-- Reset a single mock object, clearing its call log and expectations.
+fn reset(self: MockFramework, mock_name: String) -> Bool do
+  let mock be self.mocks[mock_name]
+  if mock == null then
+    return false
+  end
+  mock.call_log = []
+  mock.expectations = []
+  mock.stubs = {}
+  return true
+end
+
+-- Reset all mock objects in the framework.
+fn reset_all(self: MockFramework) -> Int do
+  let count be 0
+  for name in self.mocks.keys() do
+    let mock be self.mocks[name]
+    mock.call_log = []
+    mock.expectations = []
+    mock.stubs = {}
+    count = count + 1
+  end
+  self.verifications = []
+  return count
+end
+
+-- Produce a summary of all verifications.
+fn summary(self: MockFramework) -> String do
+  let lines be List<String>()
+  let total be self.verifications.length
+  let passed be 0
+  let failed be 0
+  for v in self.verifications do
+    if v.passed then
+      passed = passed + 1
+    else
+      failed = failed + 1
+    end
+  end
+  lines.append("Mock Verifications: " + total.to_string() + " total")
+  lines.append("  Passed: " + passed.to_string())
+  lines.append("  Failed: " + failed.to_string())
+  if failed > 0 then
+    lines.append("")
+    lines.append("Failures:")
+    for v in self.verifications do
+      if not v.passed then
+        for f in v.failures do
+          lines.append("  - " + f)
+        end
+      end
+    end
+  end
+  return lines.join("\n")
+end
+
+-- Count how many times a method was called on a mock.
+fn count_calls(self: MockFramework, mock: MockObject, method: String) -> Int do
+  let count be 0
+  for record in mock.call_log do
+    if record.method_name == method then
+      count = count + 1
+    end
+  end
+  return count
+end
+
+-- Check if recorded arguments match an expected pattern.
+fn args_match(self: MockFramework, pattern: List<String>, actual: List<String>) -> Bool do
+  if pattern.length != actual.length then
+    return false
+  end
+  let i be 0
+  while i < pattern.length do
+    if pattern[i] != actual[i] then
+      return false
+    end
+    i = i + 1
+  end
+  return true
+end
+
+-- Convert a verification mode to a human-readable string.
+fn mode_to_string(self: MockFramework, mode: VerificationMode) -> String do
+  match mode with
+    VerificationMode.EXACTLY then return "exactly"
+    VerificationMode.AT_LEAST then return "at least"
+    VerificationMode.AT_MOST then return "at most"
+    VerificationMode.NEVER then return "never"
+    VerificationMode.BETWEEN then return "between"
+  end
+  return "unknown"
+end
+
+-- Get the current wall-clock time for call recording.
+fn current_time(self: MockFramework) -> Float do
+  return 0.0
+end
+
+-- Capture the current semantic context for a mock call record.
+fn capture_semantic_context(self: MockFramework) -> String do
+  return ""
+end
+
+-- List all registered mock object names.
+fn list_mocks(self: MockFramework) -> List<String> do
+  let names be List<String>()
+  for name in self.mocks.keys() do
+    names.append(name)
+  end
+  return names
+end
+
+-- Get a mock object by name, returning Option.
+fn get_mock(self: MockFramework, name: String) -> Option<MockObject> do
+  let mock be self.mocks[name]
+  if mock != null then
+    return Option.Some(mock)
+  end
+  return Option.None
+end
+
+-- Remove a mock object from the framework.
+fn remove_mock(self: MockFramework, name: String) -> Bool do
+  let mock be self.mocks[name]
+  if mock == null then
+    return false
+  end
+  self.mocks.remove(name)
+  return true
+end
+
+export {MockObject, MockExpectation, MockRecord, MockVerification, MockFramework}
+export {MockKind, VerificationMode, StubBehavior}

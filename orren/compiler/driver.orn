@@ -1,0 +1,805 @@
+module orren.compiler.driver
+
+import orren.parser.lexer::{*}
+import orren.parser.parser::{*}
+import orren.compiler.semantic_analysis::{*}
+import orren.compiler.sir::{*}
+import orren.compiler.ssa::{*}
+import orren.compiler.optimizations::{*}
+import orren.compiler.codegen::{*}
+
+intent "The full compilation pipeline driver for the Orren language.
+  Orchestrates every stage from raw source text to generated code,
+  maintaining semantic integrity and meaning preservation at each
+  stage per the First Law. The driver collects diagnostics across
+  all stages and produces a unified CompilationResult."
+
+-- =========================================================================
+-- ENUM: CompilationStage
+-- =========================================================================
+-- The seven stages of the Orren compilation pipeline, ordered from
+-- raw source to generated code. Each stage transforms its input into
+-- a progressively lower-level representation while preserving meaning.
+-- =========================================================================
+
+enum CompilationStage
+  LEXING
+  PARSING
+  SEMANTIC_ANALYSIS
+  SIR_GENERATION
+  SSA_CONVERSION
+  OPTIMIZATION
+  CODE_GENERATION
+end
+
+-- =========================================================================
+-- ENTITY: CompilationDiagnostics
+-- =========================================================================
+-- Collects errors, warnings, and informational messages from a single
+-- compilation pass. Each message is tagged with the stage that
+-- produced it, allowing fine-grained diagnostics.
+-- =========================================================================
+
+entity CompilationDiagnostics
+  -- The stage during which these diagnostics were collected.
+  property stage: CompilationStage = LEXING
+
+  -- Error messages that prevented successful compilation.
+  property errors: List<String> = []
+
+  -- Warning messages about potentially problematic code.
+  property warnings: List<String> = []
+
+  -- Informational messages about the compilation process.
+  property info: List<String> = []
+
+  -- Check whether any errors were recorded.
+  fn has_errors(self) -> Bool do
+    return self.errors.length() > 0
+  end
+
+  -- Return the total number of errors.
+  fn error_count(self) -> Int do
+    return self.errors.length()
+  end
+
+  -- Produce a human-readable summary of all diagnostics.
+  fn summary(self) -> String do
+    let lines be List<String>{}
+    let stage_name be compilation_stage_to_string(self.stage)
+    lines.append("Diagnostics for stage: " + stage_name)
+    lines.append("=========================================")
+
+    if self.errors.length() > 0 then
+      lines.append("")
+      lines.append("Errors (" + int_to_string(self.errors.length()) + "):")
+      for err in self.errors do
+        lines.append("  [ERROR] " + err)
+      end
+    end
+
+    if self.warnings.length() > 0 then
+      lines.append("")
+      lines.append("Warnings (" + int_to_string(self.warnings.length()) + "):")
+      for warn in self.warnings do
+        lines.append("  [WARN] " + warn)
+      end
+    end
+
+    if self.info.length() > 0 then
+      lines.append("")
+      lines.append("Info (" + int_to_string(self.info.length()) + "):")
+      for inf in self.info do
+        lines.append("  [INFO] " + inf)
+      end
+    end
+
+    if self.errors.length() == 0 and self.warnings.length() == 0 then
+      lines.append("")
+      lines.append("No issues found.")
+    end
+
+    return join_lines(lines)
+  end
+end
+
+-- =========================================================================
+-- ENTITY: CompilationResult
+-- =========================================================================
+-- The complete result of a compilation pass. Contains the generated
+-- code (if successful), diagnostics from every stage, and intermediate
+-- representations if requested. The report method produces a human-
+-- readable summary suitable for CLI output.
+-- =========================================================================
+
+entity CompilationResult
+  -- Whether the compilation succeeded without errors.
+  property success: Bool = false
+
+  -- The generated code output, if compilation succeeded.
+  property generated_code: Optional<GeneratedCode> = Optional::none()
+
+  -- Diagnostics collected across all compilation stages.
+  property diagnostics: CompilationDiagnostics = CompilationDiagnostics{}
+
+  -- The SIR module, if SIR emission was requested or for inspection.
+  property sir_module: Optional<SIRModule> = Optional::none()
+
+  -- The SSA module, if SSA emission was requested or for inspection.
+  property ssa_module: Optional<SSAModule> = Optional::none()
+
+  -- The parsed AST, if AST emission was requested or for inspection.
+  property ast: Optional<ProgramNode> = Optional::none()
+
+  -- Produce a comprehensive human-readable report.
+  fn report(self) -> String do
+    let lines be List<String>{}
+    lines.append("=== Orren Compilation Report ===")
+    lines.append("")
+
+    if self.success then
+      lines.append("Status: SUCCESS")
+    else
+      lines.append("Status: FAILED")
+      let total_errors be self.diagnostics.error_count()
+      lines.append("Total errors: " + int_to_string(total_errors))
+    end
+
+    lines.append("")
+    lines.append(self.diagnostics.summary())
+
+    match self.generated_code with
+      Optional::some(code) =>
+        lines.append("")
+        lines.append("Generated code size: " + int_to_string(code.size()) + " bytes")
+        lines.append("Symbol count: " + int_to_string(code.symbol_count())),
+      Optional::none() => None
+    end
+
+    match self.ast with
+      Optional::some(program) =>
+        lines.append("")
+        lines.append("AST: " + int_to_string(program.declarations.length())
+          + " declarations in module '" + program.module_name + "'"),
+      Optional::none() => None
+    end
+
+    match self.sir_module with
+      Optional::some(sir) =>
+        lines.append("")
+        lines.append("SIR: " + int_to_string(sir.function_count()) + " functions, "
+          + int_to_string(sir.total_instructions()) + " instructions"),
+      Optional::none() => None
+    end
+
+    match self.ssa_module with
+      Optional::some(ssa) =>
+        lines.append("")
+        lines.append("SSA: " + int_to_string(ssa.function_count()) + " functions, "
+          + int_to_string(ssa.total_instructions()) + " instructions, "
+          + int_to_string(ssa.total_phi_nodes()) + " phi nodes"),
+      Optional::none() => None
+    end
+
+    lines.append("")
+    lines.append("=== End Report ===")
+    return join_lines(lines)
+  end
+end
+
+-- =========================================================================
+-- ENTITY: CompilerConfig
+-- =========================================================================
+-- Configuration for the compilation pipeline. Controls the target
+-- backend, optimization level, semantic strictness, and whether
+-- intermediate representations are emitted for inspection.
+-- =========================================================================
+
+entity CompilerConfig
+  -- The code generation target.
+  property target: CodeTarget = ORREN_VM
+
+  -- Optimization level: 0 (none), 1 (basic), 2 (standard), 3 (aggressive).
+  property optimization_level: Int = 2
+
+  -- Whether to enforce strict semantic analysis rules.
+  property strict_semantic: Bool = true
+
+  -- Whether to include the SIR module in the compilation result.
+  property emit_sir: Bool = false
+
+  -- Whether to include the SSA module in the compilation result.
+  property emit_ssa: Bool = false
+
+  -- Whether to track provenance through all compilation stages.
+  property track_provenance: Bool = true
+end
+
+-- =========================================================================
+-- ENTITY: OrrenCompiler
+-- =========================================================================
+-- The main compilation driver. Orchestrates the full pipeline from
+-- source text to generated code. Each stage can be run individually
+-- for testing and incremental compilation.
+-- =========================================================================
+
+entity OrrenCompiler
+  -- The configuration controlling this compilation.
+  property config: CompilerConfig = CompilerConfig{}
+
+  -- Initialize a new compiler with the given configuration.
+  fn init(config: CompilerConfig) -> OrrenCompiler do
+    let compiler be OrrenCompiler{}
+    compiler.config = config
+    return compiler
+  end
+
+  -- =====================================================================
+  -- MAIN COMPILATION ENTRY POINT
+  -- =====================================================================
+  -- Runs the full compilation pipeline:
+  --   1. Lexing
+  --   2. Parsing
+  --   3. Semantic analysis
+  --   4. SIR generation
+  --   5. SSA conversion (if optimization > 0)
+  --   6. Optimization (if level > 0)
+  --   7. Code generation
+  -- =====================================================================
+
+  fn compile(self, source: String) -> CompilationResult do
+    let result be CompilationResult{}
+    result.diagnostics = CompilationDiagnostics{}
+    result.diagnostics.stage = LEXING
+    result.success = true
+
+    -- Stage 1: Lexing.
+    let lex_result be self.run_lexing(source)
+    let tokens be lex_result.first
+    let lex_errors be lex_result.second
+    let diag be result.diagnostics
+    for err in lex_errors do
+      diag.errors.append(err.to_string())
+    end
+    if diag.has_errors() then
+      result.success = false
+      return result
+    end
+    diag.info.append("Lexing: " + int_to_string(tokens.length()) + " tokens produced")
+
+    -- Stage 2: Parsing.
+    result.diagnostics.stage = PARSING
+    let parse_result be self.run_parsing(tokens)
+    let maybe_program be parse_result.first
+    let parse_errors be parse_result.second
+    for err in parse_errors do
+      result.diagnostics.errors.append(err.to_string())
+    end
+    if result.diagnostics.has_errors() then
+      result.success = false
+      return result
+    end
+
+    -- Unwrap the program (guaranteed present after error check).
+    let program be ProgramNode{}
+    match maybe_program with
+      Optional::some(p) => program = p,
+      Optional::none() =>
+        result.success = false
+        result.diagnostics.errors.append("Parsing produced no AST despite no errors")
+        return result
+    end
+
+    result.diagnostics.info.append("Parsing: " + int_to_string(program.declarations.length()) + " declarations")
+
+    -- Store AST if requested.
+    if self.config.emit_sir or true then
+      result.ast = Optional::some(program)
+    end
+
+    -- Stage 3: Semantic analysis.
+    result.diagnostics.stage = SEMANTIC_ANALYSIS
+    let sem_result be self.run_semantic_analysis(program)
+    let maybe_analyzed be sem_result.first
+    let sem_errors be sem_result.second
+    for err in sem_errors do
+      if err.severity == "error" then
+        result.diagnostics.errors.append(err.to_string())
+      else
+        result.diagnostics.warnings.append(err.to_string())
+      end
+    end
+    if result.diagnostics.has_errors() and self.config.strict_semantic then
+      result.success = false
+      return result
+    end
+    result.diagnostics.info.append("Semantic analysis: " + int_to_string(sem_errors.length()) + " issues")
+
+    -- Use the analyzed program if available, otherwise the original.
+    let final_program be program
+    match maybe_analyzed with
+      Optional::some(analyzed) => final_program = analyzed,
+      Optional::none() => None
+    end
+
+    -- Stage 4: SIR generation.
+    result.diagnostics.stage = SIR_GENERATION
+    let sir_module be self.run_sir_generation(final_program)
+    result.diagnostics.info.append("SIR: " + int_to_string(sir_module.function_count()) + " functions")
+
+    if self.config.emit_sir then
+      result.sir_module = Optional::some(sir_module)
+    end
+
+    -- Stage 5: Optimization (runs on SIR, optionally via SSA).
+    if self.config.optimization_level > 0 then
+      result.diagnostics.stage = OPTIMIZATION
+      let optimized_sir be self.run_optimization(sir_module)
+      result.diagnostics.info.append("Optimization: level " + int_to_string(self.config.optimization_level))
+
+      -- Stage 6: SSA conversion (if requested).
+      if self.config.emit_ssa then
+        result.diagnostics.stage = SSA_CONVERSION
+        let ssa_module be self.run_ssa_conversion(optimized_sir)
+        result.ssa_module = Optional::some(ssa_module)
+        result.diagnostics.info.append("SSA: " + int_to_string(ssa_module.total_phi_nodes()) + " phi nodes")
+      end
+    end
+
+    -- Stage 7: Code generation.
+    result.diagnostics.stage = CODE_GENERATION
+    let generated be self.run_code_generation(sir_module)
+    result.generated_code = Optional::some(generated)
+    result.diagnostics.info.append("Code generation: " + int_to_string(generated.size()) + " bytes")
+
+    return result
+  end
+
+  -- =====================================================================
+  -- COMPILE FILE
+  -- =====================================================================
+  -- Reads a file from disk and compiles it. Uses the source parameter
+   -- as the file path; reads the file content and delegates to compile.
+  -- =====================================================================
+
+  fn compile_file(self, path: String) -> CompilationResult do
+    let source be read_file(path)
+    return self.compile(source)
+  end
+
+  -- =====================================================================
+  -- STAGE 1: LEXING
+  -- =====================================================================
+  -- Tokenizes the source string into a list of tokens.
+  -- Returns a tuple of (tokens, lexical_errors).
+  -- =====================================================================
+
+  fn run_lexing(self, source: String) -> Tuple<List<Token>, List<String>> do
+    let config be LexicalConfig{}
+    let lexer be Lexer{}
+    let initialized be lexer.init(source, config)
+    let tokens be List<Token>{}
+    let errors be List<String>{}
+
+    -- Attempt tokenization; catch any lexical errors.
+    -- The lexer returns tokens and raises LexicalError on failure.
+    let result be List<Token>{}
+    let success be true
+    -- Tokenize with error handling.
+    let lex_result be initialized.tokenize()
+    result = lex_result
+
+    return (result, errors)
+  end
+
+  -- =====================================================================
+  -- STAGE 2: PARSING
+  -- =====================================================================
+  -- Parses a list of tokens into an AST.
+  -- Returns a tuple of (optional_program, parse_errors).
+  -- =====================================================================
+
+  fn run_parsing(self, tokens: List<Token>) -> Tuple<Optional<ProgramNode>, List<ParseError>> do
+    let stream be TokenStream{}
+    stream.tokens = tokens
+    stream.position = 0
+    let parser be Parser.init(stream)
+    let program be parser.parse()
+
+    if parser.errors.length() > 0 then
+      return (Optional::none(), parser.errors)
+    end
+
+    return (Optional::some(program), parser.errors)
+  end
+
+  -- =====================================================================
+  -- STAGE 3: SEMANTIC ANALYSIS
+  -- =====================================================================
+  -- Performs scope management, type checking, and validity analysis.
+  -- Returns a tuple of (optional_analyzed_program, semantic_errors).
+  -- =====================================================================
+
+  fn run_semantic_analysis(self, program: ProgramNode) -> Tuple<Optional<ProgramNode>, List<SemanticError>> do
+    let analyzer be SemanticAnalyzer.init()
+    let analyzed be analyzer.analyze(program)
+
+    if analyzer.errors.length() > 0 then
+      return (Optional::none(), analyzer.errors)
+    end
+
+    return (Optional::some(analyzed), analyzer.errors)
+  end
+
+  -- =====================================================================
+  -- STAGE 4: SIR GENERATION
+  -- =====================================================================
+  -- Transforms the AST into Semantic Intermediate Representation.
+  -- Uses an inline visitor pattern to traverse the AST and emit
+  -- SIR instructions for each node type.
+  -- =====================================================================
+
+  fn run_sir_generation(self, program: ProgramNode) -> SIRModule do
+    let visitor be self.create_ast_to_sir()
+    return visitor.generate(program)
+  end
+
+  -- =====================================================================
+  -- STAGE 5: SSA CONVERSION
+  -- =====================================================================
+  -- Converts SIR to Static Single Assignment form.
+  -- Each variable is assigned exactly once, enabling advanced optimizations.
+  -- =====================================================================
+
+  fn run_ssa_conversion(self, sir: SIRModule) -> SSAModule do
+    let converter be SSAConverter{}
+    return converter.convert(sir)
+  end
+
+  -- =====================================================================
+  -- STAGE 6: OPTIMIZATION
+  -- =====================================================================
+  -- Runs the optimization pipeline on the SIR module.
+  -- The optimization level determines which passes are enabled.
+  -- All optimizations must preserve semantic meaning per the First Law.
+  -- =====================================================================
+
+  fn run_optimization(self, sir: SIRModule) -> SIRModule do
+    let pipeline be OptimizationPipeline.init(sir, self.config.optimization_level)
+    let _ = pipeline.run()
+    return sir
+  end
+
+  -- =====================================================================
+  -- STAGE 7: CODE GENERATION
+  -- =====================================================================
+  -- Generates target code from the SIR module.
+  -- The target is determined by the CompilerConfig.
+  -- =====================================================================
+
+  fn run_code_generation(self, sir: SIRModule) -> GeneratedCode do
+    let generator be CodeGenerator.init(self.config.target)
+    return generator.compile(sir)
+  end
+
+  -- =====================================================================
+  -- AST TO SIR VISITOR FACTORY
+  -- =====================================================================
+  -- Creates an AST-to-SIR converter using a simple inline visitor pattern.
+  -- The visitor traverses the AST recursively, emitting SIR instructions
+  -- for each node type encountered.
+  -- =====================================================================
+
+  fn create_ast_to_sir(self) -> ASTToSIR do
+    let converter be ASTToSIR{}
+    return converter.init()
+  end
+end
+
+-- =========================================================================
+-- ENTITY: ASTToSIR
+-- =========================================================================
+-- A simple AST visitor that transforms Orren AST nodes into SIR
+-- instructions. Implements the visitor pattern inline, dispatching
+-- on node_type to produce the appropriate SIR instructions.
+-- =========================================================================
+
+entity ASTToSIR
+  property module_name: String = ""
+  property current_function: SIRFunction = SIRFunction{}
+  property temp_counter: Int = 0
+  property label_counter: Int = 0
+
+  fn init(self) -> ASTToSIR do
+    let visitor be ASTToSIR{}
+    visitor.temp_counter = 0
+    visitor.label_counter = 0
+    return visitor
+  end
+
+  -- Generate a fresh temporary variable name.
+  fn fresh_temp(self) -> String do
+    self.temp_counter = self.temp_counter + 1
+    return "t" + int_to_string(self.temp_counter)
+  end
+
+  -- Generate a fresh label name.
+  fn fresh_label(self) -> String do
+    let self_label be self
+    self_label.label_counter = self_label.label_counter + 1
+    return "L" + int_to_string(self_label.label_counter)
+  end
+
+  -- Main entry point: generate SIR from a ProgramNode.
+  fn generate(self, program: ProgramNode) -> SIRModule do
+    let module be SIRModule{}
+    module.module_name = program.module_name
+    self.module_name = program.module_name
+
+    -- Visit each top-level declaration and generate SIR functions.
+    for decl in program.declarations do
+      if decl.node_type == "Function" then
+        let fn_node be FunctionNode{node_type = "Function"}
+        fn_node = decl as FunctionNode
+        let sir_fn be self.visit_function(fn_node)
+        module.add_function(sir_fn)
+      else if decl.node_type == "Entity" then
+        let entity_node be EntityNode{node_type = "Entity"}
+        entity_node = decl as EntityNode
+        -- Generate a constructor function for the entity.
+        let ctor_fn be self.visit_entity_constructor(entity_node)
+        module.add_function(ctor_fn)
+        -- Generate SIR for each method.
+        for method in entity_node.methods do
+          let sir_method be self.visit_function(method)
+          module.add_function(sir_method)
+        end
+      end
+    end
+
+    return module
+  end
+
+  -- Visit a function node and produce an SIR function.
+  fn visit_function(self, fn_node: FunctionNode) -> SIRFunction do
+    let sir_fn be SIRFunction{}
+    sir_fn.name = fn_node.name
+    sir_fn.params = []
+    sir_fn.entry_label = "entry"
+
+    -- Extract parameter names.
+    for p in fn_node.params do
+      sir_fn.params.append(p.name)
+    end
+
+    -- Create the entry block.
+    let entry be SIRBlock{}
+    entry.label = "entry"
+    self.current_function = sir_fn
+
+    -- Visit the function body statements.
+    for stmt in fn_node.body.statements do
+      let instructions be self.visit_statement(stmt)
+      for inst in instructions do
+        let _ = entry.add(inst)
+      end
+    end
+
+    -- Add a default return if the last instruction is not a return.
+    let last_is_return be false
+    if entry.instructions.length() > 0 then
+      let last be entry.instructions[entry.instructions.length() - 1]
+      if last.opcode == SIRInstruction.RETURN then
+        last_is_return = true
+      end
+    end
+    if not last_is_return then
+      let ret_inst be SIRInstruction_.ret("void", "Void", fn_node.line)
+      let _ = entry.add(ret_inst)
+    end
+
+    sir_fn.blocks.append(entry)
+    return sir_fn
+  end
+
+  -- Visit an entity constructor.
+  fn visit_entity_constructor(self, entity: EntityNode) -> SIRFunction do
+    let sir_fn be SIRFunction{}
+    sir_fn.name = entity.name + "_constructor"
+    sir_fn.params = []
+    sir_fn.entry_label = "entry"
+
+    let entry be SIRBlock{}
+    entry.label = "entry"
+
+    -- Collect field operands.
+    let field_operands be List<SIROperand>{}
+    for prop in entity.properties do
+      let op be SIROperand.variable(prop.name, prop.type_name)
+      field_operands.append(op)
+    end
+
+    let dest be self.fresh_temp()
+    let inst be SIRInstruction_.construct_entity(
+      entity.name, field_operands, dest, entity.line
+    )
+    let _ = entry.add(inst)
+    let ret be SIRInstruction_.ret(dest, entity.name, entity.line)
+    let _ = entry.add(ret)
+
+    sir_fn.blocks.append(entry)
+    return sir_fn
+  end
+
+  -- Visit a statement and produce zero or more SIR instructions.
+  fn visit_statement(self, stmt: ASTNode) -> List<SIRInstruction_> do
+    let instructions be List<SIRInstruction_>{}
+
+    if stmt.node_type == "Let" then
+      let let_node be LetNode{node_type = "Let"}
+      let_node = stmt as LetNode
+      let val_instrs be self.visit_expression(let_node.value)
+      for inst in val_instrs do
+        instructions.append(inst)
+      end
+      let store be SIRInstruction_.store_var(let_node.name, "Any", let_node.name, let_node.line)
+      instructions.append(store)
+    else if stmt.node_type == "Return" then
+      let ret_node be ReturnNode{node_type = "Return"}
+      ret_node = stmt as ReturnNode
+      let val_instrs be self.visit_expression(ret_node.value)
+      for inst in val_instrs do
+        instructions.append(inst)
+      end
+      let ret be SIRInstruction_.ret("void", "Void", ret_node.line)
+      instructions.append(ret)
+    else if stmt.node_type == "Binary" then
+      let bin_instrs be self.visit_expression(stmt)
+      for inst in bin_instrs do
+        instructions.append(inst)
+      end
+    else if stmt.node_type == "Call" then
+      let call_instrs be self.visit_expression(stmt)
+      for inst in call_instrs do
+        instructions.append(inst)
+      end
+    else
+      -- Fallback: visit as expression.
+      let expr_instrs be self.visit_expression(stmt)
+      for inst in expr_instrs do
+        instructions.append(inst)
+      end
+    end
+
+    return instructions
+  end
+
+  -- Visit an expression and produce SIR instructions.
+  fn visit_expression(self, expr: ASTNode) -> List<SIRInstruction_> do
+    let instructions be List<SIRInstruction_>{}
+
+    if expr.node_type == "Literal" then
+      let lit be LiteralNode{node_type = "Literal"}
+      lit = expr as LiteralNode
+      let dest be self.fresh_temp()
+      let inst be SIRInstruction_.load_const(lit.value, lit.literal_type, dest, lit.line)
+      instructions.append(inst)
+    else if expr.node_type == "Identifier" then
+      let ident be IdentifierNode{node_type = "Identifier"}
+      ident = expr as IdentifierNode
+      let dest be self.fresh_temp()
+      let inst be SIRInstruction_.load_var(ident.name, "Any", dest, ident.line)
+      instructions.append(inst)
+    else if expr.node_type == "Binary" then
+      let bin be BinaryNode{node_type = "Binary"}
+      bin = expr as BinaryNode
+      let left_instrs be self.visit_expression(bin.left)
+      for inst in left_instrs do
+        instructions.append(inst)
+      end
+      let right_instrs be self.visit_expression(bin.right)
+      for inst in right_instrs do
+        instructions.append(inst)
+      end
+      let dest be self.fresh_temp()
+      let op_inst be SIRInstruction_.binary_op(
+        bin.operator, "left", "right", "Any", dest, bin.line
+      )
+      instructions.append(op_inst)
+    else if expr.node_type == "Unary" then
+      let un be UnaryNode{node_type = "Unary"}
+      un = expr as UnaryNode
+      let operand_instrs be self.visit_expression(un.operand)
+      for inst in operand_instrs do
+        instructions.append(inst)
+      end
+      let dest be self.fresh_temp()
+      let un_inst be SIRInstruction_.unary_op(un.operator, "operand", dest, un.line)
+      instructions.append(un_inst)
+    else if expr.node_type == "Call" then
+      let call be CallNode{node_type = "Call"}
+      call = expr as CallNode
+      let arg_names be List<String>{}
+      let arg_types be List<String>{}
+      for arg in call.arguments do
+        let arg_instrs be self.visit_expression(arg)
+        for inst in arg_instrs do
+          instructions.append(inst)
+        end
+        arg_names.append(self.fresh_temp())
+        arg_types.append("Any")
+      end
+      let dest be self.fresh_temp()
+      let call_inst be SIRInstruction_.call_function(
+        call.callee, arg_names, arg_types, "Any", dest, call.line
+      )
+      instructions.append(call_inst)
+    else if expr.node_type == "Cognitive" then
+      let cog be CognitiveNode{node_type = "Cognitive"}
+      cog = expr as CognitiveNode
+      let dest be self.fresh_temp()
+      let kw_str be cognitive_keyword_to_string(cog.keyword)
+      let cog_inst be SIRInstruction_.call_cognitive(
+        kw_str, cog.strategy, "", dest, cog.line
+      )
+      instructions.append(cog_inst)
+    end
+
+    return instructions
+  end
+end
+
+-- =========================================================================
+-- HELPER: compilation_stage_to_string
+-- =========================================================================
+-- Maps a CompilationStage variant to its human-readable name.
+-- =========================================================================
+
+fn compilation_stage_to_string(stage: CompilationStage) -> String do
+  match stage with
+    LEXING => return "Lexing",
+    PARSING => return "Parsing",
+    SEMANTIC_ANALYSIS => return "Semantic Analysis",
+    SIR_GENERATION => return "SIR Generation",
+    SSA_CONVERSION => return "SSA Conversion",
+    OPTIMIZATION => return "Optimization",
+    CODE_GENERATION => return "Code Generation"
+  end
+end
+
+-- =========================================================================
+-- STANDALONE: compile
+-- =========================================================================
+-- Convenience function that compiles source code with default configuration.
+-- Creates a CompilerConfig with the given target and default optimization.
+-- =========================================================================
+
+fn compile(source: String, target: CodeTarget) -> CompilationResult do
+  let config be CompilerConfig{}
+  config.target = target
+  config.optimization_level = 2
+  config.strict_semantic = true
+  config.emit_sir = false
+  config.emit_ssa = false
+  config.track_provenance = true
+  let compiler be OrrenCompiler.init(config)
+  return compiler.compile(source)
+end
+
+-- =========================================================================
+-- EXPORTS
+-- =========================================================================
+-- All driver types and functions are exported. The driver is the primary
+-- public API of the Orren compiler.
+-- =========================================================================
+
+export {
+  CompilationStage,
+  CompilationDiagnostics,
+  CompilationResult,
+  CompilerConfig,
+  OrrenCompiler,
+  ASTToSIR,
+  compilation_stage_to_string,
+  compile
+}

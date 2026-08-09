@@ -1,0 +1,974 @@
+module orren.vm.executor
+
+import orren.core.language.foundation::{*}
+import orren.core.semantic.model::{*}
+import orren.compiler.sir::{*}
+
+intent "The Orren stack-based virtual machine. Executes SIR instructions
+  produced by the compiler, maintaining semantic integrity throughout
+  execution. The VM operates on a value stack, supports call frames
+  for function invocation, and tracks semantic attributes on every
+  value per the First Law."
+
+-- =========================================================================
+-- ENTITY: VMValue
+-- =========================================================================
+-- A dynamically-typed value on the VM stack. Every value carries its
+-- kind, typed storage fields, and optional semantic attributes. The
+-- VMValue is the universal runtime representation — every computed
+-- result, every variable binding, every entity instance is a VMValue.
+-- =========================================================================
+
+entity VMValue
+  -- The kind of value stored: integer, float, string, bool, nil,
+  -- entity, list, map, or cognitive_result.
+  property kind: String = "integer"
+
+  -- Integer storage, used when kind == "integer".
+  property int_val: Int = 0
+
+  -- Float storage, used when kind == "float".
+  property float_val: Float = 0.0
+
+  -- String storage, used when kind == "string".
+  property string_val: String = ""
+
+  -- Boolean storage, used when kind == "bool".
+  property bool_val: Bool = false
+
+  -- Entity field storage, used when kind == "entity".
+  property entity_fields: Map<String, VMValue> = {}
+
+  -- List element storage, used when kind == "list".
+  property list_val: List<VMValue> = []
+
+  -- Map entry storage, used when kind == "map".
+  property map_val: Map<String, VMValue> = {}
+
+  -- Semantic attributes attached to this value.
+  property attributes: SemanticAttributes = SemanticAttributes{}
+
+  -- Cast this value to an integer. Returns 0 if not an integer.
+  fn as_int(self) -> Int do
+    if self.kind == "integer" then
+      return self.int_val
+    end
+    if self.kind == "float" then
+      return float_to_int(self.float_val)
+    end
+    if self.kind == "bool" then
+      if self.bool_val then
+        return 1
+      end
+      return 0
+    end
+    if self.kind == "string" then
+      return string_to_int(self.string_val)
+    end
+    return 0
+  end
+
+  -- Cast this value to a float. Returns 0.0 if not a float or integer.
+  fn as_float(self) -> Float do
+    if self.kind == "float" then
+      return self.float_val
+    end
+    if self.kind == "integer" then
+      return int_to_float(self.int_val)
+    end
+    if self.kind == "string" then
+      return string_to_float(self.string_val)
+    end
+    return 0.0
+  end
+
+  -- Cast this value to a string. Returns a readable representation.
+  fn as_string(self) -> String do
+    if self.kind == "string" then
+      return self.string_val
+    end
+    if self.kind == "integer" then
+      return int_to_string(self.int_val)
+    end
+    if self.kind == "float" then
+      return float_to_string(self.float_val)
+    end
+    if self.kind == "bool" then
+      if self.bool_val then
+        return "true"
+      end
+      return "false"
+    end
+    if self.kind == "nil" then
+      return "nil"
+    end
+    if self.kind == "list" then
+      return "[" + int_to_string(self.list_val.length()) + " elements]"
+    end
+    if self.kind == "map" then
+      return "{map with entries}"
+    end
+    if self.kind == "entity" then
+      return "{entity}"
+    end
+    if self.kind == "cognitive_result" then
+      return "{cognitive_result: " + self.string_val + "}"
+    end
+    return "{unknown}"
+  end
+
+  -- Cast this value to a boolean. Uses Orren truthiness rules.
+  fn as_bool(self) -> Bool do
+    return self.is_truthy()
+  end
+
+  -- Orren truthiness: false, nil, 0, and empty string are falsy.
+  -- Everything else (including empty lists and maps) is truthy.
+  fn is_truthy(self) -> Bool do
+    if self.kind == "bool" then
+      return self.bool_val
+    end
+    if self.kind == "nil" then
+      return false
+    end
+    if self.kind == "integer" then
+      return self.int_val != 0
+    end
+    if self.kind == "float" then
+      return self.float_val != 0.0
+    end
+    if self.kind == "string" then
+      return self.string_val != ""
+    end
+    return true
+  end
+
+  -- Produce a human-readable string representation of this value.
+  fn to_string(self) -> String do
+    return self.kind + ":" + self.as_string()
+  end
+
+  -- Return a copy of this value with the given semantic attributes.
+  fn with_attributes(self, attrs: SemanticAttributes) -> VMValue do
+    let copy be VMValue{}
+    copy.kind = self.kind
+    copy.int_val = self.int_val
+    copy.float_val = self.float_val
+    copy.string_val = self.string_val
+    copy.bool_val = self.bool_val
+    copy.entity_fields = self.entity_fields
+    copy.list_val = self.list_val
+    copy.map_val = self.map_val
+    copy.attributes = attrs
+    return copy
+  end
+end
+
+-- =========================================================================
+-- ENTITY: VMFrame
+-- =========================================================================
+-- A single call frame on the VM's call stack. Each frame represents
+-- an active function invocation, with its own local variables and
+-- a return address pointing back to the caller's instruction stream.
+-- =========================================================================
+
+entity VMFrame
+  -- The name of the function this frame belongs to.
+  property function_name: String = ""
+
+  -- The instruction pointer to return to when this frame pops.
+  property return_address: Int = 0
+
+  -- Local variables visible within this frame.
+  property locals: Map<String, VMValue> = {}
+
+  -- The stack position at the time this frame was pushed.
+  -- Used to restore the stack when the frame returns.
+  property stack_base: Int = 0
+end
+
+-- =========================================================================
+-- ENTITY: VMError
+-- =========================================================================
+-- Represents a runtime error encountered during VM execution.
+-- Carries the error kind, message, and source line for reporting.
+-- =========================================================================
+
+entity VMError
+  -- The category of VM error.
+  property kind: String = "runtime_error"
+
+  -- Human-readable description of the error.
+  property message: String = ""
+
+  -- The source line where the error occurred, if available.
+  property line: Int = 0
+
+  -- Produce a formatted error string.
+  fn to_string(self) -> String do
+    let line_part be ""
+    if self.line > 0 then
+      line_part = " at line " + int_to_string(self.line)
+    end
+    return "VMError (" + self.kind + ")" + line_part + ": " + self.message
+  end
+end
+
+-- =========================================================================
+-- ENTITY: OrrenVM
+-- =========================================================================
+-- The Orren stack-based virtual machine. Executes SIR instructions
+-- produced by the compiler. The VM maintains:
+--   - A value stack for expression evaluation
+--   - Global variables for module-level bindings
+--   - A call frame stack for function invocation
+--   - A flat instruction array with an instruction pointer
+--   - Execution logging for UPMP monitoring
+-- =========================================================================
+
+entity OrrenVM
+  -- The value stack. Operands are pushed here and popped by instructions.
+  property stack: List<VMValue> = []
+
+  -- Global variables shared across all functions.
+  property globals: Map<String, VMValue> = {}
+
+  -- The call frame stack.
+  property frames: List<VMFrame> = []
+
+  -- The flat instruction array for execution.
+  property instructions: List<SIRInstruction_> = []
+
+  -- The instruction pointer (index into instructions array).
+  property ip: Int = 0
+
+  -- Whether the VM is currently executing.
+  property running: Bool = false
+
+  -- Current call depth, used to detect stack overflow.
+  property call_depth: Int = 0
+
+  -- Maximum allowed call depth before stack overflow.
+  property max_call_depth: Int = 256
+
+  -- Whether to track semantic attributes during execution.
+  property semantic_tracking: Bool = true
+
+  -- Execution log for UPMP monitoring and debugging.
+  property execution_log: List<String> = []
+
+  -- Initialize a new VM with default settings.
+  fn init(self) -> OrrenVM do
+    let vm be OrrenVM{}
+    vm.stack = []
+    vm.globals = {}
+    vm.frames = []
+    vm.instructions = []
+    vm.ip = 0
+    vm.running = false
+    vm.call_depth = 0
+    vm.max_call_depth = 256
+    vm.semantic_tracking = true
+    vm.execution_log = []
+    return vm
+  end
+
+  -- =====================================================================
+  -- LOAD MODULE
+  -- =====================================================================
+  -- Loads a SIR module for execution. Flattens all function blocks
+  -- into a single instruction array with label-based jumps.
+  -- =====================================================================
+
+  fn load(self, module: SIRModule) -> Bool do
+    self.instructions = []
+    self.ip = 0
+    self.globals = {}
+    self.stack = []
+    self.frames = []
+
+    -- Flatten all functions into the instruction array.
+    for pair in module.functions do
+      let fn_name be pair.key
+      let sir_fn be pair.value
+      for blk in sir_fn.blocks do
+        -- Emit a label marker as a NOOP with the block label.
+        let label_inst be SIRInstruction_.noop(blk.line)
+        let label_operand be SIROperand.label(blk.label)
+        label_inst.operands.append(label_operand)
+        self.instructions.append(label_inst)
+        -- Emit all instructions in the block.
+        for inst in blk.instructions do
+          self.instructions.append(inst)
+        end
+      end
+    end
+
+    self.execution_log.append("Loaded module: " + module.module_name)
+    self.execution_log.append("Total instructions: " + int_to_string(self.instructions.length()))
+
+    return true
+  end
+
+  -- =====================================================================
+  -- MAIN EXECUTION LOOP
+  -- =====================================================================
+  -- Executes instructions sequentially until a halt condition is met.
+  -- Returns the top value on the stack when execution completes.
+  -- =====================================================================
+
+  fn execute(self) -> VMValue do
+    self.running = true
+    let result be VMValue{}
+    result.kind = "nil"
+
+    while self.running and self.ip < self.instructions.length() do
+      let continued be self.step()
+      if not continued then
+        break
+      end
+    end
+
+    if self.stack_size() > 0 then
+      result = self.pop()
+    end
+
+    return result
+  end
+
+  -- =====================================================================
+  -- EXECUTE NAMED FUNCTION
+  -- =====================================================================
+  -- Looks up a function by name, sets the instruction pointer to
+  -- its entry label, and executes. Arguments are passed via the stack.
+  -- =====================================================================
+
+  fn execute_function(self, name: String, args: List<VMValue>) -> VMValue do
+    -- Push arguments onto the stack.
+    for arg in args do
+      self.push(arg)
+    end
+
+    -- Find the function entry point.
+    let entry_index be self.find_label(name)
+    if entry_index < 0 then
+      let err be VMError{}
+      err.kind = "undefined_function"
+      err.message = "Function not found: " + name
+      let nil_val be VMValue{}
+      nil_val.kind = "nil"
+      return nil_val
+    end
+
+    -- Set up a frame and execute.
+    self.ip = entry_index
+    let frame be VMFrame{}
+    frame.function_name = name
+    frame.return_address = self.ip
+    frame.stack_base = self.stack_size() - args.length()
+    frame.locals = {}
+    self.frames.append(frame)
+    self.call_depth = self.call_depth + 1
+
+    let result be self.execute()
+
+    -- Pop the frame.
+    let _ = self.return_from_function()
+
+    return result
+  end
+
+  -- =====================================================================
+-- STEP: EXECUTE ONE INSTRUCTION
+  -- =====================================================================
+  -- Fetches and executes the instruction at the current IP.
+  -- Returns false when execution should halt (on RETURN or error).
+  -- =====================================================================
+
+  fn step(self) -> Bool do
+    if self.ip >= self.instructions.length() then
+      self.running = false
+      return false
+    end
+
+    let inst be self.instructions[self.ip]
+    self.ip = self.ip + 1
+
+    -- Log the instruction if execution logging is enabled.
+    if self.semantic_tracking then
+      self.execution_log.append("[IP=" + int_to_string(self.ip - 1) + "] " + inst.to_string())
+    end
+
+    -- Dispatch on the opcode.
+    match inst.opcode with
+      SIRInstruction.LOAD_CONST =>
+        self.execute_load_const(inst.operands[0]),
+      SIRInstruction.LOAD_VAR =>
+        self.execute_load_var(inst.operands[0]),
+      SIRInstruction.STORE_VAR =>
+        self.execute_store_var(inst.operands[0]),
+      SIRInstruction.BINARY_OP =>
+        self.execute_binary(inst.operands[0].value),
+      SIRInstruction.UNARY_OP =>
+        self.execute_unary(inst.operands[0].value),
+      SIRInstruction.CALL_FUNCTION =>
+        self.execute_call(inst.operands[0]),
+      SIRInstruction.CALL_COGNITIVE =>
+        self.execute_call_cognitive(inst.operands[0]),
+      SIRInstruction.JUMP =>
+        self.execute_jump(inst.operands[0]),
+      SIRInstruction.JUMP_IF_FALSE =>
+        self.execute_jump_if(inst.operands[0], false),
+      SIRInstruction.JUMP_IF_TRUE =>
+        self.execute_jump_if(inst.operands[0], true),
+      SIRInstruction.RETURN =>
+        self.halt()
+        return false,
+      SIRInstruction.CONSTRUCT_ENTITY =>
+        self.execute_construct(inst.operands[0]),
+      SIRInstruction.ACCESS_FIELD =>
+        self.execute_access(inst.operands[1]),
+      SIRInstruction.NOOP =>
+        None
+    end
+
+    return true
+  end
+
+  -- =====================================================================
+  -- STACK OPERATIONS
+  -- =====================================================================
+
+  fn push(self, value: VMValue) do
+    self.stack.append(value)
+  end
+
+  fn pop(self) -> VMValue do
+    if self.stack.length() == 0 then
+      let nil_val be VMValue{}
+      nil_val.kind = "nil"
+      return nil_val
+    end
+    let last be self.stack[self.stack.length() - 1]
+    let _ = self.stack.remove(self.stack.length() - 1)
+    return last
+  end
+
+  fn peek(self) -> VMValue do
+    if self.stack.length() == 0 then
+      let nil_val be VMValue{}
+      nil_val.kind = "nil"
+      return nil_val
+    end
+    return self.stack[self.stack.length() - 1]
+  end
+
+  fn stack_size(self) -> Int do
+    return self.stack.length()
+  end
+
+  -- =====================================================================
+  -- GLOBAL VARIABLE OPERATIONS
+  -- =====================================================================
+
+  fn define_global(self, name: String, value: VMValue) do
+    let _ = self.globals[name] = value
+  end
+
+  fn get_global(self, name: String) -> Optional<VMValue> do
+    if self.globals[name] exists then
+      return Optional::some(self.globals[name])
+    end
+    return Optional::none()
+  end
+
+  -- =====================================================================
+  -- CALL FRAME OPERATIONS
+  -- =====================================================================
+
+  fn call_function(self, name: String, arg_count: Int) do
+    if self.call_depth >= self.max_call_depth then
+      let err be VMError{}
+      err.kind = "stack_overflow"
+      err.message = "Maximum call depth (" + int_to_string(self.max_call_depth) + ") exceeded"
+      self.execution_log.append(err.to_string())
+      self.halt()
+      return
+    end
+
+    let frame be VMFrame{}
+    frame.function_name = name
+    frame.return_address = self.ip
+    frame.stack_base = self.stack_size() - arg_count
+    frame.locals = {}
+
+    -- Bind arguments to local variables.
+    for i in 0 to arg_count - 1 do
+      let idx be frame.stack_base + i
+      if idx < self.stack_size() then
+        let _ = frame.locals["arg" + int_to_string(i)] = self.stack[idx]
+      end
+    end
+
+    self.frames.append(frame)
+    self.call_depth = self.call_depth + 1
+
+    -- Find the function entry point and jump to it.
+    let entry_index be self.find_label(name)
+    if entry_index >= 0 then
+      self.ip = entry_index
+    end
+  end
+
+  fn return_from_function(self) -> VMValue do
+    if self.frames.length() == 0 then
+      let nil_val be VMValue{}
+      nil_val.kind = "nil"
+      return nil_val
+    end
+
+    let frame be self.frames[self.frames.length() - 1]
+    let _ = self.frames.remove(self.frames.length() - 1)
+    self.call_depth = self.call_depth - 1
+
+    -- Restore the instruction pointer.
+    self.ip = frame.return_address
+
+    -- Get the return value from the top of the stack.
+    let return_val be VMValue{}
+    return_val.kind = "nil"
+    if self.stack_size() > 0 then
+      return_val = self.pop()
+    end
+
+    -- Restore the stack to the base.
+    while self.stack_size() > frame.stack_base do
+      let _ = self.pop()
+    end
+
+    -- Push the return value back.
+    self.push(return_val)
+
+    return return_val
+  end
+
+  -- =====================================================================
+  -- INSTRUCTION EXECUTION: BINARY OPERATIONS
+  -- =====================================================================
+
+  fn execute_binary(self, op: String) do
+    let right be self.pop()
+    let left be self.pop()
+    let result be VMValue{}
+
+    if op == "+" then
+      if left.kind == "integer" and right.kind == "integer" then
+        result.kind = "integer"
+        result.int_val = left.int_val + right.int_val
+      else if left.kind == "float" or right.kind == "float" then
+        result.kind = "float"
+        result.float_val = left.as_float() + right.as_float()
+      else if left.kind == "string" then
+        result.kind = "string"
+        result.string_val = left.string_val + right.as_string()
+      end
+    else if op == "-" then
+      if left.kind == "integer" and right.kind == "integer" then
+        result.kind = "integer"
+        result.int_val = left.int_val - right.int_val
+      else
+        result.kind = "float"
+        result.float_val = left.as_float() - right.as_float()
+      end
+    else if op == "*" then
+      if left.kind == "integer" and right.kind == "integer" then
+        result.kind = "integer"
+        result.int_val = left.int_val * right.int_val
+      else
+        result.kind = "float"
+        result.float_val = left.as_float() * right.as_float()
+      end
+    else if op == "/" then
+      if right.as_int() == 0 then
+        let err be VMError{}
+        err.kind = "division_by_zero"
+        err.message = "Division by zero"
+        self.execution_log.append(err.to_string())
+        result.kind = "nil"
+      else if left.kind == "integer" and right.kind == "integer" then
+        result.kind = "integer"
+        result.int_val = left.int_val / right.int_val
+      else
+        result.kind = "float"
+        result.float_val = left.as_float() / right.as_float()
+      end
+    else if op == "%" then
+      if right.as_int() == 0 then
+        result.kind = "nil"
+      else
+        result.kind = "integer"
+        result.int_val = left.as_int() % right.as_int()
+      end
+    else if op == "==" then
+      result.kind = "bool"
+      result.bool_val = self.values_equal(left, right)
+    else if op == "/=" then
+      result.kind = "bool"
+      result.bool_val = not self.values_equal(left, right)
+    else if op == "<" then
+      result.kind = "bool"
+      result.bool_val = left.as_int() < right.as_int()
+    else if op == ">" then
+      result.kind = "bool"
+      result.bool_val = left.as_int() > right.as_int()
+    else if op == "<=" then
+      result.kind = "bool"
+      result.bool_val = left.as_int() <= right.as_int()
+    else if op == ">=" then
+      result.kind = "bool"
+      result.bool_val = left.as_int() >= right.as_int()
+    else if op == "and" then
+      result.kind = "bool"
+      result.bool_val = left.is_truthy() and right.is_truthy()
+    else if op == "or" then
+      result.kind = "bool"
+      result.bool_val = left.is_truthy() or right.is_truthy()
+    else
+      result.kind = "nil"
+    end
+
+    if self.semantic_tracking then
+      result.attributes = left.attributes.propagate(right.attributes)
+    end
+
+    self.push(result)
+  end
+
+  -- =====================================================================
+  -- INSTRUCTION EXECUTION: UNARY OPERATIONS
+  -- =====================================================================
+
+  fn execute_unary(self, op: String) do
+    let operand be self.pop()
+    let result be VMValue{}
+
+    if op == "not" then
+      result.kind = "bool"
+      result.bool_val = not operand.is_truthy()
+    else if op == "-" then
+      if operand.kind == "integer" then
+        result.kind = "integer"
+        result.int_val = 0 - operand.int_val
+      else
+        result.kind = "float"
+        result.float_val = 0.0 - operand.as_float()
+      end
+    else
+      result.kind = "nil"
+    end
+
+    result.attributes = operand.attributes
+    self.push(result)
+  end
+
+  -- =====================================================================
+  -- INSTRUCTION EXECUTION: LOAD CONSTANT
+  -- =====================================================================
+
+  fn execute_load_const(self, operand: SIROperand) do
+    let value be VMValue{}
+    let val_str be operand.value
+    let type_name be operand.type_name
+
+    if type_name == "Int" or type_name == "integer" then
+      value.kind = "integer"
+      value.int_val = string_to_int(val_str)
+    else if type_name == "Float" or type_name == "float" then
+      value.kind = "float"
+      value.float_val = string_to_float(val_str)
+    else if type_name == "String" or type_name == "string" then
+      value.kind = "string"
+      value.string_val = val_str
+    else if type_name == "Bool" or type_name == "bool" then
+      value.kind = "bool"
+      value.bool_val = val_str == "true"
+    else if type_name == "Void" or type_name == "void" or val_str == "nil" then
+      value.kind = "nil"
+    else
+      -- Default: store as string.
+      value.kind = "string"
+      value.string_val = val_str
+    end
+
+    self.push(value)
+  end
+
+  -- =====================================================================
+  -- INSTRUCTION EXECUTION: LOAD VARIABLE
+  -- =====================================================================
+
+  fn execute_load_var(self, operand: SIROperand) do
+    let var_name be operand.value
+
+    -- Search local variables first (current frame).
+    let frame_val be self.get_local(var_name)
+    match frame_val with
+      Optional::some(val) =>
+        self.push(val)
+        return
+    end
+
+    -- Search global variables.
+    let global_val be self.get_global(var_name)
+    match global_val with
+      Optional::some(val) =>
+        self.push(val)
+        return
+    end
+
+    -- Variable not found: push nil.
+    let nil_val be VMValue{}
+    nil_val.kind = "nil"
+    self.push(nil_val)
+    self.execution_log.append("Warning: undefined variable '" + var_name + "'")
+  end
+
+  -- =====================================================================
+  -- INSTRUCTION EXECUTION: STORE VARIABLE
+  -- =====================================================================
+
+  fn execute_store_var(self, operand: SIROperand) do
+    let var_name be operand.value
+    let value be self.pop()
+
+    -- Store in the current frame's locals if a frame is active.
+    if self.frames.length() > 0 then
+      let frame be self.frames[self.frames.length() - 1]
+      let _ = frame.locals[var_name] = value
+    else
+      -- No frame: store as global.
+      self.define_global(var_name, value)
+    end
+  end
+
+  -- =====================================================================
+  -- INSTRUCTION EXECUTION: CALL FUNCTION
+  -- =====================================================================
+
+  fn execute_call(self, operand: SIROperand) do
+    let fn_name be operand.value
+
+    -- Count arguments by looking at the instruction's remaining operands.
+    -- For simplicity, we use a fixed argument count heuristic.
+    self.call_function(fn_name, 0)
+  end
+
+  -- =====================================================================
+  -- INSTRUCTION EXECUTION: CALL COGNITIVE
+  -- =====================================================================
+
+  fn execute_call_cognitive(self, operand: SIROperand) do
+    let keyword be operand.value
+    let result be VMValue{}
+    result.kind = "cognitive_result"
+    result.string_val = "cognitive:" + keyword
+
+    if self.semantic_tracking then
+      result.attributes = SemanticAttributes{}
+      result.attributes.confidence = 0.7
+      result.attributes.intent = 0.9
+      result.attributes.meaning = 0.85
+    end
+
+    self.execution_log.append("Cognitive operation: " + keyword)
+    self.push(result)
+  end
+
+  -- =====================================================================
+  -- INSTRUCTION EXECUTION: JUMP
+  -- =====================================================================
+
+  fn execute_jump(self, operand: SIROperand) do
+    let target be operand.value
+    let target_index be self.find_label(target)
+    if target_index >= 0 then
+      self.ip = target_index
+    end
+  end
+
+  -- =====================================================================
+  -- INSTRUCTION EXECUTION: CONDITIONAL JUMP
+  -- =====================================================================
+
+  fn execute_jump_if(self, operand: SIROperand, condition: Bool) do
+    let target be operand.value
+    let cond_value be self.pop()
+    let is_truthy be cond_value.is_truthy()
+
+    -- Jump if the condition matches the truthiness.
+    if is_truthy == condition then
+      self.execute_jump(operand)
+    end
+  end
+
+  -- =====================================================================
+  -- INSTRUCTION EXECUTION: CONSTRUCT ENTITY
+  -- =====================================================================
+
+  fn execute_construct(self, operand: SIROperand) do
+    let type_name be operand.value
+    let entity_val be VMValue{}
+    entity_val.kind = "entity"
+    entity_val.entity_fields = {}
+
+    if self.semantic_tracking then
+      entity_val.attributes = SemanticAttributes{}
+      entity_val.attributes.intent = 0.9
+      entity_val.attributes.meaning = 0.9
+    end
+
+    self.push(entity_val)
+    self.execution_log.append("Constructed entity: " + type_name)
+  end
+
+  -- =====================================================================
+  -- INSTRUCTION EXECUTION: FIELD ACCESS
+  -- =====================================================================
+
+  fn execute_access(self, operand: SIROperand) do
+    let field_name be operand.value
+    let entity_val be self.pop()
+    let result be VMValue{}
+    result.kind = "nil"
+
+    if entity_val.kind == "entity" then
+      if entity_val.entity_fields[field_name] exists then
+        result = entity_val.entity_fields[field_name]
+      end
+    end
+
+    self.push(result)
+  end
+
+  -- =====================================================================
+  -- HALT AND RESET
+  -- =====================================================================
+
+  fn halt(self) do
+    self.running = false
+  end
+
+  fn reset(self) do
+    self.stack = []
+    self.globals = {}
+    self.frames = []
+    self.ip = 0
+    self.running = false
+    self.call_depth = 0
+    self.execution_log = []
+  end
+
+  -- =====================================================================
+  -- FRAME AND STATE INSPECTION
+  -- =====================================================================
+
+  fn current_frame(self) -> Optional<VMFrame> do
+    if self.frames.length() == 0 then
+      return Optional::none()
+    end
+    return Optional::some(self.frames[self.frames.length() - 1])
+  end
+
+  -- Produce a snapshot of the VM state for UPMP monitoring.
+  fn state_snapshot(self) -> Map<String, String> do
+    let snapshot be {}
+    let _ = snapshot["ip"] = int_to_string(self.ip)
+    let _ = snapshot["stack_size"] = int_to_string(self.stack_size())
+    let _ = snapshot["call_depth"] = int_to_string(self.call_depth)
+    let _ = snapshot["running"] = bool_to_string(self.running)
+    let _ = snapshot["instruction_count"] = int_to_string(self.instructions.length())
+    let _ = snapshot["global_count"] = int_to_string(self.globals.size())
+    let _ = snapshot["frame_count"] = int_to_string(self.frames.length())
+    return snapshot
+  end
+  -- =====================================================================
+  -- INTERNAL HELPERS
+  -- =====================================================================
+
+  -- Get a local variable from the current frame.
+  fn get_local(self, name: String) -> Optional<VMValue> do
+    if self.frames.length() == 0 then
+      return Optional::none()
+    end
+    let frame be self.frames[self.frames.length() - 1]
+    if frame.locals[name] exists then
+      return Optional::some(frame.locals[name])
+    end
+    return Optional::none()
+  end
+
+  -- Find a label in the instruction array.
+  -- Returns the index of the instruction after the label NOOP, or -1.
+  fn find_label(self, label_name: String) -> Int do
+    let i be 0
+    while i < self.instructions.length() do
+      let inst be self.instructions[i]
+      if inst.opcode == SIRInstruction.NOOP then
+        if inst.operands.length() > 0 then
+          if inst.operands[0].kind == "label" then
+            if inst.operands[0].value == label_name then
+              return i + 1
+            end
+          end
+        end
+      end
+      i = i + 1
+    end
+    return -1
+  end
+
+  -- Compare two VMValues for equality.
+  fn values_equal(self, a: VMValue, b: VMValue) -> Bool do
+    if a.kind != b.kind then
+      return false
+    end
+    if a.kind == "integer" then
+      return a.int_val == b.int_val
+    end
+    if a.kind == "float" then
+      return a.float_val == b.float_val
+    end
+    if a.kind == "string" then
+      return a.string_val == b.string_val
+    end
+    if a.kind == "bool" then
+      return a.bool_val == b.bool_val
+    end
+    if a.kind == "nil" then
+      return true
+    end
+    return false
+  end
+
+  -- Convert a bool to a string.
+  fn bool_to_string(self, b: Bool) -> String do
+    if b then
+      return "true"
+    end
+    return "false"
+  end
+end
+
+-- =========================================================================
+-- EXPORTS
+-- =========================================================================
+-- All VM types are exported. The executor is the runtime execution
+-- engine that brings compiled Orren code to life.
+-- =========================================================================
+
+export {
+  VMValue,
+  VMFrame,
+  VMError,
+  OrrenVM
+}

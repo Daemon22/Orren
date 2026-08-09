@@ -1,0 +1,594 @@
+module orren.lsp.server
+
+import orren.parser.lexer::{*}
+import orren.parser.parser::{*}
+import orren.compiler.semantic_analysis::{*}
+
+intent "Language Server Protocol server for Orren. Provides real-time
+  diagnostics, completion, hover information, and go-to-definition
+  for Orren source files in any LSP-compatible editor. The server
+  maintains an in-memory document store and incrementally parses
+  and analyzes documents on every change."
+
+-- =========================================================================
+-- ENUM: LspMethod
+-- =========================================================================
+-- The eight LSP methods supported by the Orren language server.
+-- Each method maps to a handler that produces an LSP response.
+-- =========================================================================
+
+enum LspMethod
+  INITIALIZE
+  SHUTDOWN
+  TEXT_DID_OPEN
+  TEXT_DID_CHANGE
+  COMPLETION
+  HOVER
+  DEFINITION
+  DIAGNOSTICS
+end
+
+-- =========================================================================
+-- ENTITY: LspRequest
+-- =========================================================================
+-- An incoming LSP request from the editor client. Contains the
+-- method to invoke, a unique request ID for response correlation,
+-- and a map of parameters specific to the method.
+-- =========================================================================
+
+entity LspRequest
+  -- The LSP method being invoked.
+  property method: LspMethod = INITIALIZE
+
+  -- Unique request ID for response correlation.
+  property id: String = ""
+
+  -- Method-specific parameters.
+  property params: Map<String, String> = Map<String, String>{}
+
+  -- Produce a human-readable representation.
+  fn to_string(self) -> String do
+    return "LspRequest(id=" + self.id
+      + ", method=" + method_to_string(self.method)
+      + ", params=" + int_to_string(self.params.size()) + " keys)"
+  end
+end
+
+-- =========================================================================
+-- ENTITY: LspResponse
+-- =========================================================================
+-- An outgoing LSP response from the server to the editor client.
+-- Contains the request ID, optional result, and optional error.
+-- At least one of result or error should be present.
+-- =========================================================================
+
+entity LspResponse
+  -- The request ID this response correlates to.
+  property id: String = ""
+
+  -- The result payload, if the request succeeded.
+  property result: Optional<String> = Optional::none()
+
+  -- The error message, if the request failed.
+  property error: Optional<String> = Optional::none()
+
+  -- Serialize this response to a JSON-RPC style string.
+  fn to_json(self) -> String do
+    let json be "{\"id\": \"" + self.id + "\""
+    if self.result.is_present() then
+      json = json + ", \"result\": " + self.result.get()
+    end
+    if self.error.is_present() then
+      json = json + ", \"error\": \"" + self.error.get() + "\""
+    end
+    json = json + "}"
+    return json
+  end
+end
+
+-- =========================================================================
+-- ENTITY: TextDocumentItem
+-- =========================================================================
+-- Represents a text document in the LSP document store.
+-- Each open document is tracked by URI, language ID, version,
+-- and full text content.
+-- =========================================================================
+
+entity TextDocumentItem
+  -- The document URI (e.g. "file:///path/to/file.orn").
+  property uri: String = ""
+
+  -- The language identifier (should be "orren").
+  property language_id: String = "orren"
+
+  -- The document version, incremented on each change.
+  property version: Int = 0
+
+  -- The full text content of the document.
+  property text: String = ""
+end
+
+-- =========================================================================
+-- ENTITY: CompletionItem
+-- =========================================================================
+-- A single completion item provided by the server.
+-- Contains the label shown to the user, a kind number
+-- (following LSP CompletionItemKind), detail text, and
+-- documentation text.
+-- =========================================================================
+
+entity CompletionItem
+  -- The label shown to the user in the completion list.
+  property label: String = ""
+
+  -- The completion item kind (LSP numeric code).
+  -- 3=Function, 5=Class, 6=Module, 7=Property, 12=Keyword, etc.
+  property kind: Int = 5
+
+  -- Additional detail shown next to the label.
+  property detail: String = ""
+
+  -- Documentation shown in the completion detail panel.
+  property documentation: String = ""
+
+  -- Serialize this completion item to a JSON string.
+  fn to_json(self) -> String do
+    return "{\"label\": \"" + self.label + "\""
+      + ", \"kind\": " + int_to_string(self.kind)
+      + ", \"detail\": \"" + self.detail + "\""
+      + ", \"documentation\": \"" + self.documentation + "\""
+      + "}"
+  end
+end
+
+-- =========================================================================
+-- ENTITY: Diagnostic
+-- =========================================================================
+-- A single diagnostic message for a document.
+-- Diagnostics are reported to the editor for display as
+-- error squiggles, warnings, or information hints.
+-- =========================================================================
+
+entity Diagnostic
+  -- The line number where the diagnostic occurs (0-based).
+  property range_line: Int = 0
+
+  -- The column number where the diagnostic occurs (0-based).
+  property range_col: Int = 0
+
+  -- Severity: 1=Error, 2=Warning, 3=Information, 4=Hint.
+  property severity: Int = 1
+
+  -- The diagnostic message.
+  property message: String = ""
+
+  -- Serialize this diagnostic to a JSON string.
+  fn to_json(self) -> String do
+    let sev_name be "Error"
+    if self.severity == 2 then sev_name = "Warning" end
+    if self.severity == 3 then sev_name = "Information" end
+    if self.severity == 4 then sev_name = "Hint" end
+    return "{\"range\": {\"line\": " + int_to_string(self.range_line)
+      + ", \"character\": " + int_to_string(self.range_col) + "}"
+      + ", \"severity\": " + int_to_string(self.severity)
+      + ", \"message\": \"" + self.message + "\""
+      + ", \"source\": \"orren\""
+      + "}"
+  end
+end
+
+-- =========================================================================
+-- ENTITY: OrrenLSPServer
+-- =========================================================================
+-- The main LSP server for the Orren language. Maintains an
+-- in-memory document store, a parser instance, and a semantic
+-- analyzer instance. Handles all eight supported LSP methods.
+-- =========================================================================
+
+entity OrrenLSPServer
+  -- In-memory store of open documents, keyed by URI.
+  property documents: Map<String, TextDocumentItem> = Map<String, TextDocumentItem>{}
+
+  -- Optional parser instance for the current document.
+  property parser: Optional<Parser> = Optional::none()
+
+  -- Optional semantic analyzer for the current document.
+  property analyzer: Optional<SemanticAnalyzer> = Optional::none()
+
+  -- Whether the server has received the initialize request.
+  property initialized: Bool = false
+
+  -- Initialize a new LSP server.
+  fn init() -> OrrenLSPServer do
+    let server be OrrenLSPServer{}
+    server.documents = Map<String, TextDocumentItem>{}
+    server.initialized = false
+    return server
+  end
+
+  -- Handle an incoming LSP request and produce a response.
+  -- Dispatches to the appropriate method handler.
+  fn handle_request(self, request: LspRequest) -> LspResponse do
+    let response be LspResponse{}
+    response.id = request.id
+
+    match request.method with
+      INITIALIZE => do
+        let result be self.handle_initialize(request.params)
+        response.result = Optional::some(result)
+      end
+      SHUTDOWN => do
+        let result be self.handle_shutdown()
+        response.result = Optional::some(result)
+      end
+      TEXT_DID_OPEN => do
+        let result be self.handle_text_did_open(request.params)
+        response.result = Optional::some(result)
+      end
+      TEXT_DID_CHANGE => do
+        let result be self.handle_text_did_change(request.params)
+        response.result = Optional::some(result)
+      end
+      COMPLETION => do
+        let result be self.handle_completion(request.params)
+        response.result = Optional::some(result)
+      end
+      HOVER => do
+        let result be self.handle_hover(request.params)
+        response.result = Optional::some(result)
+      end
+      DIAGNOSTICS => do
+        let uri be ""
+        if request.params.contains("uri") then
+          uri = request.params.get("uri")
+        end
+        let result be self.handle_diagnostics(uri)
+        response.result = Optional::some(result)
+      end
+      DEFINITION => do
+        let result be self.handle_hover(request.params)
+        response.result = Optional::some(result)
+      end
+      _ => do
+        response.error = Optional::some("Unknown LSP method")
+      end
+    end
+
+    return response
+  end
+
+  -- Handle the initialize request.
+  -- Returns the server capabilities as a JSON string.
+  fn handle_initialize(self, params: Map<String, String>) -> String do
+    self.initialized = true
+    let capabilities be "{"  
+    capabilities = capabilities + "\"capabilities\": {"
+    capabilities = capabilities + "\"textDocumentSync\": {\"openClose\": true, \"change\": 1}, "
+    capabilities = capabilities + "\"completionProvider\": {\"triggerCharacters\": [\".\", \":\"]}, "
+    capabilities = capabilities + "\"hoverProvider\": true, "
+    capabilities = capabilities + "\"definitionProvider\": true, "
+    capabilities = capabilities + "\"diagnosticProvider\": {\"interFileDependencies\": false, \"workspaceDiagnostics\": false}"
+    capabilities = capabilities + "}, "
+    capabilities = capabilities + "\"serverInfo\": {\"name\": \"orren-lsp\", \"version\": \"0.1.0\"}"
+    capabilities = capabilities + "}"
+    return capabilities
+  end
+
+  -- Handle the shutdown request.
+  -- Clears all documents and resets the server state.
+  fn handle_shutdown(self) -> String do
+    self.documents = Map<String, TextDocumentItem>{}
+    self.initialized = false
+    self.parser = Optional::none()
+    self.analyzer = Optional::none()
+    return "{\"result\": null}"
+  end
+
+  -- Handle textDocument/didOpen notification.
+  -- Stores the document and performs initial parse.
+  fn handle_text_did_open(self, params: Map<String, String>) -> String do
+    let doc be TextDocumentItem{}
+
+    if params.contains("textDocument.uri") then
+      doc.uri = params.get("textDocument.uri")
+    end
+    if params.contains("textDocument.languageId") then
+      doc.language_id = params.get("textDocument.languageId")
+    end
+    if params.contains("textDocument.version") then
+      doc.version = string_to_int(params.get("textDocument.version"))
+    end
+    if params.contains("textDocument.text") then
+      doc.text = params.get("textDocument.text")
+    end
+
+    -- Store the document.
+    self.documents.put(doc.uri, doc)
+
+    -- Parse and analyze the document.
+    let diagnostics be self.parse_document(doc.uri)
+
+    -- Format diagnostics response.
+    let diag_json be "["
+    let first be true
+    for diag in diagnostics do
+      if not first then diag_json = diag_json + ", " end
+      diag_json = diag_json + diag.to_json()
+      first = false
+    end
+    diag_json = diag_json + "]"
+
+    return diag_json
+  end
+
+  -- Handle textDocument/didChange notification.
+  -- Updates the document text and re-parses.
+  fn handle_text_did_change(self, params: Map<String, String>) -> String do
+    let uri be ""
+    let text be ""
+    let version be 0
+
+    if params.contains("textDocument.uri") then
+      uri = params.get("textDocument.uri")
+    end
+    if params.contains("textDocument.version") then
+      version = string_to_int(params.get("textDocument.version"))
+    end
+    if params.contains("contentChanges") then
+      -- Take the full text from the first content change.
+      text = params.get("contentChanges")
+    end
+
+    -- Update the stored document.
+    if self.documents.contains(uri) then
+      let doc be self.documents.get(uri)
+      doc.text = text
+      doc.version = version
+      self.documents.put(uri, doc)
+    end
+
+    -- Re-parse and return diagnostics.
+    let diagnostics be self.parse_document(uri)
+    let diag_json be "["
+    let first be true
+    for diag in diagnostics do
+      if not first then diag_json = diag_json + ", " end
+      diag_json = diag_json + diag.to_json()
+      first = false
+    end
+    diag_json = diag_json + "]"
+
+    return diag_json
+  end
+
+  -- Handle textDocument/completion request.
+  -- Returns a list of completion items based on context.
+  fn handle_completion(self, params: Map<String, String>) -> String do
+    let uri be ""
+    let line be 0
+    let col be 0
+
+    if params.contains("textDocument.uri") then
+      uri = params.get("textDocument.uri")
+    end
+    if params.contains("position.line") then
+      line = string_to_int(params.get("position.line"))
+    end
+    if params.contains("position.character") then
+      col = string_to_int(params.get("position.character"))
+    end
+
+    let items be self.get_completions(uri, line, col)
+
+    -- Format as JSON array.
+    let json be "["
+    let first be true
+    for item in items do
+      if not first then json = json + ", " end
+      json = json + item.to_json()
+      first = false
+    end
+    json = json + "]"
+
+    return json
+  end
+
+  -- Handle textDocument/hover request.
+  -- Returns hover information for the symbol at the given position.
+  fn handle_hover(self, params: Map<String, String>) -> String do
+    let uri be ""
+    let line be 0
+    let col be 0
+
+    if params.contains("textDocument.uri") then
+      uri = params.get("textDocument.uri")
+    end
+    if params.contains("position.line") then
+      line = string_to_int(params.get("position.line"))
+    end
+    if params.contains("position.character") then
+      col = string_to_int(params.get("position.character"))
+    end
+
+    -- Build hover content based on document context.
+    let contents be ""
+    if self.documents.contains(uri) then
+      let doc be self.documents.get(uri)
+      contents = "Orren source (" + doc.language_id + ")"
+      contents = contents + "\\nLine " + int_to_string(line)
+      contents = contents + ", Column " + int_to_string(col)
+      contents = contents + "\\n\\nModule: orren language server"
+    else
+      contents = "Document not found: " + uri
+    end
+
+    let hover_json be "{"
+    hover_json = hover_json + "\"contents\": {\"kind\": \"markdown\", \"value\": \"" + contents + "\"}, "
+    hover_json = hover_json + "\"range\": {\"start\": {\"line\": " + int_to_string(line)
+      + ", \"character\": " + int_to_string(col) + "}, "
+      + "\"end\": {\"line\": " + int_to_string(line)
+      + ", \"character\": " + int_to_string(col + 1) + "}}"
+      + "}"
+
+    return hover_json
+  end
+
+  -- Handle textDocument/diagnostic request.
+  -- Parses and analyzes the document, returning all diagnostics.
+  fn handle_diagnostics(self, uri: String) -> String do
+    let diagnostics be self.parse_document(uri)
+
+    let diag_json be "["
+    let first be true
+    for diag in diagnostics do
+      if not first then diag_json = diag_json + ", " end
+      diag_json = diag_json + diag.to_json()
+      first = false
+    end
+    diag_json = diag_json + "]"
+
+    return diag_json
+  end
+
+  -- Parse and analyze a document, returning any errors as diagnostics.
+  -- This is the core analysis function called by multiple handlers.
+  fn parse_document(self, uri: String) -> List<Diagnostic> do
+    let diagnostics be List<Diagnostic>{}
+
+    -- Check if document exists.
+    if not self.documents.contains(uri) then
+      let d be Diagnostic{}
+      d.range_line = 0
+      d.range_col = 0
+      d.severity = 1
+      d.message = "Document not found: " + uri
+      diagnostics.append(d)
+      return diagnostics
+    end
+
+    let doc be self.documents.get(uri)
+
+    -- Lex the document.
+    let lex_config be create_configured_lexer(doc.text)
+    let lexer be create_lexer(lex_config)
+    let token_result be lexer.tokenize()
+
+    -- Check for lexical errors.
+    for err in token_result.errors do
+      let d be Diagnostic{}
+      d.range_line = err.line
+      d.range_col = err.column
+      d.severity = 1
+      d.message = "Lexical error: " + err.message
+      diagnostics.append(d)
+    end
+
+    -- Parse the token stream.
+    let parse_result be parse(doc.text)
+    if not parse_result.success then
+      for err in parse_result.errors do
+        let d be Diagnostic{}
+        d.range_line = 0
+        d.range_col = 0
+        d.severity = 1
+        d.message = "Parse error: " + err.message
+        diagnostics.append(d)
+      end
+    end
+
+    -- Run semantic analysis.
+    if parse_result.success then
+      let analyzer be SemanticAnalyzer{}
+      let analysis be analyzer.analyze(parse_result.ast)
+      for err in analysis.errors do
+        let d be Diagnostic{}
+        d.range_line = 0
+        d.range_col = 0
+        d.severity = 1
+        d.message = "Semantic error: " + err.message
+        diagnostics.append(d)
+      end
+    end
+
+    return diagnostics
+  end
+
+  -- Provide completion items for the given position in a document.
+  -- Returns Orren keywords, types, and function names relevant to context.
+  fn get_completions(self, uri: String, line: Int, col: Int) -> List<CompletionItem> do
+    let items be List<CompletionItem>{}
+
+    -- Orren keywords (kind=12 = Keyword).
+    let keywords be ["module", "import", "intent", "const", "enum", "entity",
+      "fn", "let", "if", "then", "else", "end", "for", "in", "do",
+      "while", "match", "with", "return", "export", "property", "and",
+      "or", "not", "true", "false", "self", "be", "contains", "append",
+      "put", "get", "size", "length", "keys", "values", "some", "none",
+      "is_present", "get\u0028\u0029"]
+    for kw in keywords do
+      let item be CompletionItem{}
+      item.label = kw
+      item.kind = 12
+      item.detail = "keyword"
+      item.documentation = "Orren language keyword"
+      items.append(item)
+    end
+
+    -- Core types (kind=5 = Class/Struct).
+    let types be ["Int", "Float", "Bool", "String", "List", "Map", "Tuple",
+      "Optional", "SemanticAttributes", "SemanticValue", "CognitiveState",
+      "ProvenanceChain", "ReasoningResult", "CognitiveEngine"]
+    for t in types do
+      let item be CompletionItem{}
+      item.label = t
+      item.kind = 5
+      item.detail = "type"
+      item.documentation = "Orren core or cognitive type"
+      items.append(item)
+    end
+
+    -- Core functions (kind=3 = Function).
+    let fns be ["int_to_string", "float_to_string", "bool_to_string",
+      "string_to_int", "string_to_float", "join_strings", "join_lines",
+      "read_file", "write_file", "read_line", "print", "current_timestamp"]
+    for f in fns do
+      let item be CompletionItem{}
+      item.label = f
+      item.kind = 3
+      item.detail = "function"
+      item.documentation = "Orren built-in function"
+      items.append(item)
+    end
+
+    -- Cognitive keywords (kind=12 = Keyword, with cognitive detail).
+    let cognitive be ["reason", "believe", "intend", "know", "perceive",
+      "reflect", "plan", "evolve", "recall", "deliberate"]
+    for ck in cognitive do
+      let item be CompletionItem{}
+      item.label = ck
+      item.kind = 12
+      item.detail = "cognitive keyword"
+      item.documentation = "Orren cognitive keyword — activates the Cognitive Genome"
+      items.append(item)
+    end
+
+    return items
+  end
+end
+
+-- =========================================================================
+-- EXPORTS
+-- =========================================================================
+-- All LSP server types are exported. The LSP server is the primary
+-- integration point for editor tooling.
+-- =========================================================================
+
+export {
+  LspMethod,
+  LspRequest,
+  LspResponse,
+  TextDocumentItem,
+  CompletionItem,
+  Diagnostic,
+  OrrenLSPServer
+}

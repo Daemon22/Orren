@@ -1,0 +1,390 @@
+-- orren_tools.cli.clean
+-- Clean build artifacts, cache, generated documentation, test outputs,
+-- and coverage data from Orren projects.  Supports dry-run and verbose modes.
+
+module orren_tools.cli.clean
+
+import orren.core.language.foundation::{String, Int, Float, Bool, List, Map}
+import orren.core.language.foundation::{Result, Ok, Err, Option, Some, None}
+import orren.core.language.foundation::{File, Path, DateTime, Duration, Timer}
+import orren.core.system::FileSystem
+
+intent "Clean build artifacts, caches, and generated files from Orren projects"
+
+-- Enumerates the types of targets that can be cleaned.
+enum CleanTarget
+  BUILD_ARTIFACTS
+  CACHE
+  GENERATED_DOCS
+  TEST_OUTPUTS
+  COVERAGE_DATA
+  ALL
+end
+
+-- Configuration that controls which targets to clean and how.
+entity CleanConfig
+  property targets: List<CleanTarget> = [CleanTarget.ALL]
+  property dry_run: Bool = false
+  property verbose: Bool = false
+  property keep_lock_files: Bool = true
+  property keep_config: Bool = true
+end
+
+-- Summary of what was removed during a clean operation.
+entity CleanResult
+  property files_removed: Int = 0
+  property directories_removed: Int = 0
+  property bytes_freed: Int = 0
+  property targets_cleaned: List<String> = []
+  property dry_run: Bool = false
+  property duration_ns: Int = 0
+end
+
+-- The main cleaner entity that scans and removes artifacts.
+entity Cleaner
+  property config: CleanConfig = CleanConfig{}
+  property result: CleanResult = CleanResult{}
+end
+
+-- ── Directory patterns for each target ─────────────────────────────────
+
+-- Known build artifact directories and file patterns.
+fn build_artifact_patterns(self) -> List<String>
+  let patterns be List<String>[]
+  patterns.append("target/")
+  patterns.append("build/")
+  patterns.append("out/")
+  patterns.append("dist/")
+  patterns.append(".orren/build/")
+  patterns.append(".orren/cache/")
+  patterns.append("*.o")
+  patterns.append("*.obj")
+  patterns.append("*.so")
+  patterns.append("*.dylib")
+  patterns.append("*.dll")
+  patterns.append("*.exe")
+  patterns.append("*.wasm")
+  patterns.append("*.beam")
+  return patterns
+end
+
+-- Known cache directory patterns.
+fn cache_patterns(self) -> List<String>
+  let patterns be List<String>[]
+  patterns.append(".orren/cache/")
+  patterns.append(".cache/")
+  patterns.append("node_modules/.cache/")
+  patterns.append("__pycache__/")
+  return patterns
+end
+
+-- Patterns for generated documentation directories.
+fn generated_docs_patterns(self) -> List<String>
+  let patterns be List<String>[]
+  patterns.append("docs/generated/")
+  patterns.append("doc/")
+  patterns.append("site/")
+  return patterns
+end
+
+-- Patterns for test output directories and files.
+fn test_output_patterns(self) -> List<String>
+  let patterns be List<String>[]
+  patterns.append("test-results/")
+  patterns.append("test-output/")
+  patterns.append(".orren/test-results/")
+  patterns.append("junit.xml")
+  return patterns
+end
+
+-- Patterns for coverage data files and directories.
+fn coverage_data_patterns(self) -> List<String>
+  let patterns be List<String>[]
+  patterns.append("coverage/")
+  patterns.append(".orren/coverage/")
+  patterns.append("lcov.info")
+  patterns.append("coverage.xml")
+  return patterns
+end
+
+-- ── Scanning helpers ────────────────────────────────────────────────────
+
+-- Resolve a glob-like pattern to a list of concrete paths.
+fn resolve_pattern(self, pattern: String) -> List<String>
+  let paths be List<String>[]
+  if pattern.ends_with("/") then
+    -- Directory pattern.
+    if Path.is_dir(pattern) then
+      paths.append(pattern)
+    end
+  else
+    -- File glob pattern: scan the current directory for matches.
+    let prefix be self.glob_prefix(pattern)
+    let suffix be self.glob_suffix(pattern)
+    if Path.is_dir(prefix) then
+      let entries be Path.list_dir(prefix)
+      for entry in entries do
+        if self.matches_glob(entry, pattern) then
+          paths.append(prefix + "/" + entry)
+        end
+      end
+    end
+  end
+  return paths
+end
+
+-- Extract the directory prefix from a simple glob pattern (before the first *).
+fn glob_prefix(self, pattern: String) -> String
+  if pattern.contains("*") then
+    let parts be pattern.split("*")
+    let candidate be parts[0]
+    let last_slash be candidate.last_index_of("/")
+    if last_slash >= 0 then
+      return candidate.substring(0, last_slash)
+    end
+    return "."
+  end
+  return pattern
+end
+
+-- Extract the file extension or suffix after the wildcard.
+fn glob_suffix(self, pattern: String) -> String
+  if pattern.contains("*") then
+    let parts be pattern.split("*")
+    if parts.length >= 2 then
+      return parts[1]
+    end
+  end
+  return ""
+end
+
+-- Check if a filename matches a simple glob pattern (supports *).
+fn matches_glob(self, name: String, pattern: String) -> Bool
+  if !pattern.contains("*") then
+    return name == pattern
+  end
+  let prefix be self.glob_prefix(pattern)
+  let suffix be self.glob_suffix(pattern)
+  -- Strip the directory portion for comparison.
+  let base be name
+  if base.starts_with(suffix) or base.ends_with(suffix) then
+    return true
+  end
+  if suffix.is_empty() then
+    return true
+  end
+  return name.ends_with(suffix)
+end
+
+-- ── Removal operations ──────────────────────────────────────────────────
+
+-- Collect all paths for a given CleanTarget.
+fn scan_target(self, target: CleanTarget) -> List<String>
+  let paths be List<String>[]
+  match target with
+  case CleanTarget.BUILD_ARTIFACTS do
+    let patterns be self.build_artifact_patterns()
+    for p in patterns do
+      let resolved be self.resolve_pattern(p)
+      for r in resolved do
+        paths.append(r)
+      end
+    end
+  end
+  case CleanTarget.CACHE do
+    let patterns be self.cache_patterns()
+    for p in patterns do
+      let resolved be self.resolve_pattern(p)
+      for r in resolved do
+        paths.append(r)
+      end
+    end
+  end
+  case CleanTarget.GENERATED_DOCS do
+    let patterns be self.generated_docs_patterns()
+    for p in patterns do
+      let resolved be self.resolve_pattern(p)
+      for r in resolved do
+        paths.append(r)
+      end
+    end
+  end
+  case CleanTarget.TEST_OUTPUTS do
+    let patterns be self.test_output_patterns()
+    for p in patterns do
+      let resolved be self.resolve_pattern(p)
+      for r in resolved do
+        paths.append(r)
+      end
+    end
+  end
+  case CleanTarget.COVERAGE_DATA do
+    let patterns be self.coverage_data_patterns()
+    for p in patterns do
+      let resolved be self.resolve_pattern(p)
+      for r in resolved do
+        paths.append(r)
+      end
+    end
+  end
+  case CleanTarget.ALL do
+    let all_targets be [
+      CleanTarget.BUILD_ARTIFACTS,
+      CleanTarget.CACHE,
+      CleanTarget.GENERATED_DOCS,
+      CleanTarget.TEST_OUTPUTS,
+      CleanTarget.COVERAGE_DATA
+    ]
+    for t in all_targets do
+      let sub_paths be self.scan_target(t)
+      for sp in sub_paths do
+        paths.append(sp)
+      end
+    end
+  end
+  end
+  return paths
+end
+
+-- Remove a single file or directory.  Returns the size freed in bytes.
+fn remove_path(self, path: String) -> Result<Int, String>
+  -- Protect lock files and config if so configured.
+  if self.config.keep_lock_files then
+    if path.ends_with(".lock") or path.contains(".lock/") then
+      return Ok(0)
+    end
+  end
+  if self.config.keep_config then
+    if path.ends_with(".toml") or path.ends_with(".json") or path.ends_with(".yaml") then
+      return Ok(0)
+    end
+  end
+  let size be 0
+  if Path.is_dir(path) then
+    -- Compute total size of directory tree before removal.
+    size = self.dir_size(path)
+    if self.config.dry_run then
+      if self.config.verbose then
+        -- noop for dry run logging
+      end
+      self.result.directories_removed = self.result.directories_removed + 1
+      return Ok(size)
+    end
+    FileSystem.remove_dir_all(path)
+    self.result.directories_removed = self.result.directories_removed + 1
+  else
+    if File.exists(path) then
+      size = File.size(path)
+      if self.config.dry_run then
+        self.result.files_removed = self.result.files_removed + 1
+        return Ok(size)
+      end
+      File.remove(path)
+      self.result.files_removed = self.result.files_removed + 1
+    end
+  end
+  return Ok(size)
+end
+
+-- Recursively compute the total size of a directory tree.
+fn dir_size(self, dir_path: String) -> Int
+  let total be 0
+  let entries be Path.list_dir(dir_path)
+  for entry in entries do
+    let full be dir_path + "/" + entry
+    if Path.is_dir(full) then
+      total = total + self.dir_size(full)
+    else
+      if File.exists(full) then
+        total = total + File.size(full)
+      end
+    end
+  end
+  return total
+end
+
+-- ── Verbose logging ─────────────────────────────────────────────────────
+
+-- Log a removal action when verbose mode is active.
+fn log_removal(self, path: String, size: Int) -> Unit
+  if self.config.verbose then
+    let size_str be if size >= 1048576 then
+      (size / 1048576).to_string() + " MB"
+    else
+      (size / 1024).to_string() + " KB"
+    end
+    let label be if self.config.dry_run then "Would remove" else "Removed"
+    let msg be label + ": " + path + " (" + size_str + ")"
+    orren.core.log.info(msg)
+  end
+  return Unit{}
+end
+
+-- ── Main execution ──────────────────────────────────────────────────────
+
+-- Execute the clean operation for all configured targets.
+fn clean(self) -> CleanResult
+  let timer be Timer.start()
+  self.result = CleanResult{}
+  self.result.dry_run = self.config.dry_run
+  let dedup be Map<String, Bool>{}  -- avoid double-counting shared paths
+  for target in self.config.targets do
+    let paths be self.scan_target(target)
+    let target_name be match target with
+      case CleanTarget.BUILD_ARTIFACTS do "build_artifacts" end
+      case CleanTarget.CACHE do "cache" end
+      case CleanTarget.GENERATED_DOCS do "generated_docs" end
+      case CleanTarget.TEST_OUTPUTS do "test_outputs" end
+      case CleanTarget.COVERAGE_DATA do "coverage_data" end
+      case CleanTarget.ALL do "all" end
+      end
+    let had_removals be false
+    for path in paths do
+      if dedup.has(path) then
+        continue
+      end
+      dedup.put(path, true)
+      let result be self.remove_path(path)
+      match result with
+      case Ok(size) do
+        if size > 0 then
+          self.result.bytes_freed = self.result.bytes_freed + size
+          had_removals = true
+          self.log_removal(path, size)
+        end
+      end
+      case Err(e) do
+        orren.core.log.warn("Failed to remove " + path + ": " + e)
+      end
+      end
+    end
+    if had_removals then
+      self.result.targets_cleaned.append(target_name)
+    end
+  end
+  let elapsed be timer.elapsed_ns()
+  self.result.duration_ns = elapsed
+  return self.result
+end
+
+-- Format the clean result as a human-readable summary.
+fn format_result(self, result: CleanResult) -> String
+  let lines be List<String>[]
+  if result.dry_run then
+    lines.append("Dry run complete. No files were actually removed.")
+  else
+    lines.append("Clean complete.")
+  end
+  lines.append("  Files removed:        " + result.files_removed.to_string())
+  lines.append("  Directories removed:  " + result.directories_removed.to_string())
+  let bytes_mb be (result.bytes_freed / 1048576).to_string()
+  lines.append("  Space freed:          " + bytes_mb + " MB")
+  let target_list be String.join(", ", result.targets_cleaned)
+  lines.append("  Targets cleaned:       " + target_list)
+  let duration_ms be (result.duration_ns / 1000000).to_string()
+  lines.append("  Duration:             " + duration_ms + " ms")
+  let output be String.join("\n", lines)
+  return output
+end
+
+export {CleanTarget, CleanConfig, CleanResult, Cleaner}

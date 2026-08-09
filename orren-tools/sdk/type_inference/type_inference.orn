@@ -1,0 +1,533 @@
+-- type_inference.orn: Type inference engine for the Orren SDK.
+-- Infers types where not explicitly annotated using bottom-up, top-down,
+-- and bidirectional strategies with confidence reporting.
+
+module orren_tools.sdk.type_inference
+
+import module::{String, Int, Bool, Float, List, Map, Result, File, Path}
+import orren.core.language.foundation::{SourceLocation, ModuleResolver}
+
+-- Strategy used for type inference.
+enum InferenceStrategy
+    BOTTOM_UP
+    TOP_DOWN
+    BIDIRECTIONAL
+end
+
+-- Relationship between two types in a constraint.
+enum TypeRelation
+    EXACT
+    SUBTYPE
+    SUPERTYPE
+    COMPATIBLE
+    UNRELATED
+end
+
+-- Confidence level of an inference result.
+enum InferenceConfidence
+    DEFINITE
+    LIKELY
+    POSSIBLE
+    UNKNOWN
+end
+
+-- A type constraint relating two types.
+entity TypeConstraint
+    property left_type: String = ""
+    property right_type: String = ""
+    property relation: TypeRelation = TypeRelation.EXACT
+    property source_line: Int = 0
+    property confidence: InferenceConfidence = InferenceConfidence.UNKNOWN
+
+    -- Returns the relation as a display string.
+    fn relation_label(self) -> String do
+        return match self.relation with
+            TypeRelation.EXACT => "exact"
+            TypeRelation.SUBTYPE => "subtype"
+            TypeRelation.SUPERTYPE => "supertype"
+            TypeRelation.COMPATIBLE => "compatible"
+            TypeRelation.UNRELATED => "unrelated"
+        end
+    end
+
+    -- Returns the confidence as a display string.
+    fn confidence_label(self) -> String do
+        return match self.confidence with
+            InferenceConfidence.DEFINITE => "definite"
+            InferenceConfidence.LIKELY => "likely"
+            InferenceConfidence.POSSIBLE => "possible"
+            InferenceConfidence.UNKNOWN => "unknown"
+        end
+    end
+
+    -- Returns a formatted string describing this constraint.
+    fn to_string(self) -> String do
+        return self.left_type + " " + self.relation_label() + " " + self.right_type + " (line " + String.from_int(self.source_line).to_string() + ", " + self.confidence_label() + ")"
+    end
+end
+
+-- The result of inferring a type for a symbol.
+entity InferenceResult
+    property inferred_type: String = ""
+    property confidence: InferenceConfidence = InferenceConfidence.UNKNOWN
+    property constraints_used: List<TypeConstraint> = List<TypeConstraint>.new()
+    property alternatives: List<String> = List<String>.new()
+
+    -- Returns a formatted summary of the inference result.
+    fn to_string(self) -> String do
+        let lines be List<String>.new()
+        lines.append("Inferred type: " + self.inferred_type)
+        lines.append("Confidence: " + self.confidence_label())
+        lines.append("Constraints used: " + String.from_int(self.constraints_used.length).to_string())
+        if self.alternatives.length > 0 then
+            lines.append("Alternatives:")
+            for alt in self.alternatives do
+                lines.append("  - " + alt)
+            end
+        end
+        return lines.join("\n")
+    end
+
+    -- Returns the confidence as a display string.
+    fn confidence_label(self) -> String do
+        return match self.confidence with
+            InferenceConfidence.DEFINITE => "definite"
+            InferenceConfidence.LIKELY => "likely"
+            InferenceConfidence.POSSIBLE => "possible"
+            InferenceConfidence.UNKNOWN => "unknown"
+        end
+    end
+end
+
+-- The main type inference engine.
+entity TypeInferenceEngine
+    property constraints: List<TypeConstraint> = List<TypeConstraint>.new()
+    property inferred_types: Map<String, InferenceResult> = Map<String, InferenceResult>.new()
+    property config: Map<String, String> = Map<String, String>.new()
+
+    -- Infers the type of an entity property from its usage across the module.
+    fn infer_property_type(self, entity_name: String, prop_name: String, lines: List<String>) -> InferenceResult do
+        let result be InferenceResult.new()
+        let candidates be Map<String, Int>.new()
+        let idx be 0
+        while idx < lines.length do
+            let line be lines.get(idx).strip()
+            if not line.starts_with("--") then
+                let pattern be entity_name + "." + prop_name
+                if line.contains(pattern) then
+                    let usage_type be self.infer_from_usage(line, pattern)
+                    if usage_type.length > 0 then
+                        let count be candidates.get(usage_type)
+                        if count == nothing then
+                            count = 0
+                        end
+                        candidates.set(usage_type, count + 1)
+                        let constraint be TypeConstraint.new()
+                        constraint.left_type = prop_name
+                        constraint.right_type = usage_type
+                        constraint.source_line = idx
+                        constraint.relation = TypeRelation.COMPATIBLE
+                        constraint.confidence = InferenceConfidence.LIKELY
+                        self.constraints.append(constraint)
+                        result.constraints_used.append(constraint)
+                    end
+                end
+            end
+            idx = idx + 1
+        end
+        let best_type be ""
+        let best_count be 0
+        for key in candidates.keys() do
+            let count be candidates.get(key)
+            if count != nothing and count > best_count then
+                best_count = count
+                best_type = key
+            end
+        end
+        if best_type.length > 0 then
+            result.inferred_type = best_type
+            if best_count >= 3 then
+                result.confidence = InferenceConfidence.DEFINITE
+            else if best_count >= 2 then
+                result.confidence = InferenceConfidence.LIKELY
+            else
+                result.confidence = InferenceConfidence.POSSIBLE
+            end
+            for key in candidates.keys() do
+                if key != best_type then
+                    result.alternatives.append(key)
+                end
+            end
+        else
+            result.inferred_type = "unknown"
+            result.confidence = InferenceConfidence.UNKNOWN
+        end
+        return result
+    end
+
+    -- Infers a type from the usage context of a pattern in a line.
+    fn infer_from_usage(self, line: String, pattern: String) -> String do
+        if line.contains("== ") or line.contains(" != ") then
+            let after_eq be ""
+            if line.contains("== ") then
+                let eq_pos be line.find("== ")
+                after_eq = line.substring(eq_pos + 3).strip()
+            else
+                let ne_pos be line.find(" != ")
+                after_eq = line.substring(ne_pos + 3).strip()
+            end
+            if after_eq.starts_with("\"") then
+                return "String"
+            end
+            if after_eq == "true" or after_eq == "false" then
+                return "Bool"
+            end
+            if after_eq.is_numeric() then
+                return "Int"
+            end
+        end
+        if line.contains(".append(") then
+            let paren_pos be line.find(".append(")
+            let after_paren be line.substring(paren_pos + 8).strip()
+            if after_paren.starts_with("\"") then
+                return "List<String>"
+            end
+            if after_paren.is_numeric() then
+                return "List<Int>"
+            end
+            return "List"
+        end
+        if line.contains("+ \"") or line.contains("\" +") then
+            return "String"
+        end
+        if line.contains(".length") then
+            return "List"
+        end
+        if line.contains(".get(") then
+            return "Map"
+        end
+        if line.contains("Result.ok(") or line.contains("Result.error(") then
+            return "Result"
+        end
+        if line.contains("Float.from_int(") or line.contains("String.from_float(") then
+            return "Float"
+        end
+        return ""
+    end
+
+    -- Infers the return type of a function from its body.
+    fn infer_return_type(self, fn_name: String, lines: List<String>, fn_start: Int, fn_end: Int) -> InferenceResult do
+        let result be InferenceResult.new()
+        let return_types be Map<String, Int>.new()
+        let idx be fn_start
+        while idx <= fn_end and idx < lines.length do
+            let line be lines.get(idx).strip()
+            if line.starts_with("return ") then
+                let ret_expr be line.substring(7).strip()
+                let ret_type be self.infer_expr_type(ret_expr)
+                if ret_type.length > 0 then
+                    let count be return_types.get(ret_type)
+                    if count == nothing then
+                        count = 0
+                    end
+                    return_types.set(ret_type, count + 1)
+                    let constraint be TypeConstraint.new()
+                    constraint.left_type = fn_name + "()"
+                    constraint.right_type = ret_type
+                    constraint.source_line = idx
+                    constraint.relation = TypeRelation.EXACT
+                    constraint.confidence = InferenceConfidence.DEFINITE
+                    self.constraints.append(constraint)
+                    result.constraints_used.append(constraint)
+                end
+            end
+            idx = idx + 1
+        end
+        let return_count be 0
+        let bool_count be 0
+        let str_count be 0
+        let int_count be 0
+        let float_count be 0
+        for key in return_types.keys() do
+            let count be return_types.get(key)
+            if count != nothing then
+                return_count = return_count + count
+                if key == "Bool" then
+                    bool_count = bool_count + count
+                else if key == "String" then
+                    str_count = str_count + count
+                else if key == "Int" then
+                    int_count = int_count + count
+                else if key == "Float" then
+                    float_count = float_count + count
+                end
+            end
+        end
+        if return_count > 0 then
+            if bool_count == return_count then
+                result.inferred_type = "Bool"
+            else if str_count == return_count then
+                result.inferred_type = "String"
+            else if int_count == return_count then
+                result.inferred_type = "Int"
+            else if float_count == return_count then
+                result.inferred_type = "Float"
+            else
+                result.inferred_type = "mixed"
+                for key in return_types.keys() do
+                    result.alternatives.append(key)
+                end
+            end
+            result.confidence = InferenceConfidence.DEFINITE
+        else
+            result.inferred_type = "Void"
+            result.confidence = InferenceConfidence.LIKELY
+        end
+        return result
+    end
+
+    -- Infers the type of an expression from its text.
+    fn infer_expr_type(self, expr: String) -> String do
+        let stripped be expr.strip()
+        if stripped.starts_with("\"") and stripped.ends_with("\"") then
+            return "String"
+        end
+        if stripped == "true" or stripped == "false" then
+            return "Bool"
+        end
+        if stripped.is_numeric() then
+            if stripped.contains(".") then
+                return "Float"
+            end
+            return "Int"
+        end
+        if stripped == "nothing" then
+            return "nothing"
+        end
+        if stripped == "self" then
+            return "self"
+        end
+        if stripped.starts_with("Result.ok(") or stripped.starts_with("Result.error(") then
+            return "Result"
+        end
+        if stripped.starts_with("List<") then
+            return stripped
+        end
+        if stripped.starts_with("Map<") then
+            return stripped
+        end
+        if stripped.contains(" + ") then
+            let parts be stripped.split(" + ")
+            if parts.length == 2 then
+                let left be parts.get(0).strip()
+                if left.starts_with("\"") then
+                    return "String"
+                end
+            end
+        end
+        if stripped.contains(".to_string()") then
+            return "String"
+        end
+        if stripped.contains("Float.from_int(") then
+            return "Float"
+        end
+        if stripped.contains("String.from_int(") then
+            return "String"
+        end
+        if stripped.contains(".length") then
+            return "Int"
+        end
+        if stripped.contains(".join(") then
+            return "String"
+        end
+        return ""
+    end
+
+    -- Infers the type of a variable from its assignment.
+    fn infer_variable_type(self, var_name: String, lines: List<String>) -> InferenceResult do
+        let result be InferenceResult.new()
+        let idx be 0
+        while idx < lines.length do
+            let line be lines.get(idx).strip()
+            if line.starts_with("let " + var_name + " be ") then
+                let be_pos be line.find(" be ")
+                let expr be line.substring(be_pos + 4).strip()
+                let inferred be self.infer_expr_type(expr)
+                if inferred.length > 0 then
+                    result.inferred_type = inferred
+                    result.confidence = InferenceConfidence.DEFINITE
+                    let constraint be TypeConstraint.new()
+                    constraint.left_type = var_name
+                    constraint.right_type = inferred
+                    constraint.source_line = idx
+                    constraint.relation = TypeRelation.EXACT
+                    constraint.confidence = InferenceConfidence.DEFINITE
+                    self.constraints.append(constraint)
+                    result.constraints_used.append(constraint)
+                end
+                return result
+            end
+            idx = idx + 1
+        end
+        result.inferred_type = "unknown"
+        result.confidence = InferenceConfidence.UNKNOWN
+        return result
+    end
+
+    -- Builds a constraint graph from all collected constraints.
+    fn build_constraint_graph(self) -> Map<String, List<TypeConstraint>> do
+        let graph be Map<String, List<TypeConstraint>>.new()
+        for constraint in self.constraints do
+            let left_entry be graph.get(constraint.left_type)
+            if left_entry == nothing then
+                left_entry = List<TypeConstraint>.new()
+                graph.set(constraint.left_type, left_entry)
+            end
+            left_entry.append(constraint)
+            let right_entry be graph.get(constraint.right_type)
+            if right_entry == nothing then
+                right_entry = List<TypeConstraint>.new()
+                graph.set(constraint.right_type, right_entry)
+            end
+            right_entry.append(constraint)
+        end
+        return graph
+    end
+
+    -- Solves type constraints to produce final inferred types.
+    fn solve_constraints(self) -> Map<String, InferenceResult> do
+        let graph be self.build_constraint_graph()
+        let solved be Map<String, InferenceResult>.new()
+        for symbol in graph.keys() do
+            let constraints be graph.get(symbol)
+            if constraints != nothing then
+                let type_votes be Map<String, Int>.new()
+                for c in constraints do
+                    let target_type be ""
+                    if c.left_type == symbol then
+                        target_type = c.right_type
+                    else
+                        target_type = c.left_type
+                    end
+                    if target_type.length > 0 then
+                        let vote be type_votes.get(target_type)
+                        if vote == nothing then
+                            vote = 0
+                        end
+                        type_votes.set(target_type, vote + 1)
+                    end
+                end
+                let best_type be ""
+                let best_votes be 0
+                for tkey in type_votes.keys() do
+                    let votes be type_votes.get(tkey)
+                    if votes != nothing and votes > best_votes then
+                        best_votes = votes
+                        best_type = tkey
+                    end
+                end
+                let result be InferenceResult.new()
+                if best_type.length > 0 then
+                    result.inferred_type = best_type
+                    if best_votes >= 3 then
+                        result.confidence = InferenceConfidence.DEFINITE
+                    else if best_votes >= 2 then
+                        result.confidence = InferenceConfidence.LIKELY
+                    else
+                        result.confidence = InferenceConfidence.POSSIBLE
+                    end
+                    for c in constraints do
+                        result.constraints_used.append(c)
+                    end
+                    for tkey in type_votes.keys() do
+                        if tkey != best_type then
+                            result.alternatives.append(tkey)
+                        end
+                    end
+                else
+                    result.inferred_type = "unknown"
+                    result.confidence = InferenceConfidence.UNKNOWN
+                end
+                solved.set(symbol, result)
+                self.inferred_types.set(symbol, result)
+            end
+        end
+        return solved
+    end
+
+    -- Runs full type inference on an entire module.
+    fn infer_module(self, file_path: String) -> Result<Map<String, InferenceResult>> do
+        let raw be File.read(file_path)
+        if raw.is_error then
+            return Result.error("Failed to read module: " + file_path)
+        end
+        let lines be raw.value.split_lines()
+        self.constraints = List<TypeConstraint>.new()
+        self.inferred_types = Map<String, InferenceResult>.new()
+        let idx be 0
+        while idx < lines.length do
+            let trimmed be lines.get(idx).strip()
+            if trimmed.contains("fn ") and trimmed.contains(" do") then
+                let fn_name be self.parse_fn_name(trimmed)
+                let fn_start be idx
+                let fn_end be self.find_fn_end(lines, idx)
+                let fn_result be self.infer_return_type(fn_name, lines, fn_start, fn_end)
+                self.inferred_types.set(fn_name + "()", fn_result)
+            end
+            idx = idx + 1
+        end
+        let solved be self.solve_constraints()
+        return Result.ok(solved)
+    end
+
+    -- Finds the end line of a function block.
+    fn find_fn_end(self, lines: List<String>, start: Int) -> Int do
+        let depth be 1
+        let idx be start + 1
+        while idx < lines.length and depth > 0 do
+            let line be lines.get(idx).strip()
+            if line.contains(" do") and not line.starts_with("--") then
+                depth = depth + 1
+            end
+            if line == "end" then
+                depth = depth - 1
+            end
+            idx = idx + 1
+        end
+        return idx - 2
+    end
+
+    -- Parses a function name from a declaration line.
+    fn parse_fn_name(self, line: String) -> String do
+        let fn_pos be line.find("fn ")
+        if fn_pos < 0 then
+            return ""
+        end
+        let after_fn be line.substring(fn_pos + 3).strip()
+        let paren_pos be after_fn.find("(")
+        if paren_pos < 0 then
+            return after_fn
+        end
+        return after_fn.substring(0, paren_pos).strip()
+    end
+
+    -- Returns a report of all inferred types.
+    fn report(self) -> String do
+        let lines be List<String>.new()
+        lines.append("=== Type Inference Report ===")
+        lines.append("Total constraints: " + String.from_int(self.constraints.length).to_string())
+        lines.append("Inferred types: " + String.from_int(self.inferred_types.size()).to_string())
+        lines.append("")
+        let keys be self.inferred_types.keys()
+        for key in keys do
+            let result be self.inferred_types.get(key)
+            if result != nothing then
+                lines.append(result.to_string())
+                lines.append("")
+            end
+        end
+        return lines.join("\n")
+    end
+end
+
+export {InferenceStrategy, TypeRelation, InferenceConfidence, TypeConstraint, InferenceResult, TypeInferenceEngine}

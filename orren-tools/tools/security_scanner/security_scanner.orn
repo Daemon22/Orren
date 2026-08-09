@@ -1,0 +1,371 @@
+-- security_scanner.orn - Security audit scanner for Orren programs
+-- Part of the Orren Developer Utilities suite
+
+import orren.core.language.foundation::{String, Int, List, Map, Bool, Float}
+import orren.core.language.foundation::{Regex, File, FileReader}
+
+module orren_tools.tools.security_scanner
+
+-- Kinds of vulnerabilities detected
+enum VulnerabilityKind
+    INJECTION
+    DATA_LEAK
+    UNVALIDATED_INPUT
+    MISSING_AUTH
+    WEAK_CRYPTO
+    INSECURE_DESERIALIZE
+    PATH_TRAVERSAL
+    SEMANTIC_CONFUSION
+end
+
+-- Severity of a vulnerability
+enum SeverityLevel
+    INFO
+    LOW
+    MEDIUM
+    HIGH
+    CRITICAL
+end
+
+-- Helper: vulnerability kind to label
+fn vuln_label(k: VulnerabilityKind) -> String do
+    match k with
+    case VulnerabilityKind.INJECTION do return "Injection" end
+    case VulnerabilityKind.DATA_LEAK do return "Data Leak" end
+    case VulnerabilityKind.UNVALIDATED_INPUT do return "Unvalidated Input" end
+    case VulnerabilityKind.MISSING_AUTH do return "Missing Auth" end
+    case VulnerabilityKind.WEAK_CRYPTO do return "Weak Crypto" end
+    case VulnerabilityKind.INSECURE_DESERIALIZE do return "Insecure Deserialize" end
+    case VulnerabilityKind.PATH_TRAVERSAL do return "Path Traversal" end
+    case VulnerabilityKind.SEMANTIC_CONFUSION do return "Semantic Confusion" end
+    end
+end
+
+-- Helper: severity to label
+fn severity_label(s: SeverityLevel) -> String do
+    match s with
+    case SeverityLevel.INFO do return "INFO" end
+    case SeverityLevel.LOW do return "LOW" end
+    case SeverityLevel.MEDIUM do return "MEDIUM" end
+    case SeverityLevel.HIGH do return "HIGH" end
+    case SeverityLevel.CRITICAL do return "CRITICAL" end
+    end
+end
+
+-- Helper: join strings
+fn join_lines(parts: List<String>) -> String do
+    let be result = ""
+    for part in parts do
+        if result == "" then let be result = part
+        else let be result = result + "\n" + part end
+    end
+    return result
+end
+
+-- Single vulnerability finding
+entity Vulnerability
+    property kind: VulnerabilityKind = VulnerabilityKind.UNVALIDATED_INPUT
+    property severity: SeverityLevel = SeverityLevel.MEDIUM
+    property file: String = ""
+    property line: Int = 0
+    property description: String = ""
+    property recommendation: String = ""
+    property confidence: Float = 1.0
+
+    fn is_critical(self) -> Bool do
+        return self.severity == SeverityLevel.HIGH
+            or self.severity == SeverityLevel.CRITICAL
+    end
+
+    fn display(self) -> String do
+        let be loc = self.file + ":" + self.line.to_string()
+        return "[" + severity_label(self.severity) + "] "
+            + vuln_label(self.kind) + " at " + loc
+            + " (conf:" + self.confidence.to_string() + ")"
+            + "\n  " + self.description
+            + "\n  Fix: " + self.recommendation
+    end
+
+    fn short_display(self) -> String do
+        return "[" + severity_label(self.severity) + "] "
+            + vuln_label(self.kind) + " - " + self.file + ":" + self.line.to_string()
+    end
+end
+
+-- Aggregated scan result with all findings
+entity ScanResult
+    property vulnerabilities: List<Vulnerability> = []
+    property files_scanned: Int = 0
+    property scan_time: String = ""
+    property by_severity: Map<SeverityLevel, Int> = {}
+
+    fn add(self, vuln: Vulnerability) -> ScanResult do
+        self.vulnerabilities.append(vuln)
+        return self.recalculate()
+    end
+
+    fn recalculate(self) -> ScanResult do
+        let be counts: Map<SeverityLevel, Int> = {}
+        let be levels: List<SeverityLevel> = [
+            SeverityLevel.INFO, SeverityLevel.LOW, SeverityLevel.MEDIUM,
+            SeverityLevel.HIGH, SeverityLevel.CRITICAL
+        ]
+        for level in levels do counts.set(level, 0) end
+        for v in self.vulnerabilities do
+            counts.set(v.severity, counts.get(v.severity) + 1)
+        end
+        self.by_severity = counts
+        return self
+    end
+
+    fn critical_count(self) -> Int do
+        return self.by_severity.get(SeverityLevel.HIGH)
+            + self.by_severity.get(SeverityLevel.CRITICAL)
+    end
+
+    fn is_clean(self) -> Bool do
+        return self.vulnerabilities.length() == 0
+    end
+
+    fn summary(self) -> String do
+        let be lines: List<String> = []
+        lines.append("Security Scan Report")
+        lines.append("=====================")
+        lines.append("Files scanned: " + self.files_scanned.to_string())
+        lines.append("Total findings: " + self.vulnerabilities.length().to_string())
+        lines.append("")
+        lines.append("By severity:")
+        let be levels: List<SeverityLevel> = [
+            SeverityLevel.CRITICAL, SeverityLevel.HIGH, SeverityLevel.MEDIUM,
+            SeverityLevel.LOW, SeverityLevel.INFO
+        ]
+        for level in levels do
+            let be count = self.by_severity.get(level)
+            if count > 0 then
+                lines.append("  " + severity_label(level) + ": " + count.to_string())
+            end
+        end
+        if self.is_clean() then
+            lines.append("")
+            lines.append("Result: CLEAN - No vulnerabilities found.")
+        else if self.critical_count() > 0 then
+            lines.append("")
+            lines.append("Result: FAIL - Critical/High vulnerabilities detected.")
+            lines.append("")
+            lines.append("Critical findings:")
+            for v in self.vulnerabilities do
+                if v.is_critical() then lines.append("  " + v.short_display()) end
+            end
+        else
+            lines.append("")
+            lines.append("Result: WARN - Findings require review.")
+        end
+        lines.append("")
+        lines.append("All findings:")
+        for v in self.vulnerabilities do
+            lines.append(v.display())
+            lines.append("")
+        end
+        return join_lines(lines)
+    end
+end
+
+-- Main security scanner with rules and pattern detection
+entity SecurityScanner
+    property config: Map<String, String> = {}
+    property rules: List<Map<String, String>> = []
+    property results: ScanResult = ScanResult {}
+
+    fn new(config: Map<String, String>) -> SecurityScanner do
+        let be scanner = SecurityScanner {}
+        scanner.config = config
+        scanner.rules = scanner.build_rules()
+        return scanner
+    end
+
+    fn add_rule(self, pattern: String, kind: String,
+                severity: String, desc: String, fix: String,
+                rules: List<Map<String, String>>) -> List<Map<String, String>> do
+        let be r: Map<String, String> = {}
+        r.set("pattern", pattern)
+        r.set("kind", kind)
+        r.set("severity", severity)
+        r.set("desc", desc)
+        r.set("fix", fix)
+        rules.append(r)
+        return rules
+    end
+
+    fn build_rules(self) -> List<Map<String, String>> do
+        let be rules: List<Map<String, String>> = []
+        rules = self.add_rule("eval\\s*", "INJECTION", "HIGH",
+            "Use of eval() can lead to code injection",
+            "Use safe parsing instead of eval()", rules)
+        rules = self.add_rule("exec\\s*", "INJECTION", "CRITICAL",
+            "Use of exec() with unsanitized input",
+            "Use parameterized execution or strict allowlists", rules)
+        rules = self.add_rule("password|secret|api_key|token", "DATA_LEAK", "HIGH",
+            "Potential hardcoded secret detected",
+            "Move secrets to environment variables or vault", rules)
+        rules = self.add_rule("md5|sha1\\b", "WEAK_CRYPTO", "MEDIUM",
+            "Weak hash algorithm detected",
+            "Use sha256 or stronger cryptographic hashes", rules)
+        rules = self.add_rule("deserialize\\s*", "INSECURE_DESERIALIZE", "HIGH",
+            "Insecure deserialization may allow remote code execution",
+            "Use safe serialization formats like JSON", rules)
+        rules = self.add_rule("\\.\\./", "PATH_TRAVERSAL", "HIGH",
+            "Potential path traversal with user-supplied path",
+            "Validate and canonicalize all file paths", rules)
+        return rules
+    end
+
+    fn parse_kind(self, s: String) -> VulnerabilityKind do
+        if s == "INJECTION" then return VulnerabilityKind.INJECTION end
+        if s == "DATA_LEAK" then return VulnerabilityKind.DATA_LEAK end
+        if s == "UNVALIDATED_INPUT" then return VulnerabilityKind.UNVALIDATED_INPUT end
+        if s == "MISSING_AUTH" then return VulnerabilityKind.MISSING_AUTH end
+        if s == "WEAK_CRYPTO" then return VulnerabilityKind.WEAK_CRYPTO end
+        if s == "INSECURE_DESERIALIZE" then return VulnerabilityKind.INSECURE_DESERIALIZE end
+        if s == "PATH_TRAVERSAL" then return VulnerabilityKind.PATH_TRAVERSAL end
+        if s == "SEMANTIC_CONFUSION" then return VulnerabilityKind.SEMANTIC_CONFUSION end
+        return VulnerabilityKind.UNVALIDATED_INPUT
+    end
+
+    fn parse_severity(self, s: String) -> SeverityLevel do
+        if s == "INFO" then return SeverityLevel.INFO end
+        if s == "LOW" then return SeverityLevel.LOW end
+        if s == "MEDIUM" then return SeverityLevel.MEDIUM end
+        if s == "HIGH" then return SeverityLevel.HIGH end
+        if s == "CRITICAL" then return SeverityLevel.CRITICAL end
+        return SeverityLevel.MEDIUM
+    end
+
+    fn check_input_validation(self, file_path: String,
+                              content: String) -> List<Vulnerability> do
+        let be findings: List<Vulnerability> = []
+        let be fn_pattern = Regex.compile("^fn\\s+(\\w+)")
+        let be param_pattern = Regex.compile("(input|user|request|query|param)")
+        let be in_fn = ""
+        let be line_num = 0
+        let be has_validation = false
+        for line in content.split("\n") do
+            let be line_num = line_num + 1
+            let be t = line.trim()
+            if fn_pattern.matches(t) then
+                if in_fn != "" and not has_validation then
+                    let be v = Vulnerability {}
+                    v.kind = VulnerabilityKind.UNVALIDATED_INPUT
+                    v.severity = SeverityLevel.MEDIUM
+                    v.file = file_path
+                    v.line = line_num
+                    v.description = "Function '" + in_fn + "' may not validate input"
+                    v.recommendation = "Add input validation in '" + in_fn + "'"
+                    v.confidence = 0.6
+                    findings.append(v)
+                end
+                let be m = fn_pattern.capture(t)
+                let be in_fn = m.get(0)
+                let be has_validation = false
+            end
+            if param_pattern.matches(t) then let be has_validation = true end
+            if t.has("validate") or t.has("sanitize") then
+                let be has_validation = true
+            end
+        end
+        if in_fn != "" and not has_validation then
+            let be v = Vulnerability {}
+            v.kind = VulnerabilityKind.UNVALIDATED_INPUT
+            v.severity = SeverityLevel.MEDIUM
+            v.file = file_path
+            v.line = line_num
+            v.description = "Function '" + in_fn + "' may not validate input"
+            v.recommendation = "Add input validation in '" + in_fn + "'"
+            v.confidence = 0.6
+            findings.append(v)
+        end
+        return findings
+    end
+
+    fn check_semantic_confusion(self, file_path: String,
+                                content: String) -> List<Vulnerability> do
+        let be findings: List<Vulnerability> = []
+        let be intent_pattern = Regex.compile("intent\\s+\\"([^\"]*)\\"")
+        let be confusing: List<String> = ["bypass", "override", "ignore", "skip", "disable"]
+        let be line_num = 0
+        for line in content.split("\n") do
+            let be line_num = line_num + 1
+            let be t = line.trim()
+            if intent_pattern.matches(t) then
+                let be m = intent_pattern.capture(t)
+                let be text = m.get(0).to_lower()
+                for word in confusing do
+                    if text.has(word) then
+                        let be v = Vulnerability {}
+                        v.kind = VulnerabilityKind.SEMANTIC_CONFUSION
+                        v.severity = SeverityLevel.MEDIUM
+                        v.file = file_path
+                        v.line = line_num
+                        v.description = "Intent contains confusing term: '" + word + "'"
+                        v.recommendation = "Review intent for adversarial semantic exploitation"
+                        v.confidence = 0.7
+                        findings.append(v)
+                    end
+                end
+            end
+        end
+        return findings
+    end
+
+    fn scan_file(self, file_path: String, content: String) -> ScanResult do
+        self.results.files_scanned = self.results.files_scanned + 1
+        let be line_num = 0
+        for rule in self.rules do
+            let be pattern = Regex.compile(rule.get("pattern"))
+            for line in content.split("\n") do
+                let be line_num = line_num + 1
+                if pattern.matches(line) then
+                    let be v = Vulnerability {}
+                    v.kind = self.parse_kind(rule.get("kind"))
+                    v.severity = self.parse_severity(rule.get("severity"))
+                    v.file = file_path
+                    v.line = line_num
+                    v.description = rule.get("desc")
+                    v.recommendation = rule.get("fix")
+                    v.confidence = 0.8
+                    self.results.add(v)
+                end
+            end
+        end
+        let be input_issues = self.check_input_validation(file_path, content)
+        for v in input_issues do self.results.add(v) end
+        let be semantic_issues = self.check_semantic_confusion(file_path, content)
+        for v in semantic_issues do self.results.add(v) end
+        return self.results
+    end
+
+    fn scan_project(self, file_map: Map<String, String>) -> ScanResult do
+        self.results = ScanResult {}
+        for path in file_map.keys() do
+            self.scan_file(path, file_map.get(path))
+        end
+        return self.results
+    end
+
+    fn scan_directory(self, dir_path: String, pattern: String) -> ScanResult do
+        self.results = ScanResult {}
+        let be files = File.glob(dir_path, pattern)
+        for file_path in files do
+            let be content = FileReader.read(file_path)
+            self.scan_file(file_path, content)
+        end
+        return self.results
+    end
+end
+
+export {
+    VulnerabilityKind,
+    SeverityLevel,
+    Vulnerability,
+    ScanResult,
+    SecurityScanner
+}

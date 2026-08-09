@@ -1,0 +1,362 @@
+-- assertions.orn
+-- Comprehensive assertion library for Orren testing
+-- Includes semantic, cognitive, provenance, and First Law assertions
+
+module orren_tools.testing.assertions
+
+import orren.core.language.foundation::{String, Int, Float, Bool, List, Map}
+import orren_tools.testing.runner::{TestStatus, TestContext}
+
+-- Types of assertions supported by the framework
+enum AssertionType
+  EQUAL
+  NOT_EQUAL
+  TRUE
+  FALSE
+  GREATER
+  LESS
+  CONTAINS
+  MATCHES
+  IS_TYPE
+  THROWS
+  SEMANTIC_INTACT
+  SEMANTIC_ABOVE
+  COGNITIVE_ACTIVE
+  PROVENANCE_COMPLETE
+  FIRST_LAW
+end
+
+-- Result of a single assertion evaluation
+entity AssertionResult
+  property passed: Bool = false
+  property assertion_type: AssertionType = AssertionType.EQUAL
+  property expected: String = ""
+  property actual: String = ""
+  property message: String = ""
+  property file: String = ""
+  property line: Int = 0
+  property semantic_details: String = ""
+end
+
+-- Collector that aggregates assertion results during a test
+entity AssertionCollector
+  property results: List<AssertionResult> = List<AssertionResult>{}
+  property current_test: String = ""
+  property assert_count: Int = 0
+  property pass_count: Int = 0
+  property fail_count: Int = 0
+end
+
+-- Configuration for semantic assertion thresholds
+entity SemanticAssertion
+  property attributes: Map<String, Float> = Map<String, Float>{}
+  property threshold: Float = 0.0
+  property dimension: String = ""
+  property description: String = ""
+end
+
+-- Main assertions interface providing all assertion methods
+entity OrrenAssertions
+  property collector: AssertionCollector = AssertionCollector{}
+end
+
+-- Intent declaration for the assertions framework
+intent "provide comprehensive assertion library with semantic and cognitive checks"
+
+-- Begin a new test context for assertion collection
+fn begin_test(self: OrrenAssertions, test_name: String) do
+  self.collector.current_test = test_name
+  self.collector.results = List<AssertionResult>{}
+  self.collector.assert_count = 0
+  self.collector.pass_count = 0
+  self.collector.fail_count = 0
+end
+
+-- Record an assertion result with pass/fail counting
+fn record(self: OrrenAssertions, result: AssertionResult) -> AssertionResult do
+  self.collector.assert_count = self.collector.assert_count + 1
+  self.collector.results.append(result)
+  if result.passed then
+    self.collector.pass_count = self.collector.pass_count + 1
+  else
+    self.collector.fail_count = self.collector.fail_count + 1
+  end
+  return result
+end
+
+-- Assert that two values are equal
+fn assert_equal(self: OrrenAssertions, expected: String, actual: String, file: String, line: Int) -> AssertionResult do
+  let result be AssertionResult{assertion_type = AssertionType.EQUAL, expected = expected, actual = actual, file = file, line = line}
+  if expected == actual then
+    result.passed = true
+    result.message = "Values are equal"
+  else
+    result.message = "Expected '" + expected + "' but got '" + actual + "'"
+  end
+  return self.record(result)
+end
+
+-- Assert that two values are not equal
+fn assert_not_equal(self: OrrenAssertions, expected: String, actual: String, file: String, line: Int) -> AssertionResult do
+  let result be AssertionResult{assertion_type = AssertionType.NOT_EQUAL, expected = expected, actual = actual, file = file, line = line}
+  if expected != actual then
+    result.passed = true
+    result.message = "Values are not equal"
+  else
+    result.message = "Expected values to differ but both are '" + expected + "'"
+  end
+  return self.record(result)
+end
+
+-- Assert that a boolean value is true
+fn assert_true(self: OrrenAssertions, value: Bool, message: String, file: String, line: Int) -> AssertionResult do
+  let result be AssertionResult{assertion_type = AssertionType.TRUE, actual = self.bool_str(value), file = file, line = line}
+  if value then
+    result.passed = true
+    result.message = message
+  else
+    result.message = "Expected true but got false: " + message
+  end
+  return self.record(result)
+end
+
+-- Assert that a boolean value is false
+fn assert_false(self: OrrenAssertions, value: Bool, message: String, file: String, line: Int) -> AssertionResult do
+  let result be AssertionResult{assertion_type = AssertionType.FALSE, actual = self.bool_str(value), file = file, line = line}
+  if not value then
+    result.passed = true
+    result.message = message
+  else
+    result.message = "Expected false but got true: " + message
+  end
+  return self.record(result)
+end
+
+-- Assert that a string contains a substring
+fn assert_contains(self: OrrenAssertions, haystack: String, needle: String, file: String, line: Int) -> AssertionResult do
+  let result be AssertionResult{assertion_type = AssertionType.CONTAINS, expected = needle, actual = haystack, file = file, line = line}
+  if haystack.contains(needle) then
+    result.passed = true
+    result.message = "String contains '" + needle + "'"
+  else
+    result.message = "Expected '" + haystack + "' to contain '" + needle + "'"
+  end
+  return self.record(result)
+end
+
+-- Assert that a string matches a regex pattern
+fn assert_matches(self: OrrenAssertions, value: String, pattern: String, file: String, line: Int) -> AssertionResult do
+  let result be AssertionResult{assertion_type = AssertionType.MATCHES, expected = pattern, actual = value, file = file, line = line}
+  if value.regex_match(pattern) then
+    result.passed = true
+    result.message = "String matches pattern '" + pattern + "'"
+  else
+    result.message = "String '" + value + "' does not match '" + pattern + "'"
+  end
+  return self.record(result)
+end
+
+-- Assert that a callable throws an exception
+fn assert_throws(self: OrrenAssertions, fn_name: String, expected_type: String, file: String, line: Int) -> AssertionResult do
+  let result be AssertionResult{assertion_type = AssertionType.THROWS, expected = expected_type, actual = fn_name, file = file, line = line}
+  let exec_result be FileSystem.exec_orren_expression(fn_name + "()")
+  if exec_result.success then
+    result.message = "Expected '" + fn_name + "' to throw but it succeeded"
+  else
+    result.passed = true
+    result.message = "Function '" + fn_name + "' threw " + exec_result.error_type
+    result.actual = exec_result.error_type
+  end
+  return self.record(result)
+end
+
+-- Assert that a value has a specific type
+fn assert_type(self: OrrenAssertions, value: String, expected_type: String, file: String, line: Int) -> AssertionResult do
+  let result be AssertionResult{assertion_type = AssertionType.IS_TYPE, expected = expected_type, actual = value, file = file, line = line}
+  let actual_type be self.detect_type(value)
+  if actual_type == expected_type then
+    result.passed = true
+    result.message = "Value has expected type '" + expected_type + "'"
+  else
+    result.message = "Expected type '" + expected_type + "' but got '" + actual_type + "'"
+  end
+  return self.record(result)
+end
+
+-- Assert that semantic integrity is maintained
+fn assert_semantic_intact(self: OrrenAssertions, snapshot: String, file: String, line: Int) -> AssertionResult do
+  let result be AssertionResult{assertion_type = AssertionType.SEMANTIC_INTACT, actual = snapshot, file = file, line = line}
+  let integrity be self.compute_semantic_integrity(snapshot)
+  if integrity > 0.95 then
+    result.passed = true
+    result.message = "Semantic integrity intact (" + integrity.to_string() + ")"
+    result.semantic_details = "integrity=" + integrity.to_string()
+  else
+    result.message = "Semantic integrity below threshold: " + integrity.to_string()
+  end
+  return self.record(result)
+end
+
+-- Assert that a semantic dimension is above a threshold
+fn assert_semantic_above(self: OrrenAssertions, dims: Map<String, Float>, dimension: String, threshold: Float, file: String, line: Int) -> AssertionResult do
+  let result be AssertionResult{assertion_type = AssertionType.SEMANTIC_ABOVE, expected = threshold.to_string(), file = file, line = line}
+  let value be dims.get(dimension)
+  if value >= threshold then
+    result.passed = true
+    result.message = dimension + " = " + value.to_string() + " >= " + threshold.to_string()
+  else
+    result.message = dimension + " = " + value.to_string() + " < " + threshold.to_string()
+  end
+  return self.record(result)
+end
+
+-- Assert that cognitive activity is present in a trace
+fn assert_cognitive_active(self: OrrenAssertions, trace: String, file: String, line: Int) -> AssertionResult do
+  let result be AssertionResult{assertion_type = AssertionType.COGNITIVE_ACTIVE, actual = trace, file = file, line = line}
+  let score be self.compute_cognitive_activity(trace)
+  if score > 0.0 then
+    result.passed = true
+    result.message = "Cognitive activity detected (score=" + score.to_string() + ")"
+  else
+    result.message = "No cognitive activity detected in trace"
+  end
+  return self.record(result)
+end
+
+-- Assert that provenance tracking is complete
+fn assert_provenance_complete(self: OrrenAssertions, provenance: Map<String, String>, file: String, line: Int) -> AssertionResult do
+  let result be AssertionResult{assertion_type = AssertionType.PROVENANCE_COMPLETE, file = file, line = line}
+  let required be List<String>{"source", "timestamp", "author", "integrity_hash"}
+  let missing be List<String>{}
+  for key in required do
+    if not provenance.contains_key(key) then missing.append(key) end
+  end
+  if missing.length() == 0 then
+    result.passed = true
+    result.message = "Provenance is complete"
+  else
+    result.message = "Provenance incomplete, missing: " + missing.join(", ")
+  end
+  return self.record(result)
+end
+
+-- Assert compliance with the First Law of Orren
+fn assert_first_law(self: OrrenAssertions, system_state: String, file: String, line: Int) -> AssertionResult do
+  let result be AssertionResult{assertion_type = AssertionType.FIRST_LAW, actual = system_state, file = file, line = line}
+  let compliance be self.verify_first_law(system_state)
+  if compliance then
+    result.passed = true
+    result.message = "First Law compliance verified"
+  else
+    result.message = "First Law violation detected"
+  end
+  return self.record(result)
+end
+
+-- Assert approximate equality with tolerance for floating point
+fn assert_approx_equal(self: OrrenAssertions, expected: Float, actual: Float, tolerance: Float, file: String, line: Int) -> AssertionResult do
+  let diff be (expected - actual).abs()
+  let result be AssertionResult{assertion_type = AssertionType.EQUAL, expected = expected.to_string(), actual = actual.to_string(), file = file, line = line}
+  if diff <= tolerance then
+    result.passed = true
+    result.message = "Approximately equal (diff=" + diff.to_string() + ")"
+  else
+    result.message = "Differ by " + diff.to_string() + " exceeds tolerance " + tolerance.to_string()
+  end
+  return self.record(result)
+end
+
+-- Collect all failures from the current test run
+fn collect_all_failures(self: OrrenAssertions) -> List<AssertionResult> do
+  let failures be List<AssertionResult>{}
+  for result in self.collector.results do
+    if not result.passed then failures.append(result) end
+  end
+  return failures
+end
+
+-- Produce a summary report of all assertions
+fn produce_report(self: OrrenAssertions) -> String do
+  let lines be List<String>{}
+  lines.append("Assertion Report for: " + self.collector.current_test)
+  lines.append("  Total:  " + self.collector.assert_count.to_string())
+  lines.append("  Passed: " + self.collector.pass_count.to_string())
+  lines.append("  Failed: " + self.collector.fail_count.to_string())
+  if self.collector.fail_count > 0 then
+    lines.append("")
+    lines.append("Failures:")
+    for result in self.collect_all_failures() do
+      lines.append("  [" + result.assertion_type.to_string() + "] " + result.file + ":" + result.line.to_string())
+      lines.append("    " + result.message)
+    end
+  end
+  return lines.join("\n")
+end
+
+-- Compute semantic integrity score from a snapshot
+fn compute_semantic_integrity(self: OrrenAssertions, snapshot: String) -> Float do
+  if snapshot.length() == 0 then return 0.0 end
+  let entropy be self.compute_entropy(snapshot)
+  return 1.0 - entropy
+end
+
+-- Compute cognitive activity score from a trace
+fn compute_cognitive_activity(self: OrrenAssertions, trace: String) -> Float do
+  if trace.length() == 0 then return 0.0 end
+  let markers be List<String>{"think", "reason", "infer", "decide", "evaluate"}
+  let score be 0.0
+  let lower be trace.lower()
+  for marker in markers do
+    if lower.contains(marker) then score = score + 0.2 end
+  end
+  if score > 1.0 then score = 1.0 end
+  return score
+end
+
+-- Verify First Law compliance from system state
+fn verify_first_law(self: OrrenAssertions, state: String) -> Bool do
+  if state.length() == 0 then return false end
+  let required be List<String>{"integrity", "awareness", "autonomy"}
+  let lower be state.lower()
+  for req in required do
+    if not lower.contains(req) then return false end
+  end
+  return true
+end
+
+-- Detect the type of a value string
+fn detect_type(self: OrrenAssertions, value: String) -> String do
+  if value == "true" or value == "false" then return "Bool" end
+  if value.to_int_safe().is_valid then return "Int" end
+  if value.to_float_safe().is_valid then return "Float" end
+  if value.starts_with("[") then return "List" end
+  if value.starts_with("{") then return "Map" end
+  return "String"
+end
+
+-- Compute entropy of a string
+fn compute_entropy(self: OrrenAssertions, data: String) -> Float do
+  let freq be Map<String, Int>{}
+  let len be data.length()
+  if len == 0 then return 0.0 end
+  let i be 0
+  while i < len do
+    let ch be data.char_at(i)
+    freq.set(ch, freq.get(ch) + 1)
+    i = i + 1
+  end
+  let entropy be 0.0
+  for key in freq.keys() do
+    let p be freq.get(key).to_float() / len.to_float()
+    entropy = entropy - (p * p.log2())
+  end
+  return entropy
+end
+
+-- Helper to convert bool to string
+fn bool_str(self: OrrenAssertions, value: Bool) -> String do
+  if value then return "true" end
+  return "false"
+end
+
+export {AssertionType, AssertionResult, AssertionCollector, SemanticAssertion, OrrenAssertions}

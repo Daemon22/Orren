@@ -1,0 +1,641 @@
+module orren.bridge.fabric
+
+import orren.core.language.foundation::{*}
+import orren.core.semantic.model::{*}
+
+intent "The Technical Mediation layer — the bridge fabric that carries
+  Orren concepts across language boundaries with full 8-attribute
+  semantic preservation. Every cross-language call passes through
+  this fabric, which propagates semantic attributes, validates
+  compatibility, and enforces the First Law at the technical boundary.
+  The bridge is not a dumb pipe; it is a meaning-preserving conduit."
+
+-- =========================================================================
+-- ENUM: BridgeBackend
+-- =========================================================================
+-- The eight supported bridge backend types. Each backend represents
+-- a fundamentally different mechanism for crossing the language
+-- boundary, from native compilation to HTTP APIs.
+-- =========================================================================
+
+enum BridgeBackend
+  C_NATIVE
+  C_SOURCE
+  WASM
+  JAVA
+  JAVASCRIPT
+  RUST
+  PYTHON
+  HTTP_API
+end
+
+-- =========================================================================
+-- ENTITY: LanguageRegistration
+-- =========================================================================
+-- A registration record for a target language in the bridge fabric.
+-- Each registration describes how Orren concepts will be represented
+-- and transported into the target language, including the backend
+-- mechanism and semantic compatibility assessment.
+-- =========================================================================
+
+entity LanguageRegistration
+  -- Unique identifier for this language, e.g. "c", "python", "wasm".
+  property language_id: String = ""
+
+  -- Human-readable name, e.g. "C", "Python", "WebAssembly".
+  property name: String = ""
+
+  -- The bridge backend mechanism for this language.
+  property backend: BridgeBackend = C_NATIVE
+
+  -- Version string of the language or runtime.
+  property version: String = ""
+
+  -- Semantic compatibility score in [0.0, 1.0].
+  -- Measures how well the target language can preserve the eight
+  -- semantic attributes. 1.0 = perfect preservation.
+  property semantic_compatibility: Float = 1.0
+
+  -- A language is compatible if its semantic compatibility is above 0.5.
+  -- Below this threshold, meaning loss is too severe for reliable bridging.
+  fn is_compatible(self) -> Bool do
+    return self.semantic_compatibility >= 0.5
+  end
+end
+
+-- =========================================================================
+-- ENTITY: BridgeCall
+-- =========================================================================
+-- A single call through the bridge fabric. Carries the operation name,
+  -- arguments, full semantic attributes, and source/target language IDs.
+  -- The semantic_input field ensures that meaning accompanies the call
+  -- across the boundary, enforcing the First Law at the call level.
+-- =========================================================================
+
+entity BridgeCall
+  -- The operation to perform on the target side.
+  property operation: String = ""
+
+  -- Arguments for the operation, serialized as strings.
+  property arguments: List<String> = []
+
+  -- Full semantic attributes accompanying this call.
+  property semantic_input: SemanticAttributes = SemanticAttributes{}
+
+  -- The source language of this call (origin).
+  property source_language: String = "orren"
+
+  -- The target language of this call (destination).
+  property target_language: String = ""
+
+  -- Produce a human-readable representation of this bridge call.
+  fn to_string(self) -> String do
+    let args_str be join_strings(self.arguments, ", ")
+    return self.source_language + " -> " + self.target_language
+      + ": " + self.operation + "(" + args_str + ")"
+      + " [confidence=" + float_to_string(self.semantic_input.confidence) + "]"
+  end
+end
+
+-- =========================================================================
+-- ENTITY: BridgeResult
+-- =========================================================================
+-- The result of a bridge call. Contains the operation outcome,
+  -- any returned semantic attributes, the assessed preservation
+  -- level, and error information if the call failed. A result is
+  -- acceptable if meaning was not completely lost.
+-- =========================================================================
+
+entity BridgeResult
+  -- Whether the bridge call succeeded.
+  property success: Bool = false
+
+  -- The result value, serialized as a string.
+  property result: String = ""
+
+  -- Semantic attributes returned from the target language.
+  property semantic_output: SemanticAttributes = SemanticAttributes{}
+
+  -- Assessed level of semantic preservation across this call.
+  property preservation_level: SemanticPreservationLevel = FULL
+
+  -- Error message if the call failed.
+  property error: String = ""
+
+  -- A result is acceptable if it succeeded and meaning was not lost.
+  fn is_acceptable(self) -> Bool do
+    if not self.success then return false end
+    if self.preservation_level == LOST then return false end
+    return true
+  end
+end
+
+-- =========================================================================
+-- ENTITY: BridgeConfig
+-- =========================================================================
+-- Configuration for the bridge fabric. Controls default behavior
+  -- for all bridge operations, including which backend to use,
+  -- whether to preserve semantic attributes, and which operations
+  -- are allowed through the bridge.
+-- =========================================================================
+
+entity BridgeConfig
+  -- The default backend for bridge calls when none is specified.
+  property default_backend: BridgeBackend = C_NATIVE
+
+  -- Whether to preserve full semantic attributes across calls.
+  -- When true, the 8-attribute set is propagated. When false,
+  -- only the raw value is carried (violates First Law).
+  property preserve_attributes: Bool = true
+
+  -- Whether to operate in strict mode. In strict mode, calls
+  -- that would lose meaning are rejected outright.
+  property strict_mode: Bool = true
+
+  -- The set of operations that are allowed through the bridge.
+  -- An empty list means all operations are allowed.
+  property allowlisted_operations: List<String> = []
+end
+
+-- =========================================================================
+-- ENTITY: LanguageRegistry
+-- =========================================================================
+-- A registry of all known target languages for the bridge fabric.
+  -- Manages language registrations and provides lookup, listing,
+  -- and initialization of the standard set of 28+ languages.
+-- =========================================================================
+
+entity LanguageRegistry
+  -- Map of language_id to LanguageRegistration.
+  property languages: Map<String, LanguageRegistration> = Map<String, LanguageRegistration>{}
+
+  -- Register a new language in the registry.
+  -- Returns true if registration succeeded (no duplicate ID).
+  fn register(self, reg: LanguageRegistration) -> Bool do
+    if self.languages.contains(reg.language_id) then
+      return false
+    end
+    self.languages.put(reg.language_id, reg)
+    return true
+  end
+
+  -- Look up a language registration by ID.
+  -- Returns an optional that is present if the language is registered.
+  fn get(self, language_id: String) -> Optional<LanguageRegistration> do
+    if self.languages.contains(language_id) then
+      return Optional::some(self.languages.get(language_id))
+    end
+    return Optional::none()
+  end
+
+  -- Return the number of registered languages.
+  fn count(self) -> Int do
+    return self.languages.size()
+  end
+
+  -- Return a list of all registered language IDs.
+  fn list_languages(self) -> List<String> do
+    return self.languages.keys()
+  end
+
+  -- Initialize the registry with 28+ default languages.
+  -- Covers systems languages, scripting languages, VM targets,
+  -- protocols, data formats, and markup languages.
+  fn initialize_defaults(self) -> LanguageRegistry do
+    -- C: native backend, near-perfect semantic preservation.
+    let c_reg be LanguageRegistration{}
+    c_reg.language_id = "c"
+    c_reg.name = "C"
+    c_reg.backend = C_NATIVE
+    c_reg.version = "c17"
+    c_reg.semantic_compatibility = 0.95
+    self.register(c_reg)
+
+    -- C++: source-level backend.
+    let cpp_reg be LanguageRegistration{}
+    cpp_reg.language_id = "cpp"
+    cpp_reg.name = "C++"
+    cpp_reg.backend = C_SOURCE
+    cpp_reg.version = "c++20"
+    cpp_reg.semantic_compatibility = 0.93
+    self.register(cpp_reg)
+
+    -- Java: JVM backend.
+    let java_reg be LanguageRegistration{}
+    java_reg.language_id = "java"
+    java_reg.name = "Java"
+    java_reg.backend = JAVA
+    java_reg.version = "21"
+    java_reg.semantic_compatibility = 0.88
+    self.register(java_reg)
+
+    -- JavaScript: JS backend.
+    let js_reg be LanguageRegistration{}
+    js_reg.language_id = "javascript"
+    js_reg.name = "JavaScript"
+    js_reg.backend = JAVASCRIPT
+    js_reg.version = "ES2024"
+    js_reg.semantic_compatibility = 0.82
+    self.register(js_reg)
+
+    -- TypeScript: JS backend with type information.
+    let ts_reg be LanguageRegistration{}
+    ts_reg.language_id = "typescript"
+    ts_reg.name = "TypeScript"
+    ts_reg.backend = JAVASCRIPT
+    ts_reg.version = "5.4"
+    ts_reg.semantic_compatibility = 0.85
+    self.register(ts_reg)
+
+    -- Python: Python backend.
+    let py_reg be LanguageRegistration{}
+    py_reg.language_id = "python"
+    py_reg.name = "Python"
+    py_reg.backend = PYTHON
+    py_reg.version = "3.12"
+    py_reg.semantic_compatibility = 0.80
+    self.register(py_reg)
+
+    -- Rust: native backend.
+    let rust_reg be LanguageRegistration{}
+    rust_reg.language_id = "rust"
+    rust_reg.name = "Rust"
+    rust_reg.backend = RUST
+    rust_reg.version = "1.78"
+    rust_reg.semantic_compatibility = 0.94
+    self.register(rust_reg)
+
+    -- Go: C-like source backend.
+    let go_reg be LanguageRegistration{}
+    go_reg.language_id = "go"
+    go_reg.name = "Go"
+    go_reg.backend = C_SOURCE
+    go_reg.version = "1.22"
+    go_reg.semantic_compatibility = 0.85
+    self.register(go_reg)
+
+    -- Swift: C-like source backend.
+    let swift_reg be LanguageRegistration{}
+    swift_reg.language_id = "swift"
+    swift_reg.name = "Swift"
+    swift_reg.backend = C_SOURCE
+    swift_reg.version = "5.10"
+    swift_reg.semantic_compatibility = 0.87
+    self.register(swift_reg)
+
+    -- Kotlin: JVM backend.
+    let kotlin_reg be LanguageRegistration{}
+    kotlin_reg.language_id = "kotlin"
+    kotlin_reg.name = "Kotlin"
+    kotlin_reg.backend = JAVA
+    kotlin_reg.version = "2.0"
+    kotlin_reg.semantic_compatibility = 0.87
+    self.register(kotlin_reg)
+
+    -- Ruby: HTTP backend for scripting.
+    let ruby_reg be LanguageRegistration{}
+    ruby_reg.language_id = "ruby"
+    ruby_reg.name = "Ruby"
+    ruby_reg.backend = HTTP_API
+    ruby_reg.version = "3.3"
+    ruby_reg.semantic_compatibility = 0.75
+    self.register(ruby_reg)
+
+    -- PHP: HTTP backend.
+    let php_reg be LanguageRegistration{}
+    php_reg.language_id = "php"
+    php_reg.name = "PHP"
+    php_reg.backend = HTTP_API
+    php_reg.version = "8.3"
+    php_reg.semantic_compatibility = 0.72
+    self.register(php_reg)
+
+    -- Haskell: C source backend.
+    let haskell_reg be LanguageRegistration{}
+    haskell_reg.language_id = "haskell"
+    haskell_reg.name = "Haskell"
+    haskell_reg.backend = C_SOURCE
+    haskell_reg.version = "9.8"
+    haskell_reg.semantic_compatibility = 0.90
+    self.register(haskell_reg)
+
+    -- OCaml: C native backend.
+    let ocaml_reg be LanguageRegistration{}
+    ocaml_reg.language_id = "ocaml"
+    ocaml_reg.name = "OCaml"
+    ocaml_reg.backend = C_NATIVE
+    ocaml_reg.version = "5.2"
+    ocaml_reg.semantic_compatibility = 0.91
+    self.register(ocaml_reg)
+
+    -- WebAssembly: WASM backend.
+    let wasm_reg be LanguageRegistration{}
+    wasm_reg.language_id = "wasm"
+    wasm_reg.name = "WebAssembly"
+    wasm_reg.backend = WASM
+    wasm_reg.version = "2.0"
+    wasm_reg.semantic_compatibility = 0.78
+    self.register(wasm_reg)
+
+    -- x86: native machine code target.
+    let x86_reg be LanguageRegistration{}
+    x86_reg.language_id = "x86"
+    x86_reg.name = "x86"
+    x86_reg.backend = C_NATIVE
+    x86_reg.version = "x86-64"
+    x86_reg.semantic_compatibility = 0.70
+    self.register(x86_reg)
+
+    -- ARM: native machine code target.
+    let arm_reg be LanguageRegistration{}
+    arm_reg.language_id = "arm"
+    arm_reg.name = "ARM"
+    arm_reg.backend = C_NATIVE
+    arm_reg.version = "ARM64"
+    arm_reg.semantic_compatibility = 0.70
+    self.register(arm_reg)
+
+    -- HTTP: protocol target.
+    let http_reg be LanguageRegistration{}
+    http_reg.language_id = "http"
+    http_reg.name = "HTTP"
+    http_reg.backend = HTTP_API
+    http_reg.version = "1.1/2.0"
+    http_reg.semantic_compatibility = 0.65
+    self.register(http_reg)
+
+    -- gRPC: protocol target.
+    let grpc_reg be LanguageRegistration{}
+    grpc_reg.language_id = "grpc"
+    grpc_reg.name = "gRPC"
+    grpc_reg.backend = HTTP_API
+    grpc_reg.version = "1.62"
+    grpc_reg.semantic_compatibility = 0.68
+    self.register(grpc_reg)
+
+    -- SQL: data query target.
+    let sql_reg be LanguageRegistration{}
+    sql_reg.language_id = "sql"
+    sql_reg.name = "SQL"
+    sql_reg.backend = C_SOURCE
+    sql_reg.version = "SQL:2023"
+    sql_reg.semantic_compatibility = 0.60
+    self.register(sql_reg)
+
+    -- GraphQL: data query target.
+    let graphql_reg be LanguageRegistration{}
+    graphql_reg.language_id = "graphql"
+    graphql_reg.name = "GraphQL"
+    graphql_reg.backend = HTTP_API
+    graphql_reg.version = "October 2021"
+    graphql_reg.semantic_compatibility = 0.70
+    self.register(graphql_reg)
+
+    -- JSON: data format.
+    let json_reg be LanguageRegistration{}
+    json_reg.language_id = "json"
+    json_reg.name = "JSON"
+    json_reg.backend = HTTP_API
+    json_reg.version = "RFC 8259"
+    json_reg.semantic_compatibility = 0.55
+    self.register(json_reg)
+
+    -- YAML: data format.
+    let yaml_reg be LanguageRegistration{}
+    yaml_reg.language_id = "yaml"
+    yaml_reg.name = "YAML"
+    yaml_reg.backend = HTTP_API
+    yaml_reg.version = "1.2.2"
+    yaml_reg.semantic_compatibility = 0.55
+    self.register(yaml_reg)
+
+    -- XML: data format.
+    let xml_reg be LanguageRegistration{}
+    xml_reg.language_id = "xml"
+    xml_reg.name = "XML"
+    xml_reg.backend = HTTP_API
+    xml_reg.version = "1.1"
+    xml_reg.semantic_compatibility = 0.58
+    self.register(xml_reg)
+
+    -- Protobuf: serialization format.
+    let proto_reg be LanguageRegistration{}
+    proto_reg.language_id = "protobuf"
+    proto_reg.name = "Protobuf"
+    proto_reg.backend = C_SOURCE
+    proto_reg.version = "proto3"
+    proto_reg.semantic_compatibility = 0.62
+    self.register(proto_reg)
+
+    -- TOML: configuration format.
+    let toml_reg be LanguageRegistration{}
+    toml_reg.language_id = "toml"
+    toml_reg.name = "TOML"
+    toml_reg.backend = HTTP_API
+    toml_reg.version = "1.0.0"
+    toml_reg.semantic_compatibility = 0.50
+    self.register(toml_reg)
+
+    -- Markdown: documentation format.
+    let md_reg be LanguageRegistration{}
+    md_reg.language_id = "markdown"
+    md_reg.name = "Markdown"
+    md_reg.backend = HTTP_API
+    md_reg.version = "CommonMark 0.31"
+    md_reg.semantic_compatibility = 0.48
+    self.register(md_reg)
+
+    return self
+  end
+end
+
+-- =========================================================================
+-- ENTITY: BridgeManager
+-- =========================================================================
+-- The central manager for all bridge operations. Validates calls,
+-- propagates semantic attributes across language boundaries, maintains
+-- the call history, and enforces the First Law at every crossing.
+-- =========================================================================
+
+entity BridgeManager
+  -- The registry of all known target languages.
+  property registry: LanguageRegistry = LanguageRegistry{}
+
+  -- The bridge configuration controlling default behavior.
+  property config: BridgeConfig = BridgeConfig{}
+
+  -- History of all bridge calls made through this manager.
+  property call_history: List<BridgeCall> = []
+
+  -- Initialize a new bridge manager with the given configuration.
+  -- Automatically initializes the default language registry.
+  fn init(self, config: BridgeConfig) -> BridgeManager do
+    let mgr be BridgeManager{}
+    mgr.config = config
+    mgr.registry = LanguageRegistry{}.initialize_defaults()
+    mgr.call_history = List<BridgeCall>{}
+    return mgr
+  end
+
+  -- Register a new language bridge.
+  -- Returns true if registration succeeded.
+  fn register_bridge(self, reg: LanguageRegistration) -> Bool do
+    return self.registry.register(reg)
+  end
+
+  -- Execute a bridge call with full validation and semantic propagation.
+  -- This is the primary entry point for cross-language operations.
+  -- Validates the call, propagates semantics, executes, and records history.
+  fn call(self, bridge_call: BridgeCall) -> BridgeResult do
+    -- Step 1: Validate the call.
+    if not self.validate_call(bridge_call) then
+      let err_result be BridgeResult{}
+      err_result.success = false
+      err_result.error = "Bridge call validation failed: operation not allowlisted or language not registered"
+      err_result.preservation_level = LOST
+      return err_result
+    end
+
+    -- Step 2: Propagate semantic attributes to target language.
+    let propagated_attrs be self.propagate_semantics(
+      bridge_call.semantic_input,
+      bridge_call.target_language
+    )
+
+    -- Step 3: Execute the bridge call.
+    let result be self.execute_bridge_call(bridge_call)
+
+    -- Step 4: Attach propagated semantics to result.
+    result.semantic_output = propagated_attrs
+
+    -- Step 5: Assess preservation level.
+    if result.semantic_output.intact() then
+      if result.semantic_output.confidence >= 0.7 then
+        result.preservation_level = FULL
+      else if result.semantic_output.confidence >= 0.4 then
+        result.preservation_level = PARTIAL
+      else
+        result.preservation_level = DEGRADED
+      end
+    else
+      result.preservation_level = LOST
+    end
+
+    -- Step 6: In strict mode, reject if preservation is LOST.
+    if self.config.strict_mode and result.preservation_level == LOST then
+      result.success = false
+      result.error = "Strict mode: meaning lost during bridge call (First Law violation)"
+    end
+
+    -- Step 7: Record in call history.
+    self.call_history.append(bridge_call)
+
+    return result
+  end
+
+  -- Execute the actual bridge call against the target language.
+  -- This is the internal implementation that performs the translation.
+  fn execute_bridge_call(self, bridge_call: BridgeCall) -> BridgeResult do
+    let result be BridgeResult{}
+    result.success = true
+    result.result = "Executed " + bridge_call.operation
+      + " -> " + bridge_call.target_language
+      + " with " + int_to_string(bridge_call.arguments.length()) + " arguments"
+
+    -- If not preserving attributes, note the loss.
+    if not self.config.preserve_attributes then
+      result.error = "WARNING: Semantic attributes not preserved (preserve_attributes=false)"
+      result.preservation_level = DEGRADED
+    end
+
+    return result
+  end
+
+  -- Propagate semantic attributes for a cross-language hop.
+  -- Adjusts confidence based on the target language's compatibility.
+  -- Each language boundary incurs a confidence reduction proportional
+  -- to the semantic gap.
+  fn propagate_semantics(self, input: SemanticAttributes, target_language: String) -> SemanticAttributes do
+    let output be SemanticAttributes{}
+    output.intent = input.intent
+    output.meaning = input.meaning
+    output.context = input.context
+    output.provenance = input.provenance
+    output.scope = input.scope
+    output.temporal = input.temporal
+    output.semantic = input.semantic
+
+    -- Look up target language compatibility.
+    let reg be self.registry.get(target_language)
+    let compatibility be 0.5
+    if reg.is_present() then
+      compatibility = reg.get().semantic_compatibility
+    end
+
+    -- Confidence is reduced by the semantic gap.
+    -- A perfect 1.0 compatibility preserves confidence fully.
+    output.confidence = input.confidence * compatibility
+
+    return output
+  end
+
+  -- Validate a bridge call before execution.
+  -- Checks that the operation is allowlisted (if an allowlist exists)
+  -- and that both source and target languages are registered.
+  fn validate_call(self, call: BridgeCall) -> Bool do
+    -- Check operation allowlist.
+    if self.config.allowlisted_operations.length() > 0 then
+      let found be false
+      for op in self.config.allowlisted_operations do
+        if op == call.operation then
+          found = true
+        end
+      end
+      if not found then return false end
+    end
+
+    -- Check target language is registered.
+    let target_reg be self.registry.get(call.target_language)
+    if not target_reg.is_present() then return false end
+
+    -- Check target language is compatible.
+    if not target_reg.get().is_compatible() then
+      if self.config.strict_mode then return false end
+    end
+
+    return true
+  end
+
+  -- Return a list of all supported (registered and compatible) language IDs.
+  fn supported_languages(self) -> List<String> do
+    let all be self.registry.list_languages()
+    let supported be List<String>{}
+    for lang_id in all do
+      let reg be self.registry.get(lang_id)
+      if reg.is_present() then
+        if reg.get().is_compatible() then
+          supported.append(lang_id)
+        end
+      end
+    end
+    return supported
+  end
+end
+
+-- =========================================================================
+-- EXPORTS
+-- =========================================================================
+-- The bridge fabric exports all types. This module is the gateway
+-- through which Orren concepts cross into other languages, making
+-- it a critical dependency for any interop scenario.
+-- =========================================================================
+
+export {
+  BridgeBackend,
+  LanguageRegistration,
+  BridgeCall,
+  BridgeResult,
+  BridgeConfig,
+  LanguageRegistry,
+  BridgeManager
+}

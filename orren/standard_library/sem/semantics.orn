@@ -1,0 +1,422 @@
+module orren.semantics
+
+import from orren.core.language.foundation::{*}
+
+intent "Provide semantic attribute and mediated message primitives"
+intent "Enable cognitive mediation through structured metadata"
+intent "Support semantic tagging, provenance tracking, and message mediation"
+
+const SEMANTICS_VERSION = "1.0.0"
+const DEFAULT_CONFIDENCE = 0.75
+const MAX_ATTRIBUTES = 64
+const PROVENANCE_DEPTH_LIMIT = 10
+const MEDIATION_STRATEGY_DEFAULT = "pass_through"
+const MEDIATION_STRATEGY_FILTER = "filter"
+const MEDIATION_STRATEGY_TRANSFORM = "transform"
+const MEDIATION_STRATEGY_ENRICH = "enrich"
+
+entity SemanticAttributes
+    property intention : String = ""
+    property context : String = ""
+    property confidence : Float = DEFAULT_CONFIDENCE
+    property provenance : String = ""
+    property semantic_tags : List<String> = []
+    property annotations : Map<String, String> = {}
+    property source_entity : String = ""
+    property temporal_context : String = ""
+    property modality : String = ""
+    property salience : Float = 0.5
+
+    fn new() -> SemanticAttributes
+        let attrs : SemanticAttributes = SemanticAttributes()
+        attrs.intention = ""
+        attrs.context = ""
+        attrs.confidence = DEFAULT_CONFIDENCE
+        attrs.provenance = ""
+        attrs.semantic_tags = []
+        attrs.annotations = {}
+        attrs.source_entity = ""
+        attrs.temporal_context = ""
+        attrs.modality = ""
+        attrs.salience = 0.5
+        return attrs
+    end
+
+    fn with_intention(intention : String) -> SemanticAttributes
+        let updated : SemanticAttributes = self
+        updated.intention = intention
+        return updated
+    end
+
+    fn with_context(context : String) -> SemanticAttributes
+        let updated : SemanticAttributes = self
+        updated.context = context
+        return updated
+    end
+
+    fn with_confidence(confidence : Float) -> SemanticAttributes
+        let updated : SemanticAttributes = self
+        updated.confidence = confidence
+        return updated
+    end
+
+    fn with_provenance(provenance : String) -> SemanticAttributes
+        let updated : SemanticAttributes = self
+        updated.provenance = provenance
+        return updated
+    end
+
+    fn add_tag(tag : String) -> SemanticAttributes
+        intent "Add a semantic tag to this attribute set"
+        let tag_count : Int = ListOps.length(self.semantic_tags)
+        if tag_count >= MAX_ATTRIBUTES
+            return self
+        end
+        let updated : SemanticAttributes = self
+        updated.semantic_tags = ListOps.append(updated.semantic_tags, tag)
+        return updated
+    end
+
+    fn remove_tag(tag : String) -> SemanticAttributes
+        intent "Remove a semantic tag from this attribute set"
+        let filtered : List<String> = []
+        for t in self.semantic_tags do
+            if t != tag
+                filtered = ListOps.append(filtered, t)
+            end
+        end
+        let updated : SemanticAttributes = self
+        updated.semantic_tags = filtered
+        return updated
+    end
+
+    fn has_tag(tag : String) -> Bool
+        for t in self.semantic_tags do
+            if t == tag
+                return true
+            end
+        end
+        return false
+    end
+
+    fn annotate(key : String, value : String) -> SemanticAttributes
+        intent "Add a key-value annotation"
+        let updated : SemanticAttributes = self
+        updated.annotations[key] = value
+        return updated
+    end
+
+    fn get_annotation(key : String) -> String
+        return self.annotations[key]
+    end
+
+    fn merge(other : SemanticAttributes) -> SemanticAttributes
+        intent "Merge another SemanticAttributes into this one"
+        let merged : SemanticAttributes = self
+        if other.intention != ""
+            merged.intention = other.intention
+        end
+        if other.context != ""
+            merged.context = other.context
+        end
+        if other.confidence > 0.0
+            merged.confidence = (merged.confidence + other.confidence) / 2.0
+        end
+        if other.provenance != ""
+            merged.provenance = other.provenance
+        end
+        for tag in other.semantic_tags do
+            let already_has : Bool = merged.has_tag(tag)
+            if already_has == false
+                merged = merged.add_tag(tag)
+            end
+        end
+        for key in other.annotations do
+            let value : String = other.annotations[key]
+            merged.annotations[key] = value
+        end
+        return merged
+    end
+
+    fn is_high_confidence() -> Bool
+        if self.confidence >= 0.8
+            return true
+        else
+            return false
+        end
+    end
+
+    fn is_low_confidence() -> Bool
+        if self.confidence < 0.5
+            return true
+        else
+            return false
+        end
+    end
+
+    fn tag_count() -> Int
+        return ListOps.length(self.semantic_tags)
+    end
+
+    fn annotation_count() -> Int
+        let count : Int = 0
+        for key in self.annotations do
+            count = count + 1
+        end
+        return count
+    end
+
+    fn snapshot() -> Map<String, String>
+        let snap : Map<String, String> = {}
+        snap["intention"] = self.intention
+        snap["context"] = self.context
+        snap["confidence"] = "" + self.confidence
+        snap["provenance"] = self.provenance
+        snap["modality"] = self.modality
+        snap["salience"] = "" + self.salience
+        snap["tag_count"] = "" + self.tag_count()
+        snap["annotation_count"] = "" + self.annotation_count()
+        return snap
+    end
+
+    fn to_string() -> String
+        let tag_count : Int = self.tag_count()
+        return "SemanticAttributes(intention=" + self.intention + ", confidence=" + self.confidence + ", tags=" + tag_count + ")"
+    end
+end
+
+entity MediatedMessage
+    property content : String = ""
+    property sender : String = ""
+    property attributes : SemanticAttributes = SemanticAttributes.new()
+    property timestamp : Float = 0.0
+    property message_id : String = ""
+    property recipient : String = ""
+    property message_type : String = ""
+    property reply_to : String = ""
+    property metadata : Map<String, String> = {}
+
+    fn new() -> MediatedMessage
+        let msg : MediatedMessage = MediatedMessage()
+        msg.content = ""
+        msg.sender = ""
+        msg.attributes = SemanticAttributes.new()
+        msg.timestamp = 0.0
+        msg.message_id = ""
+        msg.recipient = ""
+        msg.message_type = ""
+        msg.reply_to = ""
+        msg.metadata = {}
+        return msg
+    end
+
+    fn create(content : String, sender : String) -> MediatedMessage
+        intent "Create a mediated message with content and sender"
+        let msg : MediatedMessage = MediatedMessage.new()
+        msg.content = content
+        msg.sender = sender
+        msg.timestamp = 0.0
+        msg.message_id = "msg_" + sender + "_" + content
+        msg.attributes = SemanticAttributes.new().with_provenance(sender)
+        return msg
+    end
+
+    fn with_semantic_attributes(attrs : SemanticAttributes) -> MediatedMessage
+        let updated : MediatedMessage = self
+        updated.attributes = attrs
+        return updated
+    end
+
+    fn with_recipient(recipient : String) -> MediatedMessage
+        let updated : MediatedMessage = self
+        updated.recipient = recipient
+        return updated
+    end
+
+    fn with_type(message_type : String) -> MediatedMessage
+        let updated : MediatedMessage = self
+        updated.message_type = message_type
+        return updated
+    end
+
+    fn with_reply_to(message_id : String) -> MediatedMessage
+        let updated : MediatedMessage = self
+        updated.reply_to = message_id
+        return updated
+    end
+
+    fn add_metadata(key : String, value : String) -> MediatedMessage
+        let updated : MediatedMessage = self
+        updated.metadata[key] = value
+        return updated
+    end
+
+    fn is_reply() -> Bool
+        if self.reply_to != ""
+            return true
+        else
+            return false
+        end
+    end
+
+    fn is_directed() -> Bool
+        if self.recipient != ""
+            return true
+        else
+            return false
+        end
+    end
+
+    fn has_semantic_tags() -> Bool
+        let count : Int = self.attributes.tag_count()
+        if count > 0
+            return true
+        else
+            return false
+        end
+    end
+
+    fn confidence() -> Float
+        return self.attributes.confidence
+    end
+
+    fn intention() -> String
+        return self.attributes.intention
+    end
+
+    fn create_reply(content : String, sender : String) -> MediatedMessage
+        let reply : MediatedMessage = MediatedMessage.create(content, sender)
+        reply = reply.with_recipient(self.sender)
+        reply = reply.with_reply_to(self.message_id)
+        reply = reply.with_type("reply")
+        return reply
+    end
+
+    fn summary() -> Map<String, String>
+        let s : Map<String, String> = {}
+        s["message_id"] = self.message_id
+        s["sender"] = self.sender
+        s["recipient"] = self.recipient
+        s["type"] = self.message_type
+        s["content_preview"] = self.content
+        s["confidence"] = "" + self.confidence()
+        s["intention"] = self.intention()
+        s["is_reply"] = "" + self.is_reply()
+        s["is_directed"] = "" + self.is_directed()
+        return s
+    end
+
+    fn to_string() -> String
+        return "MediatedMessage(id=" + self.message_id + ", from=" + self.sender + ", type=" + self.message_type + ")"
+    end
+end
+
+entity MessageBus
+    property messages : List<MediatedMessage> = []
+    property subscribers : Map<String, List<String>> = {}
+    property bus_id : String = ""
+    property mediation_strategy : String = MEDIATION_STRATEGY_DEFAULT
+    property total_sent : Int = 0
+    property total_received : Int = 0
+
+    fn new(bus_id : String) -> MessageBus
+        let bus : MessageBus = MessageBus()
+        bus.bus_id = bus_id
+        bus.messages = []
+        bus.subscribers = {}
+        bus.mediation_strategy = MEDIATION_STRATEGY_DEFAULT
+        bus.total_sent = 0
+        bus.total_received = 0
+        return bus
+    end
+
+    fn send(msg : MediatedMessage) -> MediatedMessage
+        intent "Send a mediated message through the bus"
+        let mediated : MediatedMessage = self.apply_mediation(msg)
+        self.messages = ListOps.append(self.messages, mediated)
+        self.total_sent = self.total_sent + 1
+        return mediated
+    end
+
+    fn receive(filter_type : String) -> List<MediatedMessage>
+        intent "Receive messages matching a filter type"
+        let received : List<MediatedMessage> = []
+        for msg in self.messages do
+            if filter_type == ""
+                received = ListOps.append(received, msg)
+            else
+                if msg.message_type == filter_type
+                    received = ListOps.append(received, msg)
+                end
+            end
+        end
+        self.total_received = self.total_received + ListOps.length(received)
+        return received
+    end
+
+    fn apply_mediation(msg : MediatedMessage) -> MediatedMessage
+        intent "Apply the configured mediation strategy to a message"
+        match self.mediation_strategy with
+            MEDIATION_STRATEGY_DEFAULT then
+                return msg
+            MEDIATION_STRATEGY_FILTER then
+                if msg.confidence() >= 0.3
+                    return msg
+                else
+                    let filtered : MediatedMessage = msg
+                    filtered.content = "[filtered] " + msg.content
+                    return filtered
+                end
+            MEDIATION_STRATEGY_TRANSFORM then
+                let transformed : MediatedMessage = msg
+                transformed.content = "[mediated] " + msg.content
+                transformed.attributes = transformed.attributes.with_provenance(self.bus_id)
+                return transformed
+            MEDIATION_STRATEGY_ENRICH then
+                let enriched : MediatedMessage = msg
+                enriched = enriched.add_metadata("mediated_by", self.bus_id)
+                enriched = enriched.add_metadata("mediation_strategy", self.mediation_strategy)
+                enriched.attributes = enriched.attributes.add_tag("mediated")
+                return enriched
+        end
+        return msg
+    end
+
+    fn subscribe(subscriber_id : String, message_type : String)
+        let existing : List<String> = self.subscribers[message_type]
+        let updated : List<String> = ListOps.append(existing, subscriber_id)
+        self.subscribers[message_type] = updated
+    end
+
+    fn set_strategy(strategy : String) -> MessageBus
+        let updated : MessageBus = self
+        updated.mediation_strategy = strategy
+        return updated
+    end
+
+    fn message_count() -> Int
+        return ListOps.length(self.messages)
+    end
+
+    fn clear()
+        self.messages = []
+    end
+
+    fn stats() -> Map<String, String>
+        let s : Map<String, String> = {}
+        s["bus_id"] = self.bus_id
+        s["total_messages"] = "" + self.message_count()
+        s["total_sent"] = "" + self.total_sent
+        s["total_received"] = "" + self.total_received
+        s["mediation_strategy"] = self.mediation_strategy
+        return s
+    end
+
+    fn to_string() -> String
+        return "MessageBus(" + self.bus_id + ", messages=" + self.message_count() + ")"
+    end
+end
+
+export SemanticAttributes
+export MediatedMessage
+export MessageBus

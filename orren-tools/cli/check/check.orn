@@ -1,0 +1,388 @@
+-- orren_tools.cli.check
+-- Quick syntax and semantic check without full compilation.
+-- Provides a fast feedback loop with configurable depth levels,
+-- optional linting, and parallel file checking.
+
+module orren_tools.cli.check
+
+import orren.core.language.foundation::{String, Int, Float, Bool, List, Map}
+import orren.core.language.foundation::{Result, Ok, Err, Option, Some, None}
+import orren.core.language.foundation::{File, Path, DateTime, Duration, Timer}
+import orren.core.compiler::{Compiler, CompileConfig, CompileResult, Diagnostic, Severity}
+import orren.core.linter::{Linter, LintConfig, LintResult, LintViolation}
+import orren.core.parcel::{TaskPool, TaskHandle}
+
+intent "Quick syntax and semantic check without full compilation"
+
+enum CheckLevel
+  SYNTAX
+  IMPORTS
+  TYPES
+  SEMANTIC
+  FULL
+end
+
+enum CheckStatus
+  PASS
+  WARN
+  FAIL
+end
+
+entity CheckConfig
+  property level: CheckLevel = CheckLevel.SYNTAX
+  property include_lint: Bool = false
+  property lint_config: LintConfig = LintConfig{}
+  property max_errors: Int = 50
+  property parallel: Bool = true
+end
+
+entity CheckResult
+  property status: CheckStatus = CheckStatus.PASS
+  property error_count: Int = 0
+  property warning_count: Int = 0
+  property info_count: Int = 0
+  property check_time: String = ""
+  property errors: List<String> = []
+  property warnings: List<String> = []
+end
+
+entity QuickChecker
+  property config: CheckConfig = CheckConfig{}
+  property compiler: Compiler = Compiler{}
+  property linter: Linter = Linter{}
+end
+
+-- ── Diagnostic helpers ──────────────────────────────────────────────────
+
+fn classify_diagnostic(self, result: CheckResult, diagnostic: Diagnostic) -> Unit
+  match diagnostic.severity with
+  case Severity.ERROR do
+    if result.error_count < self.config.max_errors then
+      result.errors.append(self.format_diagnostic(diagnostic))
+    end
+    result.error_count = result.error_count + 1
+  end
+  case Severity.WARNING do
+    result.warnings.append(self.format_diagnostic(diagnostic))
+    result.warning_count = result.warning_count + 1
+  end
+  case Severity.INFO do result.info_count = result.info_count + 1 end
+  case Severity.HINT do result.info_count = result.info_count + 1 end
+  end
+  return Unit{}
+end
+
+fn format_diagnostic(self, diagnostic: Diagnostic) -> String
+  let level be match diagnostic.severity with
+    case Severity.ERROR do "error" end
+    case Severity.WARNING do "warning" end
+    case Severity.INFO do "info" end
+    case Severity.HINT do "hint" end
+    end
+  let loc be diagnostic.file_path + ":" + diagnostic.line.to_string() + ":" + diagnostic.column.to_string()
+  return "[" + level + "] " + loc + ": " + diagnostic.message
+end
+
+fn format_lint_violation(self, violation: LintViolation) -> String
+  let level be match violation.severity with
+    case Severity.ERROR do "error" end
+    case Severity.WARNING do "warning" end
+    case Severity.INFO do "info" end
+    case Severity.HINT do "hint" end
+    end
+  let loc be violation.file_path + ":" + violation.line.to_string() + ":" + violation.column.to_string()
+  return "[" + level + "] " + loc + " [" + violation.rule_id + "]: " + violation.message
+end
+
+-- ── Level 1: Syntax check ───────────────────────────────────────────────
+
+fn check_syntax(self, file_path: String) -> Result<List<Diagnostic>, String>
+  if !File.exists(file_path) then
+    return Err("File not found: " + file_path)
+  end
+  let source be File.read(file_path)
+  match source with
+  case Err(e) do
+    return Err("Cannot read " + file_path + ": " + e.message())
+  end
+  case Ok(text) do
+    let syntax_result be self.compiler.parse(text, file_path)
+    return Ok(syntax_result.diagnostics)
+  end
+  end
+end
+
+fn sequential_check_syntax(self, files: List<String>) -> Result<List<List<Diagnostic>>, String>
+  let all_diagnostics be List<List<Diagnostic>>[]
+  for file_path in files do
+    let result be self.check_syntax(file_path)
+    match result with
+    case Ok(diags) do all_diagnostics.append(diags) end
+    case Err(e) do
+      if self.config.level == CheckLevel.FULL then
+        let diag be Diagnostic{severity: Severity.ERROR, message: e, file_path: file_path, line: 0, column: 0}
+        let wrapper be List<Diagnostic>[]
+        wrapper.append(diag)
+        all_diagnostics.append(wrapper)
+      end
+    end
+    end
+  end
+  return Ok(all_diagnostics)
+end
+
+fn parallel_check_syntax(self, files: List<String>) -> Result<List<List<Diagnostic>>, String>
+  let pool be TaskPool{max_workers: files.length.min(8)}
+  let handles be List<TaskHandle>[]
+  for file_path in files do
+    let handle be pool.spawn(fn -> self.check_syntax(file_path))
+    handles.append(handle)
+  end
+  let all_diagnostics be List<List<Diagnostic>>[]
+  for handle in handles do
+    let result be handle.join()
+    match result with
+    case Ok(diags) do all_diagnostics.append(diags) end
+    case Err(e) do
+      let diag be Diagnostic{severity: Severity.ERROR, message: e, file_path: "unknown", line: 0, column: 0}
+      let wrapper be List<Diagnostic>[]
+      wrapper.append(diag)
+      all_diagnostics.append(wrapper)
+    end
+    end
+  end
+  return Ok(all_diagnostics)
+end
+
+fn run_syntax_check(self, files: List<String>, result: CheckResult) -> CheckResult
+  let file_list be if self.config.parallel then
+    self.parallel_check_syntax(files)
+  else
+    self.sequential_check_syntax(files)
+  end
+  match file_list with
+  case Ok(diagnostics_list) do
+    for diagnostics in diagnostics_list do
+      for diagnostic in diagnostics do
+        self.classify_diagnostic(result, diagnostic)
+      end
+    end
+  end
+  case Err(e) do
+    result.errors.append("Syntax check error: " + e)
+    result.error_count = result.error_count + 1
+  end
+  end
+  return result
+end
+
+-- ── Level 2: Import resolution ──────────────────────────────────────────
+
+fn check_imports(self, files: List<String>, result: CheckResult) -> CheckResult
+  for file_path in files do
+    let source be File.read(file_path)
+    match source with
+    case Ok(text) do
+      let imports be self.compiler.extract_imports(text)
+      for import_path in imports do
+        let resolved be self.compiler.resolve_module(import_path)
+        if !resolved then
+          let msg be "Unresolved import: " + import_path + " (in " + file_path + ")"
+          result.errors.append(msg)
+          result.error_count = result.error_count + 1
+        end
+      end
+    end
+    case Err(_) do end
+    end
+  end
+  return result
+end
+
+-- ── Level 3: Type checking ──────────────────────────────────────────────
+
+fn check_types(self, files: List<String>, result: CheckResult) -> CheckResult
+  let type_result be self.compiler.type_check(files)
+  for diagnostic in type_result.diagnostics do
+    self.classify_diagnostic(result, diagnostic)
+  end
+  return result
+end
+
+-- ── Level 4: Semantic analysis ──────────────────────────────────────────
+
+fn check_semantic(self, files: List<String>, result: CheckResult) -> CheckResult
+  let semantic_result be self.compiler.semantic_check(files)
+  for diagnostic in semantic_result.diagnostics do
+    self.classify_diagnostic(result, diagnostic)
+  end
+  -- Check for unused imports.
+  let unused be self.compiler.find_unused_imports(files)
+  for unused_import in unused do
+    let msg be "Unused import: " + unused_import.module_name + " (in " + unused_import.file_path + ":" + unused_import.line.to_string() + ")"
+    result.warnings.append(msg)
+    result.warning_count = result.warning_count + 1
+  end
+  return result
+end
+
+-- ── Full check ──────────────────────────────────────────────────────────
+
+fn check_full(self, files: List<String>, result: CheckResult) -> CheckResult
+  result = self.run_syntax_check(files, result)
+  if result.error_count >= self.config.max_errors then return result end
+  result = self.check_imports(files, result)
+  if result.error_count >= self.config.max_errors then return result end
+  result = self.check_types(files, result)
+  if result.error_count >= self.config.max_errors then return result end
+  result = self.check_semantic(files, result)
+  return result
+end
+
+-- ── Lint integration ────────────────────────────────────────────────────
+
+fn run_lint(self, files: List<String>, result: CheckResult) -> CheckResult
+  let lint_results be self.linter.check_files(files, self.config.lint_config)
+  for lint_result in lint_results do
+    for violation in lint_result.violations do
+      let formatted be self.format_lint_violation(violation)
+      match violation.severity with
+      case Severity.ERROR do
+        result.errors.append(formatted)
+        result.error_count = result.error_count + 1
+      end
+      case Severity.WARNING do
+        result.warnings.append(formatted)
+        result.warning_count = result.warning_count + 1
+      end
+      case _ do result.info_count = result.info_count + 1 end
+      end
+    end
+  end
+  return result
+end
+
+-- ── File discovery ──────────────────────────────────────────────────────
+
+fn discover_files(self) -> Result<List<String>, String>
+  let src_dir be "src"
+  if !Path.is_dir(src_dir) then
+    return Err("No src/ directory found in current project")
+  end
+  let files be self.discover_files_recursive(src_dir)
+  if files.length == 0 then
+    return Err("No .orn source files found in src/")
+  end
+  return Ok(files)
+end
+
+fn discover_files_recursive(self, dir_path: String) -> List<String>
+  let files be List<String>[]
+  let entries be Path.list_dir(dir_path)
+  for entry in entries do
+    let full be dir_path + "/" + entry
+    if Path.is_dir(full) then
+      for sub in self.discover_files_recursive(full) do
+        files.append(sub)
+      end
+    else
+      if entry.ends_with(".orn") then
+        files.append(full)
+      end
+    end
+  end
+  return files
+end
+
+-- ── Result formatting ───────────────────────────────────────────────────
+
+fn determine_status(self, result: CheckResult) -> CheckStatus
+  if result.error_count > 0 then return CheckStatus.FAIL end
+  if result.warning_count > 0 then return CheckStatus.WARN end
+  return CheckStatus.PASS
+end
+
+fn format_result(self, result: CheckResult) -> String
+  let lines be List<String>[]
+  let status_label be match result.status with
+    case CheckStatus.PASS do "PASS" end
+    case CheckStatus.WARN do "WARN" end
+    case CheckStatus.FAIL do "FAIL" end
+    end
+  lines.append("Check result: " + status_label)
+  lines.append("  Errors:   " + result.error_count.to_string())
+  lines.append("  Warnings: " + result.warning_count.to_string())
+  lines.append("  Info:     " + result.info_count.to_string())
+  lines.append("  Time:     " + result.check_time)
+  if result.errors.length > 0 then
+    lines.append("")
+    lines.append("Errors:")
+    for err in result.errors do
+      lines.append("  " + err)
+    end
+  end
+  if result.warnings.length > 0 then
+    lines.append("")
+    lines.append("Warnings:")
+    for warn in result.warnings do
+      lines.append("  " + warn)
+    end
+  end
+  lines.append("")
+  lines.append("─".repeat(52))
+  return String.join("\n", lines)
+end
+
+-- ── Main entry point ────────────────────────────────────────────────────
+
+fn check(self) -> Result<CheckResult, String>
+  let timer be Timer.start()
+  let result be CheckResult{}
+  let files be self.discover_files()
+  match files with
+  case Err(e) do
+    result.status = CheckStatus.FAIL
+    result.errors.append(e)
+    result.error_count = 1
+    return Ok(result)
+  end
+  case Ok(file_list) do
+    let updated be match self.config.level with
+    case CheckLevel.SYNTAX do
+      self.run_syntax_check(file_list, result)
+    end
+    case CheckLevel.IMPORTS do
+      self.check_imports(file_list, self.run_syntax_check(file_list, result))
+    end
+    case CheckLevel.TYPES do
+      self.check_types(file_list, self.check_imports(file_list, self.run_syntax_check(file_list, result)))
+    end
+    case CheckLevel.SEMANTIC do
+      self.check_semantic(file_list, self.check_types(file_list, self.check_imports(file_list, self.run_syntax_check(file_list, result))))
+    end
+    case CheckLevel.FULL do
+      self.check_full(file_list, result)
+    end
+    end
+    -- Optionally run the linter.
+    let final_result be if self.config.include_lint then
+      self.run_lint(file_list, updated)
+    else
+      updated
+    end
+    final_result.status = self.determine_status(final_result)
+    final_result.check_time = timer.elapsed().to_string()
+    return Ok(final_result)
+  end
+  end
+end
+
+fn check_and_display(self) -> String
+  let result be self.check()
+  match result with
+  case Ok(r) do return self.format_result(r) end
+  case Err(e) do return "Check failed: " + e end
+  end
+end
+
+export {CheckLevel, CheckStatus, CheckConfig, CheckResult, QuickChecker}

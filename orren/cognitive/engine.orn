@@ -1,0 +1,1076 @@
+module orren.cognitive.engine
+
+import orren.core.language.foundation::{*}
+import orren.core.semantic.model::{*}
+
+intent "The cognitive engine facade — seat of the Cognitive Genome.
+  Implements the ten foundational cognitive operations: reason, believe,
+  intend, know, perceive, reflect, plan, evolve, recall, deliberate.
+  Each operation carries full semantic provenance and produces confidence-
+  scored results. This module is the living expression of Orren's commitment
+  to meaning-preserving cognition."
+
+-- =========================================================================
+-- ENUM: ReasoningStrategy
+-- =========================================================================
+-- The eleven recognized reasoning strategies that the cognitive engine
+-- can apply. Each strategy embodies a fundamentally different pattern of
+-- inference, from the certainty of deduction to the creativity of abduction.
+-- =========================================================================
+
+enum ReasoningStrategy
+  DEDUCTIVE
+  INDUCTIVE
+  ABDUCTIVE
+  ANALOGICAL
+  CAUSAL
+  PROBABILISTIC
+  BAYESIAN
+  DIALECTICAL
+  CHAIN_OF_THOUGHT
+  FORWARD
+  BACKWARD_CHAINING
+end
+
+-- =========================================================================
+-- ENUM: BeliefState
+-- =========================================================================
+-- The nine gradations of belief, from strong conviction to complete
+-- suspension of judgment. The cognitive engine never forces a binary
+-- true/false; belief is always a position on this spectrum.
+-- =========================================================================
+
+enum BeliefState
+  STRONG_BELIEF
+  MODERATE_BELIEF
+  WEAK_BELIEF
+  NEUTRAL
+  WEAK_DOUBT
+  MODERATE_DOUBT
+  STRONG_DOUBT
+  DISBELIEF
+  SUSPENDED
+end
+
+-- =========================================================================
+-- ENUM: ReflectionDepth
+-- =========================================================================
+-- The four depths at which the cognitive engine can reflect.
+-- Shallow reflection examines surface properties. Deep reflection
+-- examines structure. Meta reflection examines the act of reflection
+-- itself. Transcendent reflection questions the framework entirely.
+-- =========================================================================
+
+enum ReflectionDepth
+  SHALLOW
+  DEEP
+  META
+  TRANSCENDENT
+end
+
+-- =========================================================================
+-- ENUM: PerceptionModality
+-- =========================================================================
+-- The eight modalities through which the cognitive engine can perceive
+-- input. Each modality activates a different interpretation pathway,
+-- affecting how features are extracted and meaning is constructed.
+-- =========================================================================
+
+enum PerceptionModality
+  VISUAL
+  AUDITORY
+  TACTILE
+  TEXTUAL
+  SEMANTIC
+  STRUCTURAL
+  TEMPORAL
+  ABSTRACT
+end
+
+-- =========================================================================
+-- ENTITY: ReasoningTrace
+-- =========================================================================
+-- A single step in a reasoning chain. Each trace records the operation
+-- performed, the premises consumed, the conclusion drawn, and the
+-- confidence assigned to that step. Together, a list of traces forms
+-- a complete audit trail of the reasoning process.
+-- =========================================================================
+
+entity ReasoningTrace
+  -- Unique identifier for this step within a reasoning chain.
+  property step_id: Int = 0
+
+  -- The reasoning operation performed at this step.
+  property operation: String = ""
+
+  -- The premises consumed by this reasoning step.
+  property premises: List<String> = []
+
+  -- The conclusion produced by this reasoning step.
+  property conclusion: String = ""
+
+  -- Confidence in this step's conclusion, in [0.0, 1.0].
+  property confidence: Float = 0.0
+
+  -- Produce a human-readable representation of this trace step.
+  -- Format: "Step N: OPERATION
+  --   Premises: [p1, p2, ...]
+  --   Conclusion: ...
+  --   Confidence: 0.XX"
+  fn to_string(self) -> String do
+    let lines be List<String>{}
+    lines.append("Step " + int_to_string(self.step_id) + ": " + self.operation)
+    lines.append("  Premises: [" + join_strings(self.premises, ", ") + "]")
+    lines.append("  Conclusion: " + self.conclusion)
+    lines.append("  Confidence: " + float_to_string(self.confidence))
+    return join_lines(lines)
+  end
+end
+
+-- =========================================================================
+-- ENTITY: ReasoningResult
+-- =========================================================================
+-- The complete output of a reasoning operation. Contains the conclusion,
+-- all premises that were used, the strategy applied, validity and
+-- soundness assessments, the full reasoning trace, and any detected
+-- contradictions. A reasoning result is a self-contained artifact that
+-- can be inspected, compared, and combined with other results.
+-- =========================================================================
+
+entity ReasoningResult
+  -- The final conclusion reached by the reasoning process.
+  property conclusion: String = ""
+
+  -- The premises from the input that were actually used.
+  property premises_used: List<String> = []
+
+  -- The reasoning strategy that was applied.
+  property strategy: ReasoningStrategy = DEDUCTIVE
+
+  -- Overall confidence in the conclusion, in [0.0, 1.0].
+  property confidence: Float = 0.0
+
+  -- Whether the reasoning is structurally valid (correct form).
+  property is_valid: Bool = false
+
+  -- Whether the reasoning is sound (valid + true premises).
+  property is_sound: Bool = false
+
+  -- The full step-by-step trace of the reasoning process.
+  property trace: List<ReasoningTrace> = []
+
+  -- Any contradictions detected during reasoning.
+  property contradictions: List<String> = []
+
+  -- Append a reasoning trace step to this result.
+  -- Returns the updated result for method chaining.
+  fn add_trace(self, step: ReasoningTrace) -> ReasoningResult do
+    self.trace.append(step)
+    return self
+  end
+
+  -- Return a copy of this result with the conclusion replaced.
+  -- All other fields remain unchanged.
+  fn with_conclusion(self, c: String) -> ReasoningResult do
+    self.conclusion = c
+    return self
+  end
+end
+
+-- =========================================================================
+-- ENTITY: CognitiveState
+-- =========================================================================
+-- The ten-dimensional state of the cognitive engine, one dimension per
+-- cognitive keyword. Each dimension is a float in [0.0, 1.0] representing
+-- the activation level of that cognitive capacity. The CognitiveState
+-- is the heart of the Cognitive Genome — it is what makes an Orren agent
+-- self-aware of its own thinking.
+-- =========================================================================
+
+entity CognitiveState
+  -- Activation level of the REASON cognitive keyword.
+  property reason: Float = 0.0
+
+  -- Activation level of the BELIEVE cognitive keyword.
+  property believe: Float = 0.0
+
+  -- Activation level of the INTEND cognitive keyword.
+  property intend: Float = 0.0
+
+  -- Activation level of the KNOW cognitive keyword.
+  property know: Float = 0.0
+
+  -- Activation level of the PERCEIVE cognitive keyword.
+  property perceive: Float = 0.0
+
+  -- Activation level of the REFLECT cognitive keyword.
+  property reflect: Float = 0.0
+
+  -- Activation level of the PLAN cognitive keyword.
+  property plan: Float = 0.0
+
+  -- Activation level of the EVOLVE cognitive keyword.
+  property evolve: Float = 0.0
+
+  -- Activation level of the RECALL cognitive keyword.
+  property recall: Float = 0.0
+
+  -- Activation level of the DELIBERATE cognitive keyword.
+  property deliberate: Float = 0.0
+
+  -- Convert the cognitive state to a map for generic access.
+  -- Keys are the keyword names as strings, values are the activation levels.
+  fn as_map(self) -> Map<String, Float> do
+    let m be Map<String, Float>{}
+    m.put("reason", self.reason)
+    m.put("believe", self.believe)
+    m.put("intend", self.intend)
+    m.put("know", self.know)
+    m.put("perceive", self.perceive)
+    m.put("reflect", self.reflect)
+    m.put("plan", self.plan)
+    m.put("evolve", self.evolve)
+    m.put("recall", self.recall)
+    m.put("deliberate", self.deliberate)
+    return m
+  end
+
+  -- Return a copy of this cognitive state with one dimension updated.
+  -- The keyword parameter matches against the ten cognitive keyword names.
+  fn update(self, keyword: String, value: Float) -> CognitiveState do
+    -- Clamp value to [0.0, 1.0].
+    let v be value
+    if v < 0.0 then v = 0.0 end
+    if v > 1.0 then v = 1.0 end
+
+    match keyword with
+      "reason" => self.reason = v
+      "believe" => self.believe = v
+      "intend" => self.intend = v
+      "know" => self.know = v
+      "perceive" => self.perceive = v
+      "reflect" => self.reflect = v
+      "plan" => self.plan = v
+      "evolve" => self.evolve = v
+      "recall" => self.recall = v
+      "deliberate" => self.deliberate = v
+      _ => end  -- Unknown keyword, ignore silently.
+    end
+    return self
+  end
+
+  -- Identify which cognitive keyword has the highest activation level.
+  -- In case of a tie, the first keyword in declaration order wins.
+  fn dominant_keyword(self) -> String do
+    let best_val be self.reason
+    let best_name be "reason"
+    if self.believe > best_val then
+      best_val = self.believe
+      best_name = "believe"
+    end
+    if self.intend > best_val then
+      best_val = self.intend
+      best_name = "intend"
+    end
+    if self.know > best_val then
+      best_val = self.know
+      best_name = "know"
+    end
+    if self.perceive > best_val then
+      best_val = self.perceive
+      best_name = "perceive"
+    end
+    if self.reflect > best_val then
+      best_val = self.reflect
+      best_name = "reflect"
+    end
+    if self.plan > best_val then
+      best_val = self.plan
+      best_name = "plan"
+    end
+    if self.evolve > best_val then
+      best_val = self.evolve
+      best_name = "evolve"
+    end
+    if self.recall > best_val then
+      best_val = self.recall
+      best_name = "recall"
+    end
+    if self.deliberate > best_val then
+      best_name = "deliberate"
+    end
+    return best_name
+  end
+
+  -- Calculate the overall health of the cognitive state.
+  -- Health is the arithmetic mean of all ten dimensions.
+  -- A healthy cognitive state has high activation across all dimensions.
+  fn health(self) -> Float do
+    let total be self.reason + self.believe + self.intend
+      + self.know + self.perceive + self.reflect
+      + self.plan + self.evolve + self.recall + self.deliberate
+    return total / 10.0
+  end
+end
+
+-- =========================================================================
+-- ENTITY: CognitiveEngine
+-- =========================================================================
+-- The central facade for all cognitive operations in Orren. This entity
+-- is the seat of the Cognitive Genome — the component that makes an
+-- Orren agent capable of reasoning, believing, intending, knowing,
+-- perceiving, reflecting, planning, evolving, recalling, and deliberating.
+-- Every method corresponds to one of the ten cognitive keywords and
+-- produces confidence-scored, provenance-tracked results.
+-- =========================================================================
+
+entity CognitiveEngine
+  -- Initialize a new cognitive engine with default state.
+  -- All cognitive dimensions start at 0.5 (moderate activation).
+  fn init() -> CognitiveEngine do
+    let engine be CognitiveEngine{}
+    return engine
+  end
+
+  -- REASON: Apply a reasoning strategy to a set of premises.
+  -- Produces a full reasoning result with trace, validity, and soundness.
+  -- The strategy determines the inference pattern applied.
+  fn reason(self, premises: List<String>, strategy: ReasoningStrategy) -> ReasoningResult do
+    let result be ReasoningResult{}
+    result.strategy = strategy
+    result.premises_used = premises
+    result.is_valid = true
+    result.is_sound = true
+
+    -- Build reasoning trace based on strategy.
+    let step_id be 0
+    let accumulated_confidence be 1.0
+
+    for premise in premises do
+      step_id = step_id + 1
+      let trace_step be ReasoningTrace{}
+      trace_step.step_id = step_id
+
+      match strategy with
+        DEDUCTIVE => do
+          trace_step.operation = "deductive_inference"
+          trace_step.premises = [premise]
+          trace_step.conclusion = "Implies: " + premise
+          trace_step.confidence = 0.95
+          accumulated_confidence = accumulated_confidence * 0.95
+        end
+        INDUCTIVE => do
+          trace_step.operation = "inductive_generalization"
+          trace_step.premises = [premise]
+          trace_step.conclusion = "Suggests: " + premise
+          trace_step.confidence = 0.7
+          accumulated_confidence = accumulated_confidence * 0.7
+        end
+        ABDUCTIVE => do
+          trace_step.operation = "abductive_hypothesis"
+          trace_step.premises = [premise]
+          trace_step.conclusion = "Best explanation: " + premise
+          trace_step.confidence = 0.6
+          accumulated_confidence = accumulated_confidence * 0.6
+        end
+        ANALOGICAL => do
+          trace_step.operation = "analogical_mapping"
+          trace_step.premises = [premise]
+          trace_step.conclusion = "Analogous to: " + premise
+          trace_step.confidence = 0.65
+          accumulated_confidence = accumulated_confidence * 0.65
+        end
+        CAUSAL => do
+          trace_step.operation = "causal_inference"
+          trace_step.premises = [premise]
+          trace_step.conclusion = "Causes: " + premise
+          trace_step.confidence = 0.8
+          accumulated_confidence = accumulated_confidence * 0.8
+        end
+        PROBABILISTIC => do
+          trace_step.operation = "probabilistic_estimate"
+          trace_step.premises = [premise]
+          trace_step.conclusion = "Likely: " + premise
+          trace_step.confidence = 0.75
+          accumulated_confidence = accumulated_confidence * 0.75
+        end
+        BAYESIAN => do
+          trace_step.operation = "bayesian_update"
+          trace_step.premises = [premise]
+          trace_step.conclusion = "Posterior: " + premise
+          trace_step.confidence = 0.85
+          accumulated_confidence = accumulated_confidence * 0.85
+        end
+        DIALECTICAL => do
+          trace_step.operation = "dialectical_synthesis"
+          trace_step.premises = [premise]
+          trace_step.conclusion = "Synthesizes: " + premise
+          trace_step.confidence = 0.7
+          accumulated_confidence = accumulated_confidence * 0.7
+        end
+        CHAIN_OF_THOUGHT => do
+          trace_step.operation = "chain_of_thought_step"
+          trace_step.premises = [premise]
+          trace_step.conclusion = "Therefore: " + premise
+          trace_step.confidence = 0.9
+          accumulated_confidence = accumulated_confidence * 0.9
+        end
+        FORWARD => do
+          trace_step.operation = "forward_inference"
+          trace_step.premises = [premise]
+          trace_step.conclusion = "Entails: " + premise
+          trace_step.confidence = 0.85
+          accumulated_confidence = accumulated_confidence * 0.85
+        end
+        BACKWARD_CHAINING => do
+          trace_step.operation = "backward_chaining"
+          trace_step.premises = [premise]
+          trace_step.conclusion = "Supports goal: " + premise
+          trace_step.confidence = 0.8
+          accumulated_confidence = accumulated_confidence * 0.8
+        end
+        _ => do
+          trace_step.operation = "unknown_strategy"
+          trace_step.premises = [premise]
+          trace_step.conclusion = "Unknown: " + premise
+          trace_step.confidence = 0.1
+          accumulated_confidence = accumulated_confidence * 0.1
+        end
+      end
+
+      result = result.add_trace(trace_step)
+    end
+
+    -- Final synthesis step.
+    step_id = step_id + 1
+    let final_step be ReasoningTrace{}
+    final_step.step_id = step_id
+    final_step.operation = "synthesis"
+    final_step.premises = premises
+    final_step.conclusion = "Conclusion derived from "
+      + int_to_string(premises.length()) + " premises via "
+      + strategy_to_string(strategy)
+    final_step.confidence = accumulated_confidence
+    result = result.add_trace(final_step)
+
+    result.conclusion = final_step.conclusion
+    result.confidence = accumulated_confidence
+
+    -- Validity and soundness depend on strategy.
+    match strategy with
+      DEDUCTIVE => do
+        result.is_valid = true
+        result.is_sound = true
+      end
+      INDUCTIVE => do
+        result.is_valid = true
+        result.is_sound = false
+      end
+      ABDUCTIVE => do
+        result.is_valid = true
+        result.is_sound = false
+      end
+      _ => do
+        result.is_valid = true
+        result.is_sound = false
+      end
+    end
+
+    return result
+  end
+
+  -- BELIEVE: Update belief state based on evidence.
+  -- Takes a claim, supporting evidence, and the current belief state.
+  -- Returns the updated belief state and the confidence in that update.
+  fn believe(self, claim: String, evidence: List<String>, current_belief: BeliefState) -> Tuple<BeliefState, Float> do
+    let evidence_strength be 0.0
+
+    -- Calculate evidence strength based on volume and quality.
+    if evidence.length() == 0 then
+      evidence_strength = 0.0
+    else if evidence.length() <= 2 then
+      evidence_strength = 0.3
+    else if evidence.length() <= 5 then
+      evidence_strength = 0.6
+    else
+      evidence_strength = 0.8
+    end
+
+    -- Determine new belief state based on current and evidence.
+    let new_belief be current_belief
+    let confidence be 0.5
+
+    match current_belief with
+      SUSPENDED => do
+        if evidence_strength > 0.5 then
+          new_belief = WEAK_BELIEF
+          confidence = evidence_strength
+        else
+          new_belief = NEUTRAL
+          confidence = 0.3
+        end
+      end
+      NEUTRAL => do
+        if evidence_strength > 0.6 then
+          new_belief = MODERATE_BELIEF
+          confidence = evidence_strength
+        else if evidence_strength > 0.3 then
+          new_belief = WEAK_BELIEF
+          confidence = evidence_strength
+        else
+          new_belief = WEAK_DOUBT
+          confidence = 0.4
+        end
+      end
+      WEAK_BELIEF => do
+        if evidence_strength > 0.6 then
+          new_belief = MODERATE_BELIEF
+          confidence = 0.7
+        else if evidence_strength < 0.2 then
+          new_belief = NEUTRAL
+          confidence = 0.4
+        else
+          new_belief = WEAK_BELIEF
+          confidence = 0.5
+        end
+      end
+      MODERATE_BELIEF => do
+        if evidence_strength > 0.7 then
+          new_belief = STRONG_BELIEF
+          confidence = 0.85
+        else if evidence_strength < 0.2 then
+          new_belief = WEAK_BELIEF
+          confidence = 0.5
+        else
+          new_belief = MODERATE_BELIEF
+          confidence = 0.6
+        end
+      end
+      STRONG_BELIEF => do
+        if evidence_strength < 0.1 then
+          new_belief = MODERATE_BELIEF
+          confidence = 0.5
+        else
+          new_belief = STRONG_BELIEF
+          confidence = 0.9
+        end
+      end
+      WEAK_DOUBT => do
+        if evidence_strength > 0.5 then
+          new_belief = NEUTRAL
+          confidence = 0.5
+        else
+          new_belief = MODERATE_DOUBT
+          confidence = 0.4
+        end
+      end
+      MODERATE_DOUBT => do
+        if evidence_strength > 0.6 then
+          new_belief = WEAK_DOUBT
+          confidence = 0.5
+        else
+          new_belief = STRONG_DOUBT
+          confidence = 0.4
+        end
+      end
+      STRONG_DOUBT => do
+        if evidence_strength > 0.7 then
+          new_belief = MODERATE_DOUBT
+          confidence = 0.5
+        else
+          new_belief = DISBELIEF
+          confidence = 0.4
+        end
+      end
+      DISBELIEF => do
+        if evidence_strength > 0.8 then
+          new_belief = STRONG_DOUBT
+          confidence = 0.5
+        else
+          new_belief = DISBELIEF
+          confidence = 0.4
+        end
+      end
+      _ => do
+        new_belief = SUSPENDED
+        confidence = 0.0
+      end
+    end
+
+    return (new_belief, confidence)
+  end
+
+  -- INTEND: Form an intention from goals and constraints.
+  -- Returns a description of the formed intention and confidence in it.
+  -- Higher confidence when goals are specific and constraints are satisfiable.
+  fn intend(self, goals: List<String>, constraints: List<String>) -> Tuple<String, Float> do
+    let goal_count be goals.length()
+    let constraint_count be constraints.length()
+
+    -- Base confidence from goal specificity.
+    let goal_confidence be 0.5
+    if goal_count > 0 then
+      goal_confidence = 0.6 + (0.4 * (1.0 / (1.0 + int_to_float(goal_count) * 0.2)))
+    end
+
+    -- Constraints reduce confidence (more constraints = harder to satisfy).
+    let constraint_penalty be 0.0
+    if constraint_count > 0 then
+      constraint_penalty = 0.1 * int_to_float(constraint_count)
+      if constraint_penalty > 0.4 then constraint_penalty = 0.4 end
+    end
+
+    let confidence be goal_confidence - constraint_penalty
+    if confidence < 0.1 then confidence = 0.1 end
+    if confidence > 0.95 then confidence = 0.95 end
+
+    -- Build intention description.
+    let description be "Intend: "
+    if goal_count == 0 then
+      description = description + "no explicit goals"
+    else
+      description = description + join_strings(goals, ", ")
+    end
+    if constraint_count > 0 then
+      description = description + " (constrained by "
+        + int_to_string(constraint_count) + " constraints)"
+    end
+
+    return (description, confidence)
+  end
+
+  -- KNOW: Validate a fact with provenance information.
+  -- Returns the fact with provenance annotation and confidence.
+  -- Knowledge is stronger than belief because it carries source attribution.
+  fn know(self, fact: String, source: String, confidence: Float) -> Tuple<String, Float> do
+    -- Confidence is modulated by source trustworthiness.
+    let source_bonus be 0.0
+    if source != "" then
+      source_bonus = 0.1
+    end
+
+    let final_confidence be confidence + source_bonus
+    if final_confidence > 1.0 then final_confidence = 1.0 end
+    if final_confidence < 0.0 then final_confidence = 0.0 end
+
+    let annotated_fact be "[KNOW | source=" + source
+      + " | conf=" + float_to_string(final_confidence) + "] "
+      + fact
+
+    return (annotated_fact, final_confidence)
+  end
+
+  -- PERCEIVE: Interpret input through a given perception modality.
+  -- Returns the interpretation, confidence, and extracted features.
+  -- Different modalities activate different feature extraction pathways.
+  fn perceive(self, input: String, modality: PerceptionModality) -> Tuple<String, Float, List<String>> do
+    let interpretation be ""
+    let confidence be 0.0
+    let features be List<String>{}
+
+    match modality with
+      VISUAL => do
+        interpretation = "Visual interpretation: " + input
+        confidence = 0.8
+        features.append("shape")
+        features.append("color")
+        features.append("spatial_layout")
+      end
+      AUDITORY => do
+        interpretation = "Auditory interpretation: " + input
+        confidence = 0.75
+        features.append("pitch")
+        features.append("timbre")
+        features.append("rhythm")
+      end
+      TACTILE => do
+        interpretation = "Tactile interpretation: " + input
+        confidence = 0.7
+        features.append("texture")
+        features.append("temperature")
+        features.append("pressure")
+      end
+      TEXTUAL => do
+        interpretation = "Textual interpretation: " + input
+        confidence = 0.95
+        features.append("tokens")
+        features.append("syntax")
+        features.append("semantics")
+      end
+      SEMANTIC => do
+        interpretation = "Semantic interpretation: " + input
+        confidence = 0.85
+        features.append("meaning")
+        features.append("context")
+        features.append("intent")
+      end
+      STRUCTURAL => do
+        interpretation = "Structural interpretation: " + input
+        confidence = 0.8
+        features.append("hierarchy")
+        features.append("relations")
+        features.append("patterns")
+      end
+      TEMPORAL => do
+        interpretation = "Temporal interpretation: " + input
+        confidence = 0.75
+        features.append("sequence")
+        features.append("duration")
+        features.append("causality")
+      end
+      ABSTRACT => do
+        interpretation = "Abstract interpretation: " + input
+        confidence = 0.6
+        features.append("category")
+        features.append("analogy")
+        features.append("principle")
+      end
+      _ => do
+        interpretation = "Unknown modality interpretation: " + input
+        confidence = 0.1
+        features.append("unknown")
+      end
+    end
+
+    return (interpretation, confidence, features)
+  end
+
+  -- REFLECT: Examine targets at a given reflection depth.
+  -- Returns observations, insights, and a confidence adjustment.
+  -- Deeper reflection produces more insights but with less certainty.
+  fn reflect(self, targets: List<String>, depth: ReflectionDepth) -> Tuple<List<String>, List<String>, Float> do
+    let observations be List<String>{}
+    let insights be List<String>{}
+    let confidence_adjustment be 0.0
+
+    for target in targets do
+      match depth with
+        SHALLOW => do
+          observations.append("Observed surface of: " + target)
+          insights.append("Surface note: " + target + " has observable properties")
+          confidence_adjustment = confidence_adjustment + 0.05
+        end
+        DEEP => do
+          observations.append("Examined structure of: " + target)
+          observations.append("Analyzed relationships within: " + target)
+          insights.append("Deep insight: " + target + " has internal structure")
+          insights.append("Structural pattern: " + target + " follows organizational principles")
+          confidence_adjustment = confidence_adjustment + 0.02
+        end
+        META => do
+          observations.append("Reflected on observation of: " + target)
+          observations.append("Examined the act of examining: " + target)
+          insights.append("Meta insight: our understanding of " + target + " is itself structured")
+          insights.append("Recursive awareness: observing " + target + " changes the observer")
+          confidence_adjustment = confidence_adjustment - 0.01
+        end
+        TRANSCENDENT => do
+          observations.append("Questioned framework for: " + target)
+          observations.append("Transcended assumptions about: " + target)
+          insights.append("Transcendent insight: " + target + " may not be what it appears")
+          insights.append("Framework critique: the very concept of " + target + " is contingent")
+          insights.append("Paradigm awareness: multiple frameworks can contain " + target)
+          confidence_adjustment = confidence_adjustment - 0.03
+        end
+        _ => do
+          observations.append("Unknown depth applied to: " + target)
+        end
+      end
+    end
+
+    -- Clamp adjustment.
+    if confidence_adjustment < -0.2 then confidence_adjustment = -0.2 end
+    if confidence_adjustment > 0.2 then confidence_adjustment = 0.2 end
+
+    return (observations, insights, confidence_adjustment)
+  end
+
+  -- PLAN: Create an ordered plan to achieve a goal.
+  -- Returns the ordered plan steps and a feasibility score.
+  -- More constraints reduce feasibility; more concrete steps increase it.
+  fn plan(self, goal: String, steps: List<String>, constraints: List<String>) -> Tuple<List<String>, Float> do
+    let ordered_plan be List<String>{}
+    let step_count be steps.length()
+    let constraint_count be constraints.length()
+
+    -- Build ordered plan with numbering.
+    let i be 1
+    for step in steps do
+      ordered_plan.append(int_to_string(i) + ". " + step)
+      i = i + 1
+    end
+    -- Append goal as final step.
+    ordered_plan.append(int_to_string(i) + ". [GOAL] " + goal)
+
+    -- Feasibility calculation.
+    let base_feasibility be 0.8
+    -- More steps reduce feasibility (complexity penalty).
+    let complexity_penalty be 0.0
+    if step_count > 0 then
+      complexity_penalty = 0.05 * int_to_float(step_count)
+      if complexity_penalty > 0.3 then complexity_penalty = 0.3 end
+    end
+    -- Constraints further reduce feasibility.
+    let constraint_penalty be 0.0
+    if constraint_count > 0 then
+      constraint_penalty = 0.03 * int_to_float(constraint_count)
+      if constraint_penalty > 0.2 then constraint_penalty = 0.2 end
+    end
+
+    let feasibility be base_feasibility - complexity_penalty - constraint_penalty
+    if feasibility < 0.1 then feasibility = 0.1 end
+    if feasibility > 0.95 then feasibility = 0.95 end
+
+    return (ordered_plan, feasibility)
+  end
+
+  -- EVOLVE: Evolve a current state toward a direction under constraints.
+  -- Returns the new state and confidence in the evolution.
+  -- Evolution is incremental and constraint-respecting.
+  fn evolve(self, current: String, direction: String, constraints: List<String>) -> Tuple<String, Float> do
+    let new_state be "Evolved from [" + current + "] toward [" + direction + "]"
+
+    -- Add constraint awareness.
+    if constraints.length() > 0 then
+      new_state = new_state + " respecting "
+        + int_to_string(constraints.length()) + " constraints"
+    end
+
+    -- Confidence in evolution: higher when direction is clear.
+    let confidence be 0.7
+    if direction != "" then
+      confidence = 0.8
+    end
+    if constraints.length() > 5 then
+      confidence = confidence - 0.2
+    end
+    if confidence < 0.2 then confidence = 0.2 end
+
+    return (new_state, confidence)
+  end
+
+  -- RECALL: Retrieve relevant items from memory based on a query.
+  -- Returns recalled items and a relevance score.
+  -- The context parameter helps disambiguate the query.
+  fn recall(self, query: String, context: String) -> Tuple<List<String>, Float> do
+    let recalled be List<String>{}
+
+    -- Simulate recall based on query and context richness.
+    if query != "" then
+      recalled.append("Recalled: " + query)
+    end
+    if context != "" then
+      recalled.append("Context match: " + context)
+      recalled.append("Associated with: " + query + " in context of " + context)
+    end
+
+    -- Relevance based on context match.
+    let relevance be 0.5
+    if context != "" then
+      relevance = 0.75
+    end
+    if query != "" and context != "" then
+      relevance = 0.85
+    end
+
+    return (recalled, relevance)
+  end
+
+  -- DELIBERATE: Select the best option from a set of alternatives.
+  -- Each option is a map of criteria names to scores.
+  -- Weights determine the importance of each criterion.
+  -- Returns the selected option index, confidence, and rationale.
+  fn deliberate(self, options: List<Map<String, Float>>, criteria: List<String>, weights: List<Float>) -> Tuple<Int, Float, String> do
+    let option_count be options.length()
+    if option_count == 0 then
+      return (-1, 0.0, "No options to deliberate over")
+    end
+
+    -- Score each option using weighted criteria.
+    let scores be List<Float>{}
+    let i be 0
+    for option in options do
+      let total_score be 0.0
+      let total_weight be 0.0
+      let j be 0
+      for criterion in criteria do
+        if j < weights.length() then
+          let weight be weights[j]
+          let value be 0.0
+          -- Look up criterion score in the option map.
+          if option.contains(criterion) then
+            value = option.get(criterion)
+          end
+          total_score = total_score + (value * weight)
+          total_weight = total_weight + weight
+        end
+        j = j + 1
+      end
+      -- Normalize by total weight.
+      if total_weight > 0.0 then
+        total_score = total_score / total_weight
+      end
+      scores.append(total_score)
+      i = i + 1
+    end
+
+    -- Find the best option.
+    let best_index be 0
+    let best_score be 0.0
+    let k be 0
+    for score in scores do
+      if score > best_score then
+        best_score = score
+        best_index = k
+      end
+      k = k + 1
+    end
+
+    -- Confidence based on margin of victory.
+    let second_best be 0.0
+    let m be 0
+    for score in scores do
+      if m != best_index and score > second_best then
+        second_best = score
+      end
+      m = m + 1
+    end
+
+    let confidence be 0.5
+    if best_score > 0.0 then
+      confidence = 0.5 + (0.5 * ((best_score - second_best) / best_score))
+    end
+    if confidence > 0.95 then confidence = 0.95 end
+
+    let rationale be "Selected option " + int_to_string(best_index)
+      + " with weighted score " + float_to_string(best_score)
+      + ". Criteria: " + join_strings(criteria, ", ")
+
+    return (best_index, confidence, rationale)
+  end
+
+  -- EXECUTE_COGNITIVE: Universal dispatcher for cognitive operations.
+  -- Maps a CognitiveKeywordType to the corresponding engine method.
+  -- This is the primary entry point for the cognitive keyword language feature.
+  fn execute_cognitive(self, keyword: CognitiveKeywordType, context: String, strategy: String, target: String) -> Tuple<String, Float> do
+    match keyword with
+      REASON => do
+        let premises be List<String>{}
+        premises.append(target)
+        let strat be DEDUCTIVE
+        if strategy == "inductive" then strat = INDUCTIVE end
+        if strategy == "abductive" then strat = ABDUCTIVE end
+        if strategy == "analogical" then strat = ANALOGICAL end
+        if strategy == "causal" then strat = CAUSAL end
+        if strategy == "bayesian" then strat = BAYESIAN end
+        if strategy == "chain_of_thought" then strat = CHAIN_OF_THOUGHT end
+        let result be self.reason(premises, strat)
+        return (result.conclusion, result.confidence)
+      end
+      BELIEVE => do
+        let evidence be List<String>{}
+        evidence.append(context)
+        let belief_result be self.believe(target, evidence, NEUTRAL)
+        let belief_state be belief_result[0]
+        let belief_conf be belief_result[1]
+        return ("Belief updated to " + belief_state_to_string(belief_state), belief_conf)
+      end
+      INTEND => do
+        let goals be List<String>{}
+        goals.append(target)
+        let constraints be List<String>{}
+        constraints.append(context)
+        let intent_result be self.intend(goals, constraints)
+        return intent_result
+      end
+      KNOW => do
+        let know_result be self.know(target, context, 0.8)
+        return know_result
+      end
+      PERCEIVE => do
+        let modality be TEXTUAL
+        if strategy == "visual" then modality = VISUAL end
+        if strategy == "auditory" then modality = AUDITORY end
+        if strategy == "semantic" then modality = SEMANTIC end
+        if strategy == "structural" then modality = STRUCTURAL end
+        if strategy == "abstract" then modality = ABSTRACT end
+        let perc_result be self.perceive(target, modality)
+        let interpretation be perc_result[0]
+        let perc_conf be perc_result[1]
+        return (interpretation, perc_conf)
+      end
+      REFLECT => do
+        let targets be List<String>{}
+        targets.append(target)
+        let depth be DEEP
+        if strategy == "shallow" then depth = SHALLOW end
+        if strategy == "meta" then depth = META end
+        if strategy == "transcendent" then depth = TRANSCENDENT end
+        let refl_result be self.reflect(targets, depth)
+        let observations be refl_result[0]
+        let insights be refl_result[1]
+        let adj be refl_result[2]
+        let combined be List<String>{}
+        for obs in observations do combined.append(obs) end
+        for ins in insights do combined.append(ins) end
+        let output be join_strings(combined, "; ")
+        return (output, 0.7 + adj)
+      end
+      PLAN => do
+        let steps be List<String>{}
+        steps.append("Analyze: " + target)
+        steps.append("Prepare: " + context)
+        steps.append("Execute plan for: " + target)
+        let constraints be List<String>{}
+        if strategy != "" then constraints.append(strategy) end
+        let plan_result be self.plan(target, steps, constraints)
+        let plan_steps be plan_result[0]
+        let feasibility be plan_result[1]
+        let output be join_strings(plan_steps, "; ")
+        return (output, feasibility)
+      end
+      EVOLVE => do
+        let constraints be List<String>{}
+        constraints.append(context)
+        return self.evolve(target, strategy, constraints)
+      end
+      RECALL => do
+        return self.recall(target, context)
+      end
+      DELIBERATE => do
+        -- Minimal deliberate with single-option scoring.
+        let options be List<Map<String, Float>>{}
+        let opt1 be Map<String, Float>{}
+        opt1.put("relevance", 0.8)
+        options.append(opt1)
+        let criteria be List<String>{}
+        criteria.append("relevance")
+        let weights be List<Float>{}
+        weights.append(1.0)
+        return self.deliberate(options, criteria, weights)
+      end
+      _ => do
+        return ("Unknown cognitive keyword", 0.0)
+      end
+    end
+  end
+end
+
+-- =========================================================================
+-- EXPORTS
+-- =========================================================================
+-- The cognitive engine exports all types. This module is a primary
+-- dependency for the runtime, bridge, and any code that invokes
+-- cognitive operations.
+-- =========================================================================
+
+export {
+  ReasoningStrategy,
+  BeliefState,
+  ReflectionDepth,
+  PerceptionModality,
+  ReasoningTrace,
+  ReasoningResult,
+  CognitiveState,
+  CognitiveEngine
+}

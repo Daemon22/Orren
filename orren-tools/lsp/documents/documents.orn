@@ -1,0 +1,448 @@
+-- documents.orn: Document store for the Orren LSP server.
+-- Manages open documents, their content, versions, and change tracking.
+-- Supports full and incremental content change application.
+
+module orren_tools.lsp.documents
+
+import module::{String, Int, Bool, List, Map, Time}
+import orren.core.language.foundation::{SourceLocation}
+import orren_tools.lsp.protocol::{Position, Range}
+
+-- The state of a document tracked by the document store.
+enum DocumentState
+    OPEN
+    CLOSED
+    DIRTY
+    SAVED
+end
+
+-- The type of content change received from the client.
+enum ChangeType
+    FULL
+    INCREMENTAL
+end
+
+-- A single content change event for a text document.
+entity TextDocumentContentChangeEvent
+    property range: String = ""
+    property range_length: Int = 0
+    property text: String = ""
+
+    -- Creates a full document content change event.
+    fn make_full(text: String) -> TextDocumentContentChangeEvent do
+        let event be TextDocumentContentChangeEvent.new()
+        event.text = text
+        event.range = ""
+        event.range_length = 0
+        return event
+    end
+
+    -- Creates an incremental content change event.
+    fn make_incremental(range_json: String, length: Int, text: String) -> TextDocumentContentChangeEvent do
+        let event be TextDocumentContentChangeEvent.new()
+        event.range = range_json
+        event.range_length = length
+        event.text = text
+        return event
+    end
+
+    -- Checks if this change is a full document replacement.
+    fn is_full(self) -> Bool do
+        return self.range.length == 0
+    end
+
+    -- Parses a range from JSON string into a Range object.
+    fn parse_range(self) -> Range do
+        if self.range.length == 0 then
+            return Range.new()
+        end
+        let nums be extract_all_ints(self.range)
+        if nums.length < 4 then
+            return Range.new()
+        end
+        return Range.make(nums.get(0), nums.get(1), nums.get(2), nums.get(3))
+    end
+end
+
+-- Tracks the version history of a document.
+entity DocumentVersion
+    property version: Int = 0
+    property timestamp: Int = 0
+    property change_count: Int = 0
+
+    -- Creates a new document version tracker.
+    fn make(version: Int) -> DocumentVersion do
+        let v be DocumentVersion.new()
+        v.version = version
+        v.timestamp = Time.now()
+        v.change_count = 0
+        return v
+    end
+
+    -- Increments the change counter and updates the timestamp.
+    fn bump(self) do
+        self.change_count = self.change_count + 1
+        self.timestamp = Time.now()
+    end
+
+    -- Creates a snapshot of the current version state.
+    fn snapshot(self) -> DocumentVersion do
+        let s be DocumentVersion.new()
+        s.version = self.version
+        s.timestamp = self.timestamp
+        s.change_count = self.change_count
+        return s
+    end
+end
+
+-- Represents a single open document in the LSP server.
+entity OpenDocument
+    property uri: String = ""
+    property language_id: String = ""
+    property version: Int = 0
+    property content: String = ""
+    property line_count: Int = 0
+    property state: DocumentState = DocumentState.CLOSED
+    property last_modified: Int = 0
+    property semantic_snapshot: String = ""
+
+    intent "Represent an open document with full content and metadata"
+
+    -- Creates a new open document.
+    fn make(uri: String, language_id: String, version: Int, text: String) -> OpenDocument do
+        let doc be OpenDocument.new()
+        doc.uri = uri
+        doc.language_id = language_id
+        doc.version = version
+        doc.content = text
+        doc.line_count = text.count_lines()
+        doc.state = DocumentState.OPEN
+        doc.last_modified = Time.now()
+        return doc
+    end
+
+    -- Returns the lines of the document as a list.
+    fn get_lines(self) -> List<String> do
+        return self.content.split_lines()
+    end
+
+    -- Returns a specific line by zero-based index.
+    fn get_line(self, line_index: Int) -> String do
+        let lines be self.get_lines()
+        if line_index < 0 or line_index >= lines.length then
+            return ""
+        end
+        return lines.get(line_index)
+    end
+
+    -- Applies a full content replacement.
+    fn apply_full_change(self, text: String, new_version: Int) do
+        self.content = text
+        self.version = new_version
+        self.line_count = text.count_lines()
+        self.state = DocumentState.DIRTY
+        self.last_modified = Time.now()
+    end
+
+    -- Applies an incremental change at a given range.
+    fn apply_incremental_change(self, change: TextDocumentContentChangeEvent, new_version: Int) do
+        let r be change.parse_range()
+        let lines be self.get_lines()
+        if r.start_line == r.end_line then
+            let target be lines.get(r.start_line)
+            let before be target.substring(0, r.start_char)
+            let after be target.substring(r.end_char)
+            lines.set(r.start_line, before + change.text + after)
+        else
+            let first_line be lines.get(r.start_line)
+            let before be first_line.substring(0, r.start_char)
+            let last_line be lines.get(r.end_line)
+            let after be last_line.substring(r.end_char)
+            let change_lines be change.text.split_lines()
+            let new_lines be List<String>.new()
+            let i be 0
+            while i < r.start_line do
+                new_lines.append(lines.get(i))
+                i = i + 1
+            end
+            for cl in change_lines do
+                new_lines.append(cl)
+            end
+            new_lines.append(after)
+            i = r.end_line + 1
+            while i < lines.length do
+                new_lines.append(lines.get(i))
+                i = i + 1
+            end
+            lines = new_lines
+        end
+        self.content = lines.join("\n")
+        self.version = new_version
+        self.line_count = self.content.count_lines()
+        self.state = DocumentState.DIRTY
+        self.last_modified = Time.now()
+    end
+
+    -- Marks the document as saved.
+    fn mark_saved(self) do
+        self.state = DocumentState.SAVED
+        self.last_modified = Time.now()
+    end
+
+    -- Returns the file name from the URI.
+    fn file_name(self) -> String do
+        let last_slash be self.uri.last_find("/")
+        if last_slash < 0 then
+            return self.uri
+        end
+        return self.uri.substring(last_slash + 1)
+    end
+end
+
+-- The document store that manages all open documents for the LSP server.
+entity DocumentStore
+    property documents: List<OpenDocument> = List<OpenDocument>.new()
+    property by_uri: Map<String, Int> = Map<String, Int>.new()
+    property total_open: Int = 0
+    property total_changes: Int = 0
+
+    intent "Manage all open documents with efficient lookup by URI"
+
+    -- Opens a new document or updates an existing one.
+    fn open(self, uri: String, language_id: String, version: Int, text: String) do
+        let existing_idx be self.by_uri.get(uri)
+        if existing_idx != nothing then
+            let doc be self.documents.get(existing_idx)
+            doc.apply_full_change(text, version)
+            doc.state = DocumentState.OPEN
+            return
+        end
+        let doc be OpenDocument.make(uri, language_id, version, text)
+        self.documents.append(doc)
+        self.by_uri.set(uri, self.documents.length - 1)
+        self.total_open = self.total_open + 1
+    end
+
+    -- Closes a document by URI.
+    fn close(self, uri: String) do
+        let idx be self.by_uri.get(uri)
+        if idx == nothing then
+            return
+        end
+        let doc be self.documents.get(idx)
+        doc.state = DocumentState.CLOSED
+        self.by_uri.remove(uri)
+    end
+
+    -- Closes all open documents.
+    fn close_all(self) do
+        let uris be self.by_uri.keys()
+        for uri in uris do
+            let idx be self.by_uri.get(uri)
+            if idx != nothing then
+                let doc be self.documents.get(idx)
+                doc.state = DocumentState.CLOSED
+            end
+        end
+        self.by_uri = Map<String, Int>.new()
+    end
+
+    -- Gets a document by URI, returns nothing if not found.
+    fn get(self, uri: String) -> OpenDocument do
+        let idx be self.by_uri.get(uri)
+        if idx == nothing then
+            return nothing
+        end
+        return self.documents.get(idx)
+    end
+
+    -- Checks if a document with the given URI is open.
+    fn is_open(self, uri: String) -> Bool do
+        return self.by_uri.get(uri) != nothing
+    end
+
+    -- Applies content changes to a document.
+    fn apply_changes(self, uri: String, changes_json: String) do
+        let doc be self.get(uri)
+        if doc == nothing then
+            return
+        end
+        let version be extract_json_int(changes_json, "version")
+        if not changes_json.contains("\"range\"") then
+            let text be extract_json_string_simple(changes_json, "text")
+            doc.apply_full_change(text, version)
+            self.total_changes = self.total_changes + 1
+            return
+        end
+        let events be parse_change_events(changes_json)
+        for event in events do
+            if event.is_full() then
+                doc.apply_full_change(event.text, version)
+            else
+                doc.apply_incremental_change(event, version)
+            end
+        end
+        self.total_changes = self.total_changes + 1
+    end
+
+    -- Returns the content of a document by URI.
+    fn get_content(self, uri: String) -> String do
+        let doc be self.get(uri)
+        if doc == nothing then
+            return ""
+        end
+        return doc.content
+    end
+
+    -- Returns the lines of a document by URI.
+    fn get_lines(self, uri: String) -> List<String> do
+        let doc be self.get(uri)
+        if doc == nothing then
+            return List<String>.new()
+        end
+        return doc.get_lines()
+    end
+
+    -- Returns all URIs of currently open documents.
+    fn open_uris(self) -> List<String> do
+        return self.by_uri.keys()
+    end
+
+    -- Finds documents whose URIs match a glob pattern.
+    fn find_by_pattern(self, pattern: String) -> List<OpenDocument> do
+        let results be List<OpenDocument>.new()
+        let uris be self.by_uri.keys()
+        for uri in uris do
+            if uri.matches_glob(pattern) then
+                let doc be self.get(uri)
+                if doc != nothing then
+                    results.append(doc)
+                end
+            end
+        end
+        return results
+    end
+
+    -- Returns the total number of currently open documents.
+    fn open_count(self) -> Int do
+        return self.by_uri.size()
+    end
+
+end
+
+-- Helper: extracts all integer values from a JSON fragment.
+fn extract_all_ints(json: String) -> List<Int> do
+    let nums be List<Int>.new()
+    let num_str be ""
+    let i be 0
+    while i < json.length do
+        let ch be json.at(i)
+        if (ch >= "0" and ch <= "9") or ch == "-" then
+            num_str = num_str + ch
+        else
+            if num_str.length > 0 then
+                nums.append(String.to_int(num_str))
+                num_str = ""
+            end
+        end
+        i = i + 1
+    end
+    if num_str.length > 0 then
+        nums.append(String.to_int(num_str))
+    end
+    return nums
+end
+
+-- Helper: extracts an integer value from a JSON key.
+fn extract_json_int(json: String, key: String) -> Int do
+    let search_key be "\"" + key + "\""
+    let key_pos be json.find(search_key)
+    if key_pos < 0 then
+        return -1
+    end
+    let after_key be json.substring(key_pos + search_key.length)
+    let colon_pos be after_key.find(":")
+    if colon_pos < 0 then
+        return -1
+    end
+    let after_colon be after_key.substring(colon_pos + 1).strip()
+    let num_str be ""
+    let idx be 0
+    while idx < after_colon.length do
+        let ch be after_colon.at(idx)
+        if (ch >= "0" and ch <= "9") or ch == "-" then
+            num_str = num_str + ch
+        else
+            break
+        end
+        idx = idx + 1
+    end
+    if num_str.length == 0 then
+        return -1
+    end
+    return String.to_int(num_str)
+end
+
+-- Helper: parses incremental change events from a JSON array.
+fn parse_change_events(changes_json: String) -> List<TextDocumentContentChangeEvent> do
+    let events be List<TextDocumentContentChangeEvent>.new()
+    let array_start be changes_json.find("[")
+    let array_end be changes_json.last_find("]")
+    if array_start < 0 or array_end < 0 or array_end <= array_start then
+        return events
+    end
+    let inner be changes_json.substring(array_start + 1, array_end - array_start - 1)
+    if inner.length == 0 then
+        return events
+    end
+    let depth be 0
+    let current be ""
+    let i be 0
+    while i < inner.length do
+        let ch be inner.at(i)
+        if ch == "{" then
+            depth = depth + 1
+        else if ch == "}" then
+            depth = depth - 1
+            if depth == 0 and current.length > 0 then
+                let event be TextDocumentContentChangeEvent.new()
+                if current.contains("\"range\"") then
+                    event.range = current
+                end
+                event.text = extract_json_string_simple(current, "text")
+                events.append(event)
+                current = ""
+            end
+        end
+        if depth > 0 or ch == "{" then
+            current = current + ch
+        end
+        i = i + 1
+    end
+    return events
+end
+
+-- Helper: extracts a string value from a JSON key in a small fragment.
+fn extract_json_string_simple(json: String, key: String) -> String do
+    let search be "\"" + key + "\""
+    let pos be json.find(search)
+    if pos < 0 then
+        return ""
+    end
+    let after be json.substring(pos + search.length)
+    let colon be after.find(":")
+    if colon < 0 then
+        return ""
+    end
+    let after_colon be after.substring(colon + 1).strip()
+    if after_colon.starts_with("\"") then
+        let inner be after_colon.substring(1)
+        let end_q be inner.find("\"")
+        if end_q > 0 then
+            return inner.substring(0, end_q)
+        end
+    end
+    return after_colon
+end
+
+export {DocumentState, ChangeType, TextDocumentContentChangeEvent, DocumentVersion, OpenDocument, DocumentStore}

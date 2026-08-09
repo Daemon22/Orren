@@ -1,0 +1,343 @@
+-- orren_tools.cli.info
+-- Display information about the Orren toolchain, current project,
+-- and host environment.  Supports category filtering and table output.
+
+module orren_tools.cli.info
+
+import orren.core.language.foundation::{String, Int, Float, Bool, List, Map}
+import orren.core.language.foundation::{Result, Ok, Err, Option, Some, None}
+import orren.core.language.foundation::{File, Path, DateTime}
+import orren.core.system::{OsInfo, CpuInfo, MemoryInfo, ProcessInfo}
+import orren.core.compiler.{Compiler, CompilerInfo}
+
+intent "Display detailed information about the Orren toolchain, project, and environment"
+
+-- Enumerates the categories of information that can be displayed.
+enum InfoCategory
+  TOOLCHAIN
+  PROJECT
+  ENVIRONMENT
+  DEPENDENCIES
+  ALL
+end
+
+-- Version and identifier information for every toolchain component.
+entity ToolchainInfo
+  property orren_version: String = "unknown"
+  property tools_version: String = "unknown"
+  property compiler_version: String = "unknown"
+  property runtime_version: String = "unknown"
+  property stdlib_version: String = "unknown"
+  property cognitive_engine_version: String = "unknown"
+  property upmp_version: String = "unknown"
+end
+
+-- Metadata about the current project in the working directory.
+entity ProjectInfo
+  property name: String = ""
+  property version: String = ""
+  property module_prefix: String = ""
+  property source_count: Int = 0
+  property test_count: Int = 0
+  property dependency_count: Int = 0
+end
+
+-- Hardware and OS details of the host environment.
+entity EnvironmentInfo
+  property os: String = "unknown"
+  property architecture: String = "unknown"
+  property total_memory: Int = 0
+  property available_memory: Int = 0
+  property cpu_cores: Int = 0
+end
+
+-- Aggregated display container that holds all collected information.
+entity InfoDisplay
+  property toolchain: ToolchainInfo = ToolchainInfo{}
+  property project: ProjectInfo = ProjectInfo{}
+  property environment: EnvironmentInfo = EnvironmentInfo{}
+  property categories: List<InfoCategory> = [InfoCategory.ALL]
+end
+
+-- ── Toolchain collection ────────────────────────────────────────────────
+
+-- Collect version strings from every installed toolchain component.
+fn collect_toolchain(self) -> ToolchainInfo
+  let info be ToolchainInfo{}
+  -- Orren core version from the bundled version file.
+  let version_file be self.orren_home() + "/version"
+  if File.exists(version_file) then
+    let content be File.read(version_file)
+    match content with
+    case Ok(text) do
+      info.orren_version = text.trim()
+    end
+    case Err(_) do
+      -- Keep default "unknown"
+    end
+    end
+  end
+  -- Tools version from the CLI package metadata.
+  let tools_meta be self.orren_home() + "/tools/orren-tools.toml"
+  if File.exists(tools_meta) then
+    let raw be File.read(tools_meta)
+    match raw with
+    case Ok(text) do
+      info.tools_version = self.extract_field(text, "version")
+    end
+    case Err(_) do
+      -- Skip
+    end
+    end
+  end
+  -- Compiler version via the compiler introspection API.
+  let compiler be Compiler{}
+  let cinfo be compiler.info()
+  info.compiler_version = cinfo.version
+  info.runtime_version = cinfo.runtime_version
+  info.stdlib_version = cinfo.stdlib_version
+  info.cognitive_engine_version = cinfo.cognitive_engine_version
+  info.upmp_version = cinfo.upmp_version
+  return info
+end
+
+-- Return the path to the Orren installation home directory.
+fn orren_home(self) -> String
+  let env_val be orren.core.system.Env.get("ORREN_HOME")
+  match env_val with
+  case Some(path) do
+    return path
+  end
+  case None do
+    let home be orren.core.system.Env.get("HOME")
+    match home with
+    case Some(h) do
+      return h + "/.orren"
+    end
+    case None do
+      return "/opt/orren"
+    end
+    end
+  end
+  end
+end
+
+-- Extract a simple "key = value" field from TOML-like text.
+fn extract_field(self, text: String, key: String) -> String
+  let prefix be key + " = \""
+  let lines be text.split("\n")
+  for line in lines do
+    let trimmed be line.trim()
+    if trimmed.starts_with(prefix) then
+      let rest be trimmed.substring(prefix.length, trimmed.length)
+      return rest.strip_suffix("\"")
+    end
+  end
+  return "unknown"
+end
+
+-- ── Project collection ──────────────────────────────────────────────────
+
+-- Scan the current working directory for orren.toml and count sources.
+fn collect_project(self) -> ProjectInfo
+  let info be ProjectInfo{}
+  let manifest_path be "orren.toml"
+  if !File.exists(manifest_path) then
+    return info
+  end
+  let raw be File.read(manifest_path)
+  match raw with
+  case Ok(text) do
+    info.name = self.extract_field(text, "name")
+    info.version = self.extract_field(text, "version")
+    info.module_prefix = self.extract_field(text, "module_prefix")
+  end
+  case Err(_) do
+    -- Keep defaults
+  end
+  end
+  -- Count source files.
+  let src_dir be "src"
+  if Path.is_dir(src_dir) then
+    let sources be self.count_files_with_extension(src_dir, ".orn")
+    info.source_count = sources
+  end
+  -- Count test files.
+  let test_dir be "tests"
+  if Path.is_dir(test_dir) then
+    let tests be self.count_files_with_extension(test_dir, ".orn")
+    info.test_count = tests
+  end
+  -- Count dependencies from the manifest.
+  if File.exists(manifest_path) then
+    let content be File.read(manifest_path)
+    match content with
+    case Ok(dep_text) do
+      info.dependency_count = self.count_dependency_lines(dep_text)
+    end
+    case Err(_) do
+      -- Skip
+    end
+    end
+  end
+  return info
+end
+
+-- Recursively count files matching the given extension beneath a root.
+fn count_files_with_extension(self, root: String, ext: String) -> Int
+  let count be 0
+  let entries be Path.list_dir(root)
+  for entry in entries do
+    let full be root + "/" + entry
+    if Path.is_dir(full) then
+      count = count + self.count_files_with_extension(full, ext)
+    else
+      if entry.ends_with(ext) then
+        count = count + 1
+      end
+    end
+  end
+  return count
+end
+
+-- Count dependency entries inside a [dependencies] section.
+fn count_dependency_lines(self, text: String) -> Int
+  let in_deps be false
+  let count be 0
+  let lines be text.split("\n")
+  for line in lines do
+    let trimmed be line.trim()
+    if trimmed == "[dependencies]" or trimmed == "[dependencies.dev]" then
+      in_deps = true
+    else
+      if trimmed.starts_with("[") then
+        in_deps = false
+      else
+        if in_deps and !trimmed.starts_with("#") and trimmed.contains("=") then
+          count = count + 1
+        end
+      end
+    end
+  end
+  return count
+end
+
+-- ── Environment collection ──────────────────────────────────────────────
+
+-- Collect host OS, architecture, memory, and CPU information.
+fn collect_environment(self) -> EnvironmentInfo
+  let info be EnvironmentInfo{}
+  let os be OsInfo{}
+  info.os = os.name + " " + os.version
+  info.architecture = os.architecture
+  let mem be MemoryInfo{}
+  info.total_memory = mem.total_bytes
+  info.available_memory = mem.available_bytes
+  let cpu be CpuInfo{}
+  info.cpu_cores = cpu.logical_cores
+  return info
+end
+
+-- ── Display formatting ──────────────────────────────────────────────────
+
+-- Format ToolchainInfo as a labelled table section.
+fn format_toolchain(self, info: ToolchainInfo) -> String
+  let lines be List<String>[]
+  lines.append("  Orren CLI          " + info.orren_version)
+  lines.append("  Orren Tools        " + info.tools_version)
+  lines.append("  Compiler           " + info.compiler_version)
+  lines.append("  Runtime            " + info.runtime_version)
+  lines.append("  Standard Library   " + info.stdlib_version)
+  lines.append("  Cognitive Engine   " + info.cognitive_engine_version)
+  lines.append("  UPMP               " + info.upmp_version)
+  let header be "Toolchain"
+  let separator be "─".repeat(48)
+  let output be separator + "\n" + header + "\n" + separator + "\n"
+  let body be String.join("\n", lines)
+  return output + body
+end
+
+-- Format ProjectInfo as a labelled table section.
+fn format_project(self, info: ProjectInfo) -> String
+  let lines be List<String>[]
+  lines.append("  Name               " + info.name)
+  lines.append("  Version            " + info.version)
+  lines.append("  Module Prefix      " + info.module_prefix)
+  lines.append("  Source Files       " + info.source_count.to_string())
+  lines.append("  Test Files        " + info.test_count.to_string())
+  lines.append("  Dependencies       " + info.dependency_count.to_string())
+  let header be "Project"
+  let separator be "─".repeat(48)
+  let output be separator + "\n" + header + "\n" + separator + "\n"
+  let body be String.join("\n", lines)
+  return output + body
+end
+
+-- Format EnvironmentInfo as a labelled table section.
+fn format_environment(self, info: EnvironmentInfo) -> String
+  let total_mb be (info.total_memory / 1048576).to_string() + " MB"
+  let avail_mb be (info.available_memory / 1048576).to_string() + " MB"
+  let lines be List<String>[]
+  lines.append("  Operating System   " + info.os)
+  lines.append("  Architecture       " + info.architecture)
+  lines.append("  CPU Cores          " + info.cpu_cores.to_string())
+  lines.append("  Total Memory       " + total_mb)
+  lines.append("  Available Memory   " + avail_mb)
+  let header be "Environment"
+  let separator be "─".repeat(48)
+  let output be separator + "\n" + header + "\n" + separator + "\n"
+  let body be String.join("\n", lines)
+  return output + body
+end
+
+-- Check whether a given category should be included in the output.
+fn should_show(self, category: InfoCategory) -> Bool
+  for cat in self.categories do
+    if cat == InfoCategory.ALL then
+      return true
+    end
+    if cat == category then
+      return true
+    end
+  end
+  return false
+end
+
+-- Build the full formatted display string based on the selected categories.
+fn format_display(self) -> String
+  let sections be List<String>[]
+  if self.should_show(InfoCategory.TOOLCHAIN) then
+    sections.append(self.format_toolchain(self.toolchain))
+  end
+  if self.should_show(InfoCategory.PROJECT) then
+    sections.append(self.format_project(self.project))
+  end
+  if self.should_show(InfoCategory.ENVIRONMENT) then
+    sections.append(self.format_environment(self.environment))
+  end
+  if sections.length == 0 then
+    return "No information categories selected."
+  end
+  let output be String.join("\n\n", sections) + "\n"
+  return output
+end
+
+-- ── Main entry point ────────────────────────────────────────────────────
+
+-- Collect all requested information and return the formatted display.
+fn show_info(self, categories: List<InfoCategory>) -> String
+  self.categories = categories
+  -- Always collect everything; display is filtered by categories.
+  if self.should_show(InfoCategory.TOOLCHAIN) or self.should_show(InfoCategory.ALL) then
+    self.toolchain = self.collect_toolchain()
+  end
+  if self.should_show(InfoCategory.PROJECT) or self.should_show(InfoCategory.ALL) then
+    self.project = self.collect_project()
+  end
+  if self.should_show(InfoCategory.ENVIRONMENT) or self.should_show(InfoCategory.ALL) then
+    self.environment = self.collect_environment()
+  end
+  return self.format_display()
+end
+
+export {InfoCategory, ToolchainInfo, ProjectInfo, EnvironmentInfo, InfoDisplay}

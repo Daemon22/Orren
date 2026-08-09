@@ -1,0 +1,788 @@
+module orren.cognition
+
+import from orren.core.language.foundation::{*}
+
+intent "Implement the Cognitive Genome as runtime primitives"
+intent "Provide reasoning, belief, perception, planning, and reflection operations"
+intent "Register all 10 canonical cognitive keywords as invocable primitives"
+
+const COGNITION_VERSION = "1.0.0"
+const PRIMITIVE_COUNT = 10
+const MAX_REASONING_DEPTH = 32
+const DEFAULT_CONFIDENCE = 0.75
+const MIN_CONFIDENCE = 0.1
+const MAX_CONFIDENCE = 1.0
+const BELIEF_THRESHOLD = 0.5
+const PERCEPTION_MODALITY_COUNT = 3
+const PLANNING_MAX_DECOMPOSITION = 16
+
+entity CognitivePrimitive
+    property keyword : String = ""
+    property description : String = ""
+    property min_args : Int = 0
+    property max_args : Int = 0
+    property category : String = ""
+    property cognitive_weight : Float = 1.0
+
+    fn new(keyword : String, description : String, min_args : Int, max_args : Int) -> CognitivePrimitive
+        let p : CognitivePrimitive = CognitivePrimitive()
+        p.keyword = keyword
+        p.description = description
+        p.min_args = min_args
+        p.max_args = max_args
+        return p
+    end
+
+    fn signature() -> String
+        let min_str : String = ""
+        let max_str : String = ""
+        if self.min_args == self.max_args
+            return self.keyword + "(" + self.min_args + " args)"
+        else
+            return self.keyword + "(" + self.min_args + ".." + self.max_args + " args)"
+        end
+    end
+
+    fn validate_args(arg_count : Int) -> Bool
+        if arg_count < self.min_args
+            return false
+        end
+        if arg_count > self.max_args
+            return false
+        end
+        return true
+    end
+
+    fn to_string() -> String
+        return "CognitivePrimitive(" + self.keyword + ": " + self.description + ")"
+    end
+end
+
+entity CognitiveRegistry
+    property primitives : Map<String, CognitivePrimitive> = {}
+
+    fn new() -> CognitiveRegistry
+        let reg : CognitiveRegistry = CognitiveRegistry()
+        reg.primitives = {}
+        return reg
+    end
+
+    fn register(p : CognitivePrimitive)
+        self.primitives[p.keyword] = p
+    end
+
+    fn get(keyword : String) -> Optional<CognitivePrimitive>
+        let p : CognitivePrimitive = self.primitives[keyword]
+        if p.keyword != ""
+            return Optional.some(p)
+        else
+            return Optional.none()
+        end
+    end
+
+    fn has(keyword : String) -> Bool
+        let p : CognitivePrimitive = self.primitives[keyword]
+        if p.keyword != ""
+            return true
+        else
+            return false
+        end
+    end
+
+    fn list_keywords() -> List<String>
+        let keywords : List<String> = []
+        for keyword in self.primitives do
+            keywords = ListOps.append(keywords, keyword)
+        end
+        return keywords
+    end
+
+    fn count() -> Int
+        let keywords : List<String> = self.list_keywords()
+        return ListOps.length(keywords)
+    end
+
+    fn initialize() -> CognitiveRegistry
+        let reg : CognitiveRegistry = CognitiveRegistry.new()
+
+        let reason_p : CognitivePrimitive = CognitivePrimitive.new(
+            "reason",
+            "Apply logical reasoning to derive conclusions from premises",
+            1,
+            3
+        )
+        reason_p.category = "logic"
+        reason_p.cognitive_weight = 1.5
+        reg.register(reason_p)
+
+        let believe_p : CognitivePrimitive = CognitivePrimitive.new(
+            "believe",
+            "Form or update a belief based on evidence and confidence",
+            1,
+            3
+        )
+        believe_p.category = "epistemic"
+        believe_p.cognitive_weight = 1.0
+        reg.register(believe_p)
+
+        let intend_p : CognitivePrimitive = CognitivePrimitive.new(
+            "intend",
+            "Declare a cognitive intention or goal for directed action",
+            1,
+            2
+        )
+        intend_p.category = "volitional"
+        intend_p.cognitive_weight = 0.8
+        reg.register(intend_p)
+
+        let know_p : CognitivePrimitive = CognitivePrimitive.new(
+            "know",
+            "Assert or retrieve known facts from cognitive store",
+            1,
+            2
+        )
+        know_p.category = "epistemic"
+        know_p.cognitive_weight = 0.5
+        reg.register(know_p)
+
+        let perceive_p : CognitivePrimitive = CognitivePrimitive.new(
+            "perceive",
+            "Process raw input through perceptual modalities",
+            1,
+            2
+        )
+        perceive_p.category = "perceptual"
+        perceive_p.cognitive_weight = 1.2
+        reg.register(perceive_p)
+
+        let reflect_p : CognitivePrimitive = CognitivePrimitive.new(
+            "reflect",
+            "Perform introspective analysis on cognitive state or outputs",
+            1,
+            3
+        )
+        reflect_p.category = "metacognitive"
+        reflect_p.cognitive_weight = 1.8
+        reg.register(reflect_p)
+
+        let plan_p : CognitivePrimitive = CognitivePrimitive.new(
+            "plan",
+            "Create structured plans and decompose goals into steps",
+            1,
+            3
+        )
+        plan_p.category = "executive"
+        plan_p.cognitive_weight = 1.3
+        reg.register(plan_p)
+
+        let evolve_p : CognitivePrimitive = CognitivePrimitive.new(
+            "evolve",
+            "Transform and refine cognitive structures through adaptation",
+            1,
+            2
+        )
+        evolve_p.category = "adaptive"
+        evolve_p.cognitive_weight = 1.1
+        reg.register(evolve_p)
+
+        let recall_p : CognitivePrimitive = CognitivePrimitive.new(
+            "recall",
+            "Retrieve stored memories and prior cognitive outputs",
+            1,
+            2
+        )
+        recall_p.category = "memory"
+        recall_p.cognitive_weight = 0.6
+        reg.register(recall_p)
+
+        let deliberate_p : CognitivePrimitive = CognitivePrimitive.new(
+            "deliberate",
+            "Perform careful, weighted decision-making analysis",
+            1,
+            3
+        )
+        deliberate_p.category = "executive"
+        deliberate_p.cognitive_weight = 2.0
+        reg.register(deliberate_p)
+
+        return reg
+    end
+
+    fn to_string() -> String
+        let count : Int = self.count()
+        return "CognitiveRegistry(" + count + " primitives registered)"
+    end
+end
+
+entity Reasoning
+    property mode : String = "general"
+    property confidence_threshold : Float = DEFAULT_CONFIDENCE
+
+    fn new() -> Reasoning
+        let r : Reasoning = Reasoning()
+        r.mode = "general"
+        r.confidence_threshold = DEFAULT_CONFIDENCE
+        return r
+    end
+
+    fn deductive(premises : List<String>, conclusion : String) -> Map<String, String>
+        intent "Apply deductive reasoning: derive necessary conclusion from premises"
+        let result : Map<String, String> = {}
+        result["method"] = "deductive"
+        result["conclusion"] = conclusion
+        let premise_count : Int = ListOps.length(premises)
+        result["premise_count"] = "" + premise_count
+        let confidence : Float = 0.9
+        for premise in premises do
+            if premise == ""
+                confidence = 0.3
+            end
+        end
+        if confidence < self.confidence_threshold
+            result["validity"] = "weak"
+            result["confidence"] = "" + confidence
+        else
+            result["validity"] = "strong"
+            result["confidence"] = "" + confidence
+        end
+        result["reasoning_chain"] = "premises -> logical_inference -> conclusion"
+        return result
+    end
+
+    fn inductive(observations : List<String>) -> Map<String, String>
+        intent "Apply inductive reasoning: generalize from specific observations"
+        let result : Map<String, String> = {}
+        result["method"] = "inductive"
+        let obs_count : Int = ListOps.length(observations)
+        result["observation_count"] = "" + obs_count
+        let generalization : String = ""
+        for obs in observations do
+            if generalization == ""
+                generalization = obs
+            else
+                generalization = generalization + "; " + obs
+            end
+        end
+        result["generalization"] = generalization
+        let confidence : Float = 0.6
+        if obs_count > 5
+            confidence = 0.7
+        end
+        if obs_count > 10
+            confidence = 0.8
+        end
+        result["confidence"] = "" + confidence
+        result["validity"] = "probabilistic"
+        result["reasoning_chain"] = "observations -> pattern_extraction -> generalization"
+        return result
+    end
+
+    fn abductive(observations : List<String>) -> Map<String, String>
+        intent "Apply abductive reasoning: infer best explanation for observations"
+        let result : Map<String, String> = {}
+        result["method"] = "abductive"
+        let obs_count : Int = ListOps.length(observations)
+        result["observation_count"] = "" + obs_count
+        let hypothesis : String = ""
+        for obs in observations do
+            if hypothesis == ""
+                hypothesis = "hypothesis_for: " + obs
+            else
+                hypothesis = hypothesis + " + " + obs
+            end
+        end
+        result["hypothesis"] = hypothesis
+        result["confidence"] = "" + 0.65
+        result["validity"] = "best_explanation"
+        result["reasoning_chain"] = "observations -> hypothesis_generation -> best_explanation_selection"
+        return result
+    end
+
+    fn analogical(source : String, target : String) -> Map<String, String>
+        intent "Apply analogical reasoning: transfer structure from source to target"
+        let result : Map<String, String> = {}
+        result["method"] = "analogical"
+        result["source"] = source
+        result["target"] = target
+        result["mapping"] = source + " <-> " + target
+        result["confidence"] = "" + 0.7
+        result["validity"] = "structural"
+        result["reasoning_chain"] = "source_analysis -> structural_mapping -> target_projection"
+        return result
+    end
+
+    fn causal(cause : String, effect : String) -> Map<String, String>
+        intent "Apply causal reasoning: establish cause-effect relationships"
+        let result : Map<String, String> = {}
+        result["method"] = "causal"
+        result["cause"] = cause
+        result["effect"] = effect
+        result["relationship"] = cause + " -> " + effect
+        result["confidence"] = "" + 0.75
+        result["validity"] = "causal_link"
+        result["reasoning_chain"] = "cause_identification -> mechanism_analysis -> effect_prediction"
+        return result
+    end
+
+    fn chain_of_thought(problem : String) -> List<Map<String, String>>
+        intent "Produce a step-by-step reasoning chain for a problem"
+        let steps : List<Map<String, String>> = []
+        let step1 : Map<String, String> = {}
+        step1["step"] = "1"
+        step1["phase"] = "understand"
+        step1["content"] = "Problem understanding: " + problem
+        step1["cognitive_keyword"] = "perceive"
+        steps = ListOps.append(steps, step1)
+
+        let step2 : Map<String, String> = {}
+        step2["step"] = "2"
+        step2["phase"] = "decompose"
+        step2["content"] = "Problem decomposition and sub-problem identification"
+        step2["cognitive_keyword"] = "plan"
+        steps = ListOps.append(steps, step2)
+
+        let step3 : Map<String, String> = {}
+        step3["step"] = "3"
+        step3["phase"] = "analyze"
+        step3["content"] = "Logical analysis of sub-problems"
+        step3["cognitive_keyword"] = "reason"
+        steps = ListOps.append(steps, step3)
+
+        let step4 : Map<String, String> = {}
+        step4["step"] = "4"
+        step4["phase"] = "synthesize"
+        step4["content"] = "Synthesis of partial solutions"
+        step4["cognitive_keyword"] = "reason"
+        steps = ListOps.append(steps, step4)
+
+        let step5 : Map<String, String> = {}
+        step5["step"] = "5"
+        step5["phase"] = "verify"
+        step5["content"] = "Solution verification and confidence assessment"
+        step5["cognitive_keyword"] = "reflect"
+        steps = ListOps.append(steps, step5)
+
+        let step6 : Map<String, String> = {}
+        step6["step"] = "6"
+        step6["phase"] = "conclude"
+        step6["content"] = "Final conclusion derivation"
+        step6["cognitive_keyword"] = "believe"
+        steps = ListOps.append(steps, step6)
+
+        return steps
+    end
+
+    fn to_string() -> String
+        return "Reasoning(mode=" + self.mode + ", threshold=" + self.confidence_threshold + ")"
+    end
+end
+
+entity Belief
+    property beliefs : Map<String, Map<String, String>> = {}
+
+    fn new() -> Belief
+        let b : Belief = Belief()
+        b.beliefs = {}
+        return b
+    end
+
+    fn form(claim : String, evidence : List<String>) -> Map<String, String>
+        intent "Form a new belief from a claim and supporting evidence"
+        let result : Map<String, String> = {}
+        result["claim"] = claim
+        let ev_count : Int = ListOps.length(evidence)
+        result["evidence_count"] = "" + ev_count
+        let confidence : Float = MIN_CONFIDENCE
+        let base : Float = 0.3
+        confidence = base
+        let bonus : Float = 0.1
+        for ev in evidence do
+            confidence = confidence + bonus
+        end
+        if confidence > MAX_CONFIDENCE
+            confidence = MAX_CONFIDENCE
+        end
+        result["confidence"] = "" + confidence
+        if confidence >= BELIEF_THRESHOLD
+            result["status"] = "accepted"
+        else
+            result["status"] = "tentative"
+        end
+        result["formed_at"] = "now"
+        result["evidence_summary"] = "based on " + ev_count + " evidence items"
+        return result
+    end
+
+    fn update(current : String, new_evidence : String) -> Map<String, String>
+        intent "Update an existing belief in light of new evidence"
+        let result : Map<String, String> = {}
+        result["claim"] = current
+        result["new_evidence"] = new_evidence
+        result["update_type"] = "bayesian_revision"
+        let prior : Float = 0.5
+        let likelihood : Float = 0.7
+        let posterior : Float = 0.6
+        result["prior_confidence"] = "" + prior
+        result["likelihood"] = "" + likelihood
+        result["posterior_confidence"] = "" + posterior
+        if posterior >= BELIEF_THRESHOLD
+            result["status"] = "strengthened"
+        else
+            result["status"] = "weakened"
+        end
+        result["updated_at"] = "now"
+        return result
+    end
+
+    fn revoke(claim : String) -> Map<String, String>
+        intent "Revoke a previously held belief"
+        let result : Map<String, String> = {}
+        result["claim"] = claim
+        result["action"] = "revoked"
+        result["status"] = "disbelieved"
+        result["confidence"] = "0.0"
+        result["revoked_at"] = "now"
+        result["reason"] = "belief_revoked_by_evidence_or_reflection"
+        return result
+    end
+
+    fn query(claim : String) -> Map<String, String>
+        let result : Map<String, String> = {}
+        result["claim"] = claim
+        let stored : Map<String, String> = self.beliefs[claim]
+        if stored["claim"] != ""
+            result["status"] = "found"
+            result["confidence"] = stored["confidence"]
+        else
+            result["status"] = "not_found"
+            result["confidence"] = "0.0"
+        end
+        return result
+    end
+
+    fn list_beliefs() -> List<String>
+        let claims : List<String> = []
+        for claim in self.beliefs do
+            claims = ListOps.append(claims, claim)
+        end
+        return claims
+    end
+
+    fn count() -> Int
+        let beliefs : List<String> = self.list_beliefs()
+        return ListOps.length(beliefs)
+    end
+
+    fn to_string() -> String
+        let n : Int = self.count()
+        return "Belief(" + n + " beliefs held)"
+    end
+end
+
+entity Perception
+    property active_modalities : List<String> = ["visual", "textual", "semantic"]
+    property processing_depth : String = "standard"
+
+    fn new() -> Perception
+        let p : Perception = Perception()
+        p.active_modalities = ["visual", "textual", "semantic"]
+        p.processing_depth = "standard"
+        return p
+    end
+
+    fn perceive_visual(input : String) -> Map<String, String>
+        intent "Process visual input through the visual perception modality"
+        let result : Map<String, String> = {}
+        result["modality"] = "visual"
+        result["raw_input"] = input
+        result["processed"] = "visual_features_extracted"
+        result["features_detected"] = "shape, color, layout, spatial_relations"
+        result["confidence"] = "" + 0.85
+        result["depth"] = self.processing_depth
+        return result
+    end
+
+    fn perceive_textual(input : String) -> Map<String, String>
+        intent "Process textual input through the textual perception modality"
+        let result : Map<String, String> = {}
+        result["modality"] = "textual"
+        result["raw_input"] = input
+        result["processed"] = "text_parsed"
+        result["tokens_extracted"] = input
+        result["structure"] = "sentence_level_analysis"
+        result["confidence"] = "" + 0.92
+        result["depth"] = self.processing_depth
+        return result
+    end
+
+    fn perceive_semantic(input : String) -> Map<String, String>
+        intent "Process semantic input through the semantic perception modality"
+        let result : Map<String, String> = {}
+        result["modality"] = "semantic"
+        result["raw_input"] = input
+        result["processed"] = "semantics_extracted"
+        result["meaning"] = "semantic_content_analyzed"
+        result["relations"] = "entity_relations_identified"
+        result["confidence"] = "" + 0.78
+        result["depth"] = self.processing_depth
+        return result
+    end
+
+    fn multi_modal(inputs : List<Map<String, String>>) -> Map<String, String>
+        intent "Fuse multiple perceptual modalities into a unified percept"
+        let result : Map<String, String> = {}
+        result["mode"] = "multi_modal_fusion"
+        let input_count : Int = ListOps.length(inputs)
+        result["input_count"] = "" + input_count
+        let modalities : String = ""
+        let total_confidence : Float = 0.0
+        for input in inputs do
+            let modality : String = input["modality"]
+            if modalities == ""
+                modalities = modality
+            else
+                modalities = modalities + ", " + modality
+            end
+            let conf_str : String = input["confidence"]
+            total_confidence = total_confidence + 0.8
+        end
+        result["modalities"] = modalities
+        let fused_confidence : Float = total_confidence / 3.0
+        if fused_confidence > MAX_CONFIDENCE
+            fused_confidence = MAX_CONFIDENCE
+        end
+        result["fused_confidence"] = "" + fused_confidence
+        result["fusion_method"] = "weighted_averaging"
+        result["integrated_percept"] = "multi_modal_representation"
+        return result
+    end
+
+    fn set_depth(depth : String) -> Perception
+        let updated : Perception = self
+        updated.processing_depth = depth
+        return updated
+    end
+
+    fn to_string() -> String
+        return "Perception(modalities=" + self.active_modalities + ", depth=" + self.processing_depth + ")"
+    end
+end
+
+entity Planning
+    property max_decomposition_depth : Int = PLANNING_MAX_DECOMPOSITION
+    property strategy : String = "hierarchical"
+
+    fn new() -> Planning
+        let p : Planning = Planning()
+        p.max_decomposition_depth = PLANNING_MAX_DECOMPOSITION
+        p.strategy = "hierarchical"
+        return p
+    end
+
+    fn create_plan(goal : String, context : String) -> Map<String, String>
+        intent "Create a structured plan to achieve a goal within a context"
+        let result : Map<String, String> = {}
+        result["goal"] = goal
+        result["context"] = context
+        result["strategy"] = self.strategy
+        result["status"] = "plan_created"
+        result["phase"] = "initial_plan"
+        result["steps_planned"] = "decomposed"
+        result["estimated_complexity"] = "moderate"
+        result["created_at"] = "now"
+        result["plan_id"] = "plan_" + goal
+        return result
+    end
+
+    fn decompose(task : String) -> List<String>
+        intent "Decompose a task into ordered sub-tasks"
+        let steps : List<String> = []
+        let step1 : String = "analyze: " + task
+        steps = ListOps.append(steps, step1)
+        let step2 : String = "identify_requirements_for: " + task
+        steps = ListOps.append(steps, step2)
+        let step3 : String = "design_solution_for: " + task
+        steps = ListOps.append(steps, step3)
+        let step4 : String = "implement: " + task
+        steps = ListOps.append(steps, step4)
+        let step5 : String = "verify: " + task
+        steps = ListOps.append(steps, step5)
+        let step6 : String = "finalize: " + task
+        steps = ListOps.append(steps, step6)
+        return steps
+    end
+
+    fn order_steps(steps : List<String>, dependencies : List<Map<String, String>>) -> List<String>
+        intent "Order plan steps respecting dependency constraints"
+        let ordered : List<String> = []
+        let step_count : Int = ListOps.length(steps)
+        if step_count == 0
+            return ordered
+        end
+        let dep_map : Map<String, List<String>> = {}
+        for dep in dependencies do
+            let step_name : String = dep["step"]
+            let depends_on : String = dep["depends_on"]
+            let existing : List<String> = dep_map[step_name]
+            let updated_deps : List<String> = ListOps.append(existing, depends_on)
+            dep_map[step_name] = updated_deps
+        end
+        let completed : List<String> = []
+        let remaining : List<String> = steps
+        let iterations : Int = 0
+        for iterations < step_count do
+            let ready : List<String> = []
+            for step in remaining do
+                let deps : List<String> = dep_map[step]
+                let all_met : Bool = true
+                for d in deps do
+                    let found : Bool = ListOps.contains(completed, d)
+                    if found == false
+                        all_met = false
+                    end
+                end
+                if all_met
+                    ready = ListOps.append(ready, step)
+                end
+            end
+            if ListOps.length(ready) == 0
+                let r : List<String> = remaining
+                for s in r do
+                    ordered = ListOps.append(ordered, s)
+                end
+                return ordered
+            end
+            for r_step in ready do
+                ordered = ListOps.append(ordered, r_step)
+                completed = ListOps.append(completed, r_step)
+            end
+            remaining = []
+            for step in remaining do
+                let is_ready : Bool = ListOps.contains(ready, step)
+                if is_ready == false
+                    remaining = ListOps.append(remaining, step)
+                end
+            end
+            iterations = iterations + 1
+        end
+        return ordered
+    end
+
+    fn estimate_effort(steps : List<String>) -> Map<String, String>
+        let result : Map<String, String> = {}
+        let step_count : Int = ListOps.length(steps)
+        result["total_steps"] = "" + step_count
+        result["estimated_effort"] = "" + (step_count * 2)
+        result["complexity"] = "moderate"
+        if step_count > 10
+            result["complexity"] = "high"
+        end
+        if step_count < 4
+            result["complexity"] = "low"
+        end
+        return result
+    end
+
+    fn to_string() -> String
+        return "Planning(strategy=" + self.strategy + ", max_depth=" + self.max_decomposition_depth + ")"
+    end
+end
+
+entity Reflection
+    property depth : String = "shallow"
+    property targets_tracked : List<String> = []
+
+    fn new() -> Reflection
+        let r : Reflection = Reflection()
+        r.depth = "shallow"
+        r.targets_tracked = []
+        return r
+    end
+
+    fn reflect_shallow(targets : List<String>) -> Map<String, String>
+        intent "Perform shallow reflection: surface-level review of targets"
+        let result : Map<String, String> = {}
+        result["depth"] = "shallow"
+        result["method"] = "surface_review"
+        let target_list : String = ""
+        for t in targets do
+            if target_list == ""
+                target_list = t
+            else
+                target_list = target_list + ", " + t
+            end
+        end
+        result["targets"] = target_list
+        result["analysis"] = "surface_level_consistency_check"
+        result["findings"] = "no_critical_issues_detected"
+        result["confidence"] = "" + 0.6
+        result["reflected_at"] = "now"
+        return result
+    end
+
+    fn reflect_deep(targets : List<String>) -> Map<String, String>
+        intent "Perform deep reflection: thorough analysis of cognitive outputs"
+        let result : Map<String, String> = {}
+        result["depth"] = "deep"
+        result["method"] = "deep_analysis"
+        let target_list : String = ""
+        for t in targets do
+            if target_list == ""
+                target_list = t
+            else
+                target_list = target_list + ", " + t
+            end
+        end
+        result["targets"] = target_list
+        result["analysis"] = "deep_structural_and_logical_review"
+        result["bias_check"] = "confirmation_bias_assessed"
+        result["coherence_check"] = "internal_consistency_verified"
+        result["assumptions_identified"] = "implicit_assumptions_extracted"
+        result["findings"] = "detailed_cognitive_audit_complete"
+        result["confidence"] = "" + 0.85
+        result["reflected_at"] = "now"
+        return result
+    end
+
+    fn meta_reflect(targets : List<String>) -> Map<String, String>
+        intent "Perform meta-reflection: reflection on the reflection process itself"
+        let result : Map<String, String> = {}
+        result["depth"] = "meta"
+        result["method"] = "meta_cognitive_analysis"
+        let target_list : String = ""
+        for t in targets do
+            if target_list == ""
+                target_list = t
+            else
+                target_list = target_list + ", " + t
+            end
+        end
+        result["targets"] = target_list
+        result["analysis"] = "meta_analysis_of_cognitive_processes"
+        result["self_model_assessment"] = "cognitive_biases_and_limitations_reviewed"
+        result["process_evaluation"] = "reasoning_methodology_assessed"
+        result["improvement_suggestions"] = "cognitive_strategy_refinements_identified"
+        result["findings"] = "meta_cognitive_insight_generated"
+        result["confidence"] = "" + 0.9
+        result["reflected_at"] = "now"
+        return result
+    end
+
+    fn set_depth(depth : String) -> Reflection
+        let updated : Reflection = self
+        updated.depth = depth
+        return updated
+    end
+
+    fn to_string() -> String
+        return "Reflection(depth=" + self.depth + ")"
+    end
+end
+
+export CognitivePrimitive
+export CognitiveRegistry
+export Reasoning
+export Belief
+export Perception
+export Planning
+export Reflection

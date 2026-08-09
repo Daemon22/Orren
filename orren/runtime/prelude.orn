@@ -1,0 +1,390 @@
+module orren.runtime.prelude
+
+import orren.core.language.foundation::{*}
+import orren.cognitive.engine::{*}
+
+intent "The prelude — functional and cognitive primitives available to
+  all Orren programs. This module is implicitly imported into every
+  Orren compilation unit, providing the standard library of list
+  operations, type conversions, I/O primitives, and semantic attribute
+  utilities. Every function here is a PreludeFunction entry that can
+  be looked up by name at runtime."
+
+-- =========================================================================
+-- ENTITY: PreludeFunction
+-- =========================================================================
+-- A descriptor for a single built-in prelude function. Records the
+-- function name, a human-readable description, whether it is a
+-- cognitive operation (affects Cognitive Genome), and the allowed
+-- argument count range.
+-- =========================================================================
+
+entity PreludeFunction
+  -- The name of the function as it appears in Orren source code.
+  property name: String = ""
+
+  -- A human-readable description of what the function does.
+  property description: String = ""
+
+  -- Whether this function is a cognitive operation that activates
+  -- the Cognitive Genome. Cognitive functions update the CognitiveState.
+  property is_cognitive: Bool = false
+
+  -- The minimum number of arguments required.
+  property min_args: Int = 0
+
+  -- The maximum number of arguments allowed. -1 means variadic.
+  property max_args: Int = 0
+end
+
+-- =========================================================================
+-- ENTITY: PreludeRegistry
+-- =========================================================================
+-- The registry of all built-in prelude functions. Provides lookup
+-- by name, listing of all functions, and initialization that
+-- registers every built-in function defined in this module.
+-- =========================================================================
+
+entity PreludeRegistry
+  -- Map of function name to PreludeFunction descriptor.
+  property functions: Map<String, PreludeFunction> = Map<String, PreludeFunction>{}
+
+  -- Register a single prelude function.
+  fn register(self, fn: PreludeFunction) do
+    self.functions.put(fn.name, fn)
+  end
+
+  -- Look up a prelude function by name.
+  -- Returns an optional that is present if the function exists.
+  fn get(self, name: String) -> Optional<PreludeFunction> do
+    if self.functions.contains(name) then
+      return Optional::some(self.functions.get(name))
+    end
+    return Optional::none()
+  end
+
+  -- Return a list of all registered prelude functions.
+  fn list_all(self) -> List<PreludeFunction> do
+    return self.functions.values()
+  end
+
+  -- Initialize the registry with all built-in prelude functions.
+  -- This is called once at program startup.
+  fn initialize(self) -> PreludeRegistry do
+    -- =================================================================
+    -- FUNCTIONAL PRIMITIVES: List operations
+    -- =================================================================
+
+    -- map: apply a function to each element of a list.
+    let map_fn be PreludeFunction{}
+    map_fn.name = "map"
+    map_fn.description = "Apply a function to each element of a list"
+    map_fn.is_cognitive = false
+    map_fn.min_args = 2
+    map_fn.max_args = 2
+    self.register(map_fn)
+
+    -- filter: keep elements matching a predicate.
+    let filter_fn be PreludeFunction{}
+    filter_fn.name = "filter"
+    filter_fn.description = "Keep elements of a list matching a predicate"
+    filter_fn.is_cognitive = false
+    filter_fn.min_args = 2
+    filter_fn.max_args = 2
+    self.register(filter_fn)
+
+    -- reduce: accumulate over a list with an initial value.
+    let reduce_fn be PreludeFunction{}
+    reduce_fn.name = "reduce"
+    reduce_fn.description = "Accumulate over a list with an initial value and combining function"
+    reduce_fn.is_cognitive = false
+    reduce_fn.min_args = 3
+    reduce_fn.max_args = 3
+    self.register(reduce_fn)
+
+    -- fold: alias for reduce.
+    let fold_fn be PreludeFunction{}
+    fold_fn.name = "fold"
+    fold_fn.description = "Alias for reduce: accumulate over a list with an initial value"
+    fold_fn.is_cognitive = false
+    fold_fn.min_args = 3
+    fold_fn.max_args = 3
+    self.register(fold_fn)
+
+    -- compose: right-to-left function composition.
+    let compose_fn be PreludeFunction{}
+    compose_fn.name = "compose"
+    compose_fn.description = "Compose two functions: compose(f, g) returns f . g"
+    compose_fn.is_cognitive = false
+    compose_fn.min_args = 2
+    compose_fn.max_args = 2
+    self.register(compose_fn)
+
+    -- pipe: left-to-right function composition.
+    let pipe_fn be PreludeFunction{}
+    pipe_fn.name = "pipe"
+    pipe_fn.description = "Left-to-right function composition: pipe(f, g) returns g . f"
+    pipe_fn.is_cognitive = false
+    pipe_fn.min_args = 2
+    pipe_fn.max_args = 2
+    self.register(pipe_fn)
+
+    -- curry: partial application of a function.
+    let curry_fn be PreludeFunction{}
+    curry_fn.name = "curry"
+    curry_fn.description = "Partially apply a function, returning a new function"
+    curry_fn.is_cognitive = false
+    curry_fn.min_args = 1
+    curry_fn.max_args = 1
+    self.register(curry_fn)
+
+    -- identity: the identity function.
+    let identity_fn be PreludeFunction{}
+    identity_fn.name = "identity"
+    identity_fn.description = "Return the input unchanged"
+    identity_fn.is_cognitive = false
+    identity_fn.min_args = 1
+    identity_fn.max_args = 1
+    self.register(identity_fn)
+
+    -- constant: return a function that ignores input and returns a value.
+    let constant_fn be PreludeFunction{}
+    constant_fn.name = "constant"
+    constant_fn.description = "Return a function that ignores its input and returns the given value"
+    constant_fn.is_cognitive = false
+    constant_fn.min_args = 1
+    constant_fn.max_args = 1
+    self.register(constant_fn)
+
+    -- range: generate a list of integers.
+    let range_fn be PreludeFunction{}
+    range_fn.name = "range"
+    range_fn.description = "Generate a list of integers from start (inclusive) to end (exclusive)"
+    range_fn.is_cognitive = false
+    range_fn.min_args = 2
+    range_fn.max_args = 2
+    self.register(range_fn)
+
+    -- zip: combine two lists into pairs.
+    let zip_fn be PreludeFunction{}
+    zip_fn.name = "zip"
+    zip_fn.description = "Combine two lists into a list of pairs"
+    zip_fn.is_cognitive = false
+    zip_fn.min_args = 2
+    zip_fn.max_args = 2
+    self.register(zip_fn)
+
+    -- flatten: flatten a list of lists.
+    let flatten_fn be PreludeFunction{}
+    flatten_fn.name = "flatten"
+    flatten_fn.description = "Flatten a list of lists into a single list"
+    flatten_fn.is_cognitive = false
+    flatten_fn.min_args = 1
+    flatten_fn.max_args = 1
+    self.register(flatten_fn)
+
+    -- unique: remove duplicate elements.
+    let unique_fn be PreludeFunction{}
+    unique_fn.name = "unique"
+    unique_fn.description = "Remove duplicate elements from a list, preserving order of first occurrence"
+    unique_fn.is_cognitive = false
+    unique_fn.min_args = 1
+    unique_fn.max_args = 1
+    self.register(unique_fn)
+
+    -- sort: sort a list by a key function.
+    let sort_fn be PreludeFunction{}
+    sort_fn.name = "sort"
+    sort_fn.description = "Sort a list using a key function for comparison"
+    sort_fn.is_cognitive = false
+    sort_fn.min_args = 2
+    sort_fn.max_args = 2
+    self.register(sort_fn)
+
+    -- take: take the first N elements.
+    let take_fn be PreludeFunction{}
+    take_fn.name = "take"
+    take_fn.description = "Take the first N elements of a list"
+    take_fn.is_cognitive = false
+    take_fn.min_args = 2
+    take_fn.max_args = 2
+    self.register(take_fn)
+
+    -- drop: drop the first N elements.
+    let drop_fn be PreludeFunction{}
+    drop_fn.name = "drop"
+    drop_fn.description = "Drop the first N elements of a list, returning the rest"
+    drop_fn.is_cognitive = false
+    drop_fn.min_args = 2
+    drop_fn.max_args = 2
+    self.register(drop_fn)
+
+    -- head: first element of a list.
+    let head_fn be PreludeFunction{}
+    head_fn.name = "head"
+    head_fn.description = "Return the first element of a list"
+    head_fn.is_cognitive = false
+    head_fn.min_args = 1
+    head_fn.max_args = 1
+    self.register(head_fn)
+
+    -- tail: all but the first element.
+    let tail_fn be PreludeFunction{}
+    tail_fn.name = "tail"
+    tail_fn.description = "Return all elements of a list except the first"
+    tail_fn.is_cognitive = false
+    tail_fn.min_args = 1
+    tail_fn.max_args = 1
+    self.register(tail_fn)
+
+    -- length: count elements in a list.
+    let length_fn be PreludeFunction{}
+    length_fn.name = "length"
+    length_fn.description = "Return the number of elements in a list"
+    length_fn.is_cognitive = false
+    length_fn.min_args = 1
+    length_fn.max_args = 1
+    self.register(length_fn)
+
+    -- empty: check if a list is empty.
+    let empty_fn be PreludeFunction{}
+    empty_fn.name = "empty"
+    empty_fn.description = "Check if a list is empty"
+    empty_fn.is_cognitive = false
+    empty_fn.min_args = 1
+    empty_fn.max_args = 1
+    self.register(empty_fn)
+
+    -- append: add an element to the end of a list.
+    let append_fn be PreludeFunction{}
+    append_fn.name = "append"
+    append_fn.description = "Add an element to the end of a list"
+    append_fn.is_cognitive = false
+    append_fn.min_args = 2
+    append_fn.max_args = 2
+    self.register(append_fn)
+
+    -- concat: concatenate two lists.
+    let concat_fn be PreludeFunction{}
+    concat_fn.name = "concat"
+    concat_fn.description = "Concatenate two lists into a single list"
+    concat_fn.is_cognitive = false
+    concat_fn.min_args = 2
+    concat_fn.max_args = 2
+    self.register(concat_fn)
+
+    -- contains: check if a list contains an element.
+    let contains_fn be PreludeFunction{}
+    contains_fn.name = "contains"
+    contains_fn.description = "Check if a list contains a specific element"
+    contains_fn.is_cognitive = false
+    contains_fn.min_args = 2
+    contains_fn.max_args = 2
+    self.register(contains_fn)
+
+    -- =================================================================
+    -- I/O PRIMITIVES
+    -- =================================================================
+
+    -- print: output to console.
+    let print_fn be PreludeFunction{}
+    print_fn.name = "print"
+    print_fn.description = "Output a value to the console"
+    print_fn.is_cognitive = false
+    print_fn.min_args = 1
+    print_fn.max_args = 1
+    self.register(print_fn)
+
+    -- =================================================================
+    -- TYPE CONVERSION PRIMITIVES
+    -- =================================================================
+
+    -- str: convert to string.
+    let str_fn be PreludeFunction{}
+    str_fn.name = "str"
+    str_fn.description = "Convert a value to its string representation"
+    str_fn.is_cognitive = false
+    str_fn.min_args = 1
+    str_fn.max_args = 1
+    self.register(str_fn)
+
+    -- int: convert to integer.
+    let int_fn be PreludeFunction{}
+    int_fn.name = "int"
+    int_fn.description = "Convert a value to an integer"
+    int_fn.is_cognitive = false
+    int_fn.min_args = 1
+    int_fn.max_args = 1
+    self.register(int_fn)
+
+    -- float: convert to float.
+    let float_fn be PreludeFunction{}
+    float_fn.name = "float"
+    float_fn.description = "Convert a value to a floating-point number"
+    float_fn.is_cognitive = false
+    float_fn.min_args = 1
+    float_fn.max_args = 1
+    self.register(float_fn)
+
+    -- =================================================================
+    -- INTROSPECTION PRIMITIVES
+    -- =================================================================
+
+    -- type_of: return type name as string.
+    let type_of_fn be PreludeFunction{}
+    type_of_fn.name = "type_of"
+    type_of_fn.description = "Return the type name of a value as a string"
+    type_of_fn.is_cognitive = false
+    type_of_fn.min_args = 1
+    type_of_fn.max_args = 1
+    self.register(type_of_fn)
+
+    -- =================================================================
+    -- SEMANTIC ATTRIBUTE PRIMITIVES
+    -- These are the bridge between the functional layer and the
+    -- semantic layer. They allow prelude code to work with the
+    -- eight semantic attributes directly.
+    -- =================================================================
+
+    -- attributes_of: return semantic attributes of a value.
+    let attrs_fn be PreludeFunction{}
+    attrs_fn.name = "attributes_of"
+    attrs_fn.description = "Return the full SemanticAttributes attached to a value"
+    attrs_fn.is_cognitive = true
+    attrs_fn.min_args = 1
+    attrs_fn.max_args = 1
+    self.register(attrs_fn)
+
+    -- with_confidence: set confidence on a value.
+    let with_conf_fn be PreludeFunction{}
+    with_conf_fn.name = "with_confidence"
+    with_conf_fn.description = "Set the confidence attribute on a value, returning a new value with updated attributes"
+    with_conf_fn.is_cognitive = true
+    with_conf_fn.min_args = 2
+    with_conf_fn.max_args = 2
+    self.register(with_conf_fn)
+
+    -- propagate: propagate semantic attributes between values.
+    let propagate_fn be PreludeFunction{}
+    propagate_fn.name = "propagate"
+    propagate_fn.description = "Propagate semantic attributes from one value to another, merging dimensions"
+    propagate_fn.is_cognitive = true
+    propagate_fn.min_args = 2
+    propagate_fn.max_args = 2
+    self.register(propagate_fn)
+
+    return self
+  end
+end
+
+-- =========================================================================
+-- EXPORTS
+-- =========================================================================
+-- The prelude exports all types. This module is implicitly available
+-- to every Orren program and should be loaded before any user code.
+-- =========================================================================
+
+export {
+  PreludeFunction,
+  PreludeRegistry
+}

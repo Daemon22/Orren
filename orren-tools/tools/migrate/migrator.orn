@@ -1,0 +1,345 @@
+-- migrator.orn
+-- Automated source code migration tool for Orren language version transitions
+-- Applies pattern-based transformation rules and produces detailed reports
+
+module orren_tools.tools.migrate
+
+import orren.core.language.foundation::{String, Int, Float, Bool, List, Map}
+import orren.core.language.foundation::{FileSystem, Path, DateTime, Timer}
+
+-- Direction of a migration transformation
+enum MigrationDirection
+  UPGRADE
+  DOWNGRADE
+end
+
+-- Severity classification for a migration change
+enum ChangeSeverity
+  BREAKING
+  MINOR
+  PATCH
+  DEPRECATION_WARNING
+end
+
+-- Execution status for a single migration result
+enum MigrationStatus
+  PENDING
+  APPLIED
+  SKIPPED
+  FAILED
+  CONFLICT
+end
+
+-- A single transformation rule that maps old patterns to new patterns
+entity MigrationRule
+  property id: String = ""
+  property name: String = ""
+  property description: String = ""
+  property severity: ChangeSeverity = ChangeSeverity.MINOR
+  property from_version: String = ""
+  property to_version: String = ""
+  property pattern: String = ""
+  property replacement: String = ""
+  property auto_applicable: Bool = true
+end
+
+-- Result of applying a single rule to a single location
+entity MigrationResult
+  property rule_id: String = ""
+  property file: String = ""
+  property line: Int = 0
+  property original: String = ""
+  property replacement: String = ""
+  property applied: Bool = false
+  property status: MigrationStatus = MigrationStatus.PENDING
+end
+
+-- Complete migration report with aggregated statistics
+entity MigrationReport
+  property total_files: Int = 0
+  property total_changes: Int = 0
+  property applied: Int = 0
+  property skipped: Int = 0
+  property failed: Int = 0
+  property conflicts: Int = 0
+  property breakdown_by_severity: Map<String, Int> = Map<String, Int>{}
+  property migration_time: Int = 0
+end
+
+-- Main migrator that manages rules and applies transformations
+entity Migrator
+  property rules: List<MigrationRule> = List<MigrationRule>{}
+  property results: List<MigrationResult> = List<MigrationResult>{}
+  property config: Map<String, String> = Map<String, String>{}
+  property from_version: String = ""
+  property to_version: String = ""
+  property dry_run: Bool = false
+end
+
+intent "automate source code migrations between Orren language versions using pattern-based transformation rules with conflict detection"
+
+-- Register a new migration rule
+fn register_rule(self: Migrator, rule: MigrationRule) -> Bool do
+  -- Validate required fields
+  if rule.id.length() == 0 then return false end
+  if rule.pattern.length() == 0 then return false end
+  -- Check for duplicate rule IDs
+  for existing in self.rules do
+    if existing.id == rule.id then
+      return false
+    end
+  end
+  self.rules.append(rule)
+  return true
+end
+
+-- Scan a file for applicable migration patterns
+fn scan_file(self: Migrator, file_path: String) -> List<MigrationResult> do
+  let content be FileSystem.read_file(file_path)
+  let lines be content.split("\n")
+  let file_results be List<MigrationResult>{}
+  for rule in self.rules do
+    -- Check version compatibility
+    if rule.from_version.length() > 0 then
+      if rule.from_version != self.from_version then
+        continue
+      end
+    end
+    let i be 0
+    while i < lines.length() do
+      let line be lines[i]
+      if line.contains(rule.pattern) then
+        let result be MigrationResult{
+          rule_id = rule.id,
+          file = file_path,
+          line = i,
+          original = line,
+          status = MigrationStatus.PENDING
+        }
+        file_results.append(result)
+      end
+      i = i + 1
+    end
+  end
+  return file_results
+end
+
+-- Apply a single rule to a specific result location
+fn apply_rule(self: Migrator, result: MigrationResult) -> MigrationResult do
+  let rule be self.find_rule(result.rule_id)
+  if rule.id.length() == 0 then
+    result.status = MigrationStatus.FAILED
+    return result
+  end
+  -- Perform the replacement
+  let new_content be result.original.replace(rule.pattern, rule.replacement)
+  if new_content == result.original then
+    result.status = MigrationStatus.SKIPPED
+    result.applied = false
+  else
+    result.replacement = new_content
+    result.applied = true
+    result.status = MigrationStatus.APPLIED
+  end
+  return result
+end
+
+-- Migrate a single file by applying all matching rules
+fn migrate_file(self: Migrator, file_path: String) -> List<MigrationResult> do
+  let file_results be self.scan_file(file_path)
+  let applied_results be List<MigrationResult>{}
+  for result in file_results do
+    let migrated be self.apply_rule(result)
+    applied_results.append(migrated)
+    self.results.append(migrated)
+  end
+  -- Write changes if not dry run
+  if not self.dry_run then
+    let content be FileSystem.read_file(file_path)
+    let lines be content.split("\n")
+    for result in applied_results do
+      if result.applied then
+        lines[result.line] = result.replacement
+      end
+    end
+    let new_content be lines.join("\n")
+    let _ be FileSystem.write_file(file_path, new_content)
+  end
+  return applied_results
+end
+
+-- Migrate all .orn files in a given directory
+fn migrate_all(self: Migrator, root_path: String) -> List<MigrationResult> do
+  let all_results be List<MigrationResult>{}
+  let orn_files be FileSystem.find_files(root_path, "*.orn")
+  for file_path in orn_files do
+    -- Skip excluded paths
+    let excluded be false
+    for key in self.config.keys() do
+      if key.starts_with("exclude_") then
+        let exclude_path be self.config[key]
+        if file_path.contains(exclude_path) then
+          excluded = true
+        end
+      end
+    end
+    if excluded then continue end
+    let file_results be self.migrate_file(file_path)
+    for r in file_results do
+      all_results.append(r)
+    end
+  end
+  return all_results
+end
+
+-- Detect potential conflicts between migration rules
+fn detect_conflicts(self: Migrator) -> List<String> do
+  let conflicts be List<String>{}
+  let i be 0
+  while i < self.rules.length() do
+    let rule_a be self.rules[i]
+    let j be i + 1
+    while j < self.rules.length() do
+      let rule_b be self.rules[j]
+      -- Check if replacement of rule_a matches pattern of rule_b
+      if rule_a.replacement.contains(rule_b.pattern) then
+        conflicts.append("Rule '" + rule_a.id + "' replacement may trigger rule '" + rule_b.id + "'")
+      end
+      -- Check if patterns overlap
+      if rule_a.pattern == rule_b.pattern then
+        conflicts.append("Rules '" + rule_a.id + "' and '" + rule_b.id + "' share the same pattern")
+      end
+      j = j + 1
+    end
+    i = i + 1
+  end
+  return conflicts
+end
+
+-- Generate a dry-run report without applying changes
+fn dry_run_report(self: Migrator, root_path: String) -> MigrationReport do
+  let saved_dry be self.dry_run
+  self.dry_run = true
+  let start be Timer.now_ns()
+  let all_results be self.migrate_all(root_path)
+  let elapsed be Timer.now_ns() - start
+  self.dry_run = saved_dry
+  let report be self.generate_report(all_results, elapsed)
+  return report
+end
+
+-- Generate a comprehensive migration report from results
+fn generate_report(self: Migrator, results: List<MigrationResult>, elapsed_ns: Int) -> MigrationReport do
+  let report be MigrationReport{migration_time = elapsed_ns}
+  let files_seen be Map<String, Bool>{}
+  report.breakdown_by_severity["BREAKING"] = 0
+  report.breakdown_by_severity["MINOR"] = 0
+  report.breakdown_by_severity["PATCH"] = 0
+  report.breakdown_by_severity["DEPRECATION_WARNING"] = 0
+  for result in results do
+    files_seen[result.file] = true
+    report.total_changes = report.total_changes + 1
+    match result.status with
+      MigrationStatus.APPLIED then
+        report.applied = report.applied + 1
+        let rule be self.find_rule(result.rule_id)
+        let sev_str be rule.severity.to_string()
+        if report.breakdown_by_severity.has(sev_str) then
+          report.breakdown_by_severity[sev_str] = report.breakdown_by_severity[sev_str] + 1
+        end
+      end
+      MigrationStatus.SKIPPED then report.skipped = report.skipped + 1 end
+      MigrationStatus.FAILED then report.failed = report.failed + 1 end
+      MigrationStatus.CONFLICT then report.conflicts = report.conflicts + 1 end
+    end
+  end
+  report.total_files = files_seen.keys().length()
+  return report
+end
+
+-- Find a registered rule by its ID
+fn find_rule(self: Migrator, rule_id: String) -> MigrationRule do
+  let not_found be MigrationRule{}
+  for rule in self.rules do
+    if rule.id == rule_id then
+      return rule
+    end
+  end
+  return not_found
+end
+
+-- Get all rules matching a specific severity level
+fn get_rules_by_severity(self: Migrator, severity: ChangeSeverity) -> List<MigrationRule> do
+  let matched be List<MigrationRule>{}
+  for rule in self.rules do
+    if rule.severity == severity then
+      matched.append(rule)
+    end
+  end
+  return matched
+end
+
+-- Validate all registered rules for correctness
+fn validate_rules(self: Migrator) -> List<String> do
+  let errors be List<String>{}
+  for rule in self.rules do
+    if rule.id.length() == 0 then
+      errors.append("Rule has empty id")
+    end
+    if rule.pattern.length() == 0 then
+      errors.append("Rule '" + rule.id + "' has empty pattern")
+    end
+    if rule.from_version.length() > 0 and rule.to_version.length() == 0 then
+      errors.append("Rule '" + rule.id + "' has from_version but no to_version")
+    end
+  end
+  return errors
+end
+
+-- Format a migration report as a human-readable summary string
+fn format_report_summary(self: Migrator, report: MigrationReport) -> String do
+  let lines be List<String>{"Migration Report", "================", ""}
+  lines.append("From: " + self.from_version + "  To: " + self.to_version)
+  lines.append("Files scanned: " + report.total_files.to_string())
+  lines.append("Total changes: " + report.total_changes.to_string())
+  lines.append("Applied: " + report.applied.to_string())
+  lines.append("Skipped: " + report.skipped.to_string())
+  lines.append("Failed: " + report.failed.to_string())
+  lines.append("Conflicts: " + report.conflicts.to_string())
+  lines.append("")
+  lines.append("Severity Breakdown:")
+  for key in report.breakdown_by_severity.keys() do
+    let count be report.breakdown_by_severity[key]
+    lines.append("  " + key + ": " + count.to_string())
+  end
+  lines.append("")
+  let ms be (report.migration_time / 1000000).to_string()
+  lines.append("Migration time: " + ms + "ms")
+  return lines.join("\n")
+end
+
+-- Undo the last migration by reverting applied changes
+fn undo_last_migration(self: Migrator, results: List<MigrationResult>) -> Bool do
+  let files_modified be Map<String, List<MigrationResult>>{}
+  for result in results do
+    if result.applied and result.status == MigrationStatus.APPLIED then
+      if not files_modified.has(result.file) then
+        files_modified[result.file] = List<MigrationResult>{}
+      end
+      files_modified[result.file].append(result)
+    end
+  end
+  for file_path in files_modified.keys() do
+    let content be FileSystem.read_file(file_path)
+    let lines be content.split("\n")
+    let file_results be files_modified[file_path]
+    for result in file_results do
+      lines[result.line] = result.original
+    end
+    let restored be lines.join("\n")
+    let _ be FileSystem.write_file(file_path, restored)
+  end
+  return true
+end
+
+export {MigrationDirection, ChangeSeverity, MigrationStatus, MigrationRule, MigrationResult, MigrationReport, Migrator}

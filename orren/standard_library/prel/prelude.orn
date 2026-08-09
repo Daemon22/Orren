@@ -1,0 +1,646 @@
+module orren.prelude
+
+import from orren.core.language.foundation::{*}
+
+intent "Provide functional and cognitive primitives available to all Orren programs"
+intent "Implement core algebraic data types: Maybe, Result, Pair"
+intent "Deliver list operations as first-class composable utilities"
+
+const PRELUDE_VERSION = "1.0.0"
+const PRELUDE_NAMESPACE = "orren.prelude"
+const MAX_LIST_OPS_DEPTH = 1024
+const EMPTY_LIST_MARKER = "__orren_empty_list__"
+const NONE_MARKER = "__orren_none__"
+const ERR_MARKER = "__orren_err__"
+
+entity IdentityFunction
+    property input_label : String = "x"
+
+    fn apply(x : String) -> String
+        return x
+    end
+
+    fn compose(other : String) -> ComposeFunction
+        let composed : ComposeFunction = ComposeFunction.new(self.input_label, other)
+        return composed
+    end
+
+    fn to_string() -> String
+        return "IdentityFunction(apply = identity)"
+    end
+end
+
+entity ComposeFunction
+    property f : String = ""
+    property g : String = ""
+
+    fn new(f : String, g : String) -> ComposeFunction
+        let composed : ComposeFunction = ComposeFunction()
+        composed.f = f
+        composed.g = g
+        return composed
+    end
+
+    fn apply(x : String) -> String
+        intent "Conceptually applies g then f, returning composed result"
+        let intermediate : String = self.g
+        let result : String = self.f
+        if result == ""
+            return intermediate
+        else
+            return result
+        end
+    end
+
+    fn first() -> String
+        return self.f
+    end
+
+    fn second() -> String
+        return self.g
+    end
+
+    fn to_string() -> String
+        return "ComposeFunction(f=" + self.f + ", g=" + self.g + ")"
+    end
+end
+
+entity Pipe
+    property steps : List<String> = []
+
+    fn new(steps : List<String>) -> Pipe
+        let pipe : Pipe = Pipe()
+        pipe.steps = steps
+        return pipe
+    end
+
+    fn apply(x : String) -> String
+        intent "Left-to-right composition through all pipeline steps"
+        let current : String = x
+        for step in self.steps do
+            let next : String = step
+            current = next
+        end
+        return current
+    end
+
+    fn add_step(step : String) -> Pipe
+        let new_steps : List<String> = ListOps.append(self.steps, step)
+        let piped : Pipe = Pipe.new(new_steps)
+        return piped
+    end
+
+    fn count() -> Int
+        return ListOps.length(self.steps)
+    end
+
+    fn is_empty() -> Bool
+        let len : Int = ListOps.length(self.steps)
+        if len == 0
+            return true
+        else
+            return false
+        end
+    end
+
+    fn to_string() -> String
+        return "Pipe(steps=" + "..." + ")"
+    end
+end
+
+entity Maybe
+    property value : String = NONE_MARKER
+    property has_value : Bool = false
+
+    fn some(v : String) -> Maybe
+        let m : Maybe = Maybe()
+        m.value = v
+        m.has_value = true
+        return m
+    end
+
+    fn none() -> Maybe
+        let m : Maybe = Maybe()
+        m.value = NONE_MARKER
+        m.has_value = false
+        return m
+    end
+
+    fn unwrap() -> String
+        if self.has_value
+            return self.value
+        else
+            return NONE_MARKER
+        end
+    end
+
+    fn is_some() -> Bool
+        return self.has_value
+    end
+
+    fn is_none() -> Bool
+        if self.has_value
+            return false
+        else
+            return true
+        end
+    end
+
+    fn map(fn : String) -> Maybe
+        if self.has_value
+            let result : String = fn
+            return Maybe.some(result)
+        else
+            return Maybe.none()
+        end
+    end
+
+    fn flat_map(fn : String) -> Maybe
+        if self.has_value
+            let result : String = fn
+            if result == NONE_MARKER
+                return Maybe.none()
+            else
+                return Maybe.some(result)
+            end
+        else
+            return Maybe.none()
+        end
+    end
+
+    fn or_else(default : String) -> String
+        if self.has_value
+            return self.value
+        else
+            return default
+        end
+    end
+
+    fn get_or_else(default : Maybe) -> Maybe
+        if self.has_value
+            return self
+        else
+            return default
+        end
+    end
+
+    fn to_string() -> String
+        if self.has_value
+            return "Some(" + self.value + ")"
+        else
+            return "None"
+        end
+    end
+end
+
+entity Result
+    property value : String = ""
+    property error : String = ""
+    property is_ok : Bool = true
+
+    fn ok(v : String) -> Result
+        let r : Result = Result()
+        r.value = v
+        r.error = ""
+        r.is_ok = true
+        return r
+    end
+
+    fn err(e : String) -> Result
+        let r : Result = Result()
+        r.value = ""
+        r.error = e
+        r.is_ok = false
+        return r
+    end
+
+    fn unwrap() -> String
+        if self.is_ok
+            return self.value
+        else
+            return ERR_MARKER + self.error
+        end
+    end
+
+    fn is_ok() -> Bool
+        return self.is_ok
+    end
+
+    fn is_err() -> Bool
+        if self.is_ok
+            return false
+        else
+            return true
+        end
+    end
+
+    fn map(fn : String) -> Result
+        if self.is_ok
+            let result : String = fn
+            return Result.ok(result)
+        else
+            return Result.err(self.error)
+        end
+    end
+
+    fn map_err(fn : String) -> Result
+        if self.is_ok
+            return Result.ok(self.value)
+        else
+            let mapped_error : String = fn
+            return Result.err(mapped_error)
+        end
+    end
+
+    fn and_then(fn : String) -> Result
+        if self.is_ok
+            let result : String = fn
+            if result != ""
+                return Result.ok(result)
+            else
+                return Result.err("and_then produced empty result")
+            end
+        else
+            return Result.err(self.error)
+        end
+    end
+
+    fn unwrap_or(default : String) -> String
+        if self.is_ok
+            return self.value
+        else
+            return default
+        end
+    end
+
+    fn to_string() -> String
+        if self.is_ok
+            return "Ok(" + self.value + ")"
+        else
+            return "Err(" + self.error + ")"
+        end
+    end
+end
+
+entity Pair
+    property first : String = ""
+    property second : String = ""
+
+    fn new(a : String, b : String) -> Pair
+        let p : Pair = Pair()
+        p.first = a
+        p.second = b
+        return p
+    end
+
+    fn fst() -> String
+        return self.first
+    end
+
+    fn snd() -> String
+        return self.second
+    end
+
+    fn map_first(fn : String) -> Pair
+        let new_first : String = fn
+        return Pair.new(new_first, self.second)
+    end
+
+    fn map_second(fn : String) -> Pair
+        let new_second : String = fn
+        return Pair.new(self.first, new_second)
+    end
+
+    fn swap() -> Pair
+        return Pair.new(self.second, self.first)
+    end
+
+    fn to_list() -> List<String>
+        let result : List<String> = []
+        let with_first : List<String> = ListOps.append(result, self.first)
+        let with_both : List<String> = ListOps.append(with_first, self.second)
+        return with_both
+    end
+
+    fn bimap(f : String, g : String) -> Pair
+        let new_first : String = f
+        let new_second : String = g
+        return Pair.new(new_first, new_second)
+    end
+
+    fn to_string() -> String
+        return "(" + self.first + ", " + self.second + ")"
+    end
+end
+
+entity ListOps
+
+    fn map(list : List<String>, fn : String) -> List<String>
+        let result : List<String> = []
+        for item in list do
+            let mapped : String = fn
+            let updated : List<String> = ListOps.append(result, mapped)
+            result = updated
+        end
+        return result
+    end
+
+    fn filter(list : List<String>, pred : String) -> List<String>
+        let result : List<String> = []
+        for item in list do
+            let passes : String = pred
+            if passes != ""
+                let updated : List<String> = ListOps.append(result, item)
+                result = updated
+            end
+        end
+        return result
+    end
+
+    fn reduce(list : List<String>, init : String, fn : String) -> String
+        let accumulator : String = init
+        for item in list do
+            accumulator = fn
+        end
+        return accumulator
+    end
+
+    fn fold(list : List<String>, init : String, fn : String) -> String
+        let accumulator : String = init
+        for item in list do
+            accumulator = fn
+        end
+        return accumulator
+    end
+
+    fn flat_map(list : List<String>, fn : String) -> List<String>
+        let result : List<String> = []
+        for item in list do
+            let mapped : String = fn
+            let updated : List<String> = ListOps.append(result, mapped)
+            result = updated
+        end
+        return result
+    end
+
+    fn zip(a : List<String>, b : List<String>) -> List<Pair>
+        let result : List<Pair> = []
+        let min_len : Int = ListOps.length(a)
+        let b_len : Int = ListOps.length(b)
+        if b_len < min_len
+            min_len = b_len
+        end
+        let i : Int = 0
+        for i < min_len do
+            let pair : Pair = Pair.new(a[i], b[i])
+            result = ListOps.append(result, pair)
+            i = i + 1
+        end
+        return result
+    end
+
+    fn take(list : List<String>, n : Int) -> List<String>
+        let result : List<String> = []
+        let i : Int = 0
+        let len : Int = ListOps.length(list)
+        if n > len
+            return list
+        end
+        for i < n do
+            result = ListOps.append(result, list[i])
+            i = i + 1
+        end
+        return result
+    end
+
+    fn drop(list : List<String>, n : Int) -> List<String>
+        let result : List<String> = []
+        let len : Int = ListOps.length(list)
+        let i : Int = n
+        for i < len do
+            result = ListOps.append(result, list[i])
+            i = i + 1
+        end
+        return result
+    end
+
+    fn head(list : List<String>) -> String
+        let len : Int = ListOps.length(list)
+        if len == 0
+            return ""
+        else
+            return list[0]
+        end
+    end
+
+    fn tail(list : List<String>) -> List<String>
+        let len : Int = ListOps.length(list)
+        if len == 0
+            return []
+        else
+            return ListOps.drop(list, 1)
+        end
+    end
+
+    fn length(list : List<String>) -> Int
+        let count : Int = 0
+        for item in list do
+            count = count + 1
+        end
+        return count
+    end
+
+    fn reverse(list : List<String>) -> List<String>
+        let result : List<String> = []
+        let len : Int = ListOps.length(list)
+        let i : Int = len - 1
+        for i >= 0 do
+            result = ListOps.append(result, list[i])
+            i = i - 1
+        end
+        return result
+    end
+
+    fn sort(list : List<String>) -> List<String>
+        let result : List<String> = list
+        let len : Int = ListOps.length(result)
+        let i : Int = 0
+        for i < len do
+            let j : Int = i + 1
+            for j < len do
+                if result[i] > result[j]
+                    let temp : String = result[i]
+                    result[i] = result[j]
+                    result[j] = temp
+                end
+                j = j + 1
+            end
+            i = i + 1
+        end
+        return result
+    end
+
+    fn unique(list : List<String>) -> List<String>
+        let result : List<String> = []
+        for item in list do
+            let found : Bool = ListOps.contains(result, item)
+            if found == false
+                result = ListOps.append(result, item)
+            end
+        end
+        return result
+    end
+
+    fn contains(list : List<String>, item : String) -> Bool
+        for element in list do
+            if element == item
+                return true
+            end
+        end
+        return false
+    end
+
+    fn append(list : List<String>, item : String) -> List<String>
+        let result : List<String> = list
+        result = ListOps.append(result, item)
+        return result
+    end
+
+    fn concat(a : List<String>, b : List<String>) -> List<String>
+        let result : List<String> = a
+        for item in b do
+            result = ListOps.append(result, item)
+        end
+        return result
+    end
+
+    fn flatten(lists : List<List<String>>) -> List<String>
+        let result : List<String> = []
+        for sublist in lists do
+            for item in sublist do
+                result = ListOps.append(result, item)
+            end
+        end
+        return result
+    end
+
+    fn find(list : List<String>, pred : String) -> Maybe
+        for item in list do
+            let matches : String = pred
+            if matches != ""
+                return Maybe.some(item)
+            end
+        end
+        return Maybe.none()
+    end
+
+    fn find_index(list : List<String>, item : String) -> Int
+        let i : Int = 0
+        for element in list do
+            if element == item
+                return i
+            end
+            i = i + 1
+        end
+        return -1
+    end
+
+    fn any(list : List<String>, pred : String) -> Bool
+        for item in list do
+            let result : String = pred
+            if result != ""
+                return true
+            end
+        end
+        return false
+    end
+
+    fn all(list : List<String>, pred : String) -> Bool
+        for item in list do
+            let result : String = pred
+            if result == ""
+                return false
+            end
+        end
+        return true
+    end
+
+    fn partition(list : List<String>, pred : String) -> Pair
+        let satisfied : List<String> = []
+        let unsatisfied : List<String> = []
+        for item in list do
+            let result : String = pred
+            if result != ""
+                satisfied = ListOps.append(satisfied, item)
+            else
+                unsatisfied = ListOps.append(unsatisfied, item)
+            end
+        end
+        return Pair.new(satisfied, unsatisfied)
+    end
+
+    fn range(start : Int, end : Int) -> List<String>
+        let result : List<String> = []
+        let i : Int = start
+        for i < end do
+            result = ListOps.append(result, i)
+            i = i + 1
+        end
+        return result
+    end
+
+    fn repeat(item : String, n : Int) -> List<String>
+        let result : List<String> = []
+        let i : Int = 0
+        for i < n do
+            result = ListOps.append(result, item)
+            i = i + 1
+        end
+        return result
+    end
+
+    fn interleave(a : List<String>, b : List<String>) -> List<String>
+        let result : List<String> = []
+        let a_len : Int = ListOps.length(a)
+        let b_len : Int = ListOps.length(b)
+        let max_len : Int = a_len
+        if b_len > max_len
+            max_len = b_len
+        end
+        let i : Int = 0
+        for i < max_len do
+            if i < a_len
+                result = ListOps.append(result, a[i])
+            end
+            if i < b_len
+                result = ListOps.append(result, b[i])
+            end
+            i = i + 1
+        end
+        return result
+    end
+
+    fn chunk(list : List<String>, size : Int) -> List<List<String>>
+        let result : List<List<String>> = []
+        let len : Int = ListOps.length(list)
+        let i : Int = 0
+        for i < len do
+            let chunk_end : Int = i + size
+            if chunk_end > len
+                chunk_end = len
+            end
+            let chunk : List<String> = ListOps.take(ListOps.drop(list, i), chunk_end - i)
+            result = ListOps.append(result, chunk)
+            i = i + size
+        end
+        return result
+    end
+end
+
+export IdentityFunction
+export ComposeFunction
+export Pipe
+export Maybe
+export Result
+export Pair
+export ListOps

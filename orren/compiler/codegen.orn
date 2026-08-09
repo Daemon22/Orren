@@ -1,0 +1,589 @@
+module orren.compiler.codegen
+import orren.core.language.foundation::{*}
+import orren.core.semantic.model::{*}
+import orren.parser.ast::{*}
+import orren.parser.tokens::{*}
+import orren.compiler.sir::{*}
+import orren.compiler.ssa::{*}
+
+intent "Code generation — translates SIR/SSA into bytecode, native C, or WebAssembly output formats"
+
+// ──────────────────────────────────────────────
+// CodeTarget — enumeration of output formats
+// ──────────────────────────────────────────────
+enum CodeTarget
+  BYTECODE
+  NATIVE_C
+  WASM
+  ORREN_VM
+end
+
+// ──────────────────────────────────────────────
+// GeneratedCode — container for emitted output
+// ──────────────────────────────────────────────
+entity GeneratedCode
+  property target: CodeTarget = CodeTarget.BYTECODE
+  property code: String = ""
+  property symbols: Map<String, String> = {}
+  property attributes: SemanticAttributes = SemanticAttributes{}
+
+  fn size(self) -> Int do
+    return self.code.length()
+  end
+
+  fn symbol_count(self) -> Int do
+    return self.symbols.size()
+  end
+end
+
+// ──────────────────────────────────────────────
+// BytecodeEmitter — emits ORREN bytecode
+// ──────────────────────────────────────────────
+entity BytecodeEmitter
+  property instructions: List<String> = []
+  property constants: List<String> = []
+  property labels: Map<String, Int> = {}
+  property current_address: Int = 0
+
+  fn init(self) -> BytecodeEmitter do
+    return BytecodeEmitter{
+      instructions = [],
+      constants = [],
+      labels = {},
+      current_address = 0
+    }
+  end
+
+  fn emit(self, opcode: String, operands: List<String>) do
+    let parts be [opcode]
+    for op in operands do
+      let _ be parts.push(op)
+    end
+    let line be parts.join(" ")
+    let _ be self.instructions.push(line)
+    let _ = self.current_address + 1
+    let _ be self.current_address = self.current_address + 1
+  end
+
+  fn emit_label(self, label: String) do
+    let _ be self.labels[label] = self.current_address
+  end
+
+  fn emit_constant(self, value: String) do
+    let idx be self.constants.length()
+    let _ be self.constants.push(value)
+    let _ be self.emit("LOAD_CONST", [idx.to_string()])
+  end
+
+  fn resolve_labels(self) -> List<String> do
+    let resolved be []
+    for instr in self.instructions do
+      let result be instr
+      for pair in self.labels do
+        let label_name be pair.key
+        let addr be pair.value
+        let ref_str be "@" + label_name
+        let _ = result
+        let result be result.replace(ref_str, addr.to_string())
+      end
+      let _ be resolved.push(result)
+    end
+    return resolved
+  end
+
+  fn generate(self, sir_module: SIRModule) -> GeneratedCode do
+    let emitter be BytecodeEmitter.init()
+    for pair in sir_module.functions do
+      let fn be pair.value
+      let fn_code be emitter.generate_function(fn)
+      let _ = fn_code
+    end
+    let resolved be self.resolve_labels()
+    let header be "; ORREN Bytecode\n; Module: " + sir_module.module_name + "\n\n"
+    let const_section be "[CONSTANTS]\n"
+    for i in 0..self.constants.length() do
+      let line be "  " + i.to_string() + ": " + self.constants[i]
+      let _ = const_section + line + "\n"
+      let const_section be const_section + line + "\n"
+    end
+    let code_section be "\n[CODE]\n"
+    for instr in resolved do
+      let _ = code_section + instr + "\n"
+      let code_section be code_section + instr + "\n"
+    end
+    let full_code be header + const_section + code_section
+    let symbols_map be {}
+    for pair in sir_module.functions do
+      let fn be pair.value
+      let _ be symbols_map[fn.name] = fn.entry_label
+    end
+    return GeneratedCode{
+      target = CodeTarget.BYTECODE,
+      code = full_code,
+      symbols = symbols_map,
+      attributes = SemanticAttributes{}
+    }
+  end
+
+  fn generate_function(self, fn: SIRFunction) -> List<String> do
+    let output be []
+    let _ be output.push("; function: " + fn.name)
+    let _ be output.push("." + fn.entry_label)
+    for blk in fn.blocks do
+      let _ be output.push("." + blk.label)
+      for inst in blk.instructions do
+        let line be self.generate_instruction(inst)
+        let _ be output.push(line)
+      end
+    end
+    return output
+  end
+
+  fn generate_instruction(self, inst: SIRInstruction_) -> String do
+    match inst.opcode with
+      SIRInstruction.LOAD_CONST =>
+        if inst.operands.length() > 0 then
+          return "LOAD_CONST " + inst.operands[0].value
+        end
+        return "LOAD_CONST 0",
+      SIRInstruction.LOAD_VAR =>
+        if inst.operands.length() > 0 then
+          return "LOAD_VAR " + inst.operands[0].value
+        end
+        return "LOAD_VAR _",
+      SIRInstruction.STORE_VAR =>
+        if inst.result exists then
+          let r be inst.result as SIROperand
+          return "STORE_VAR " + r.value
+        end
+        return "STORE_VAR _",
+      SIRInstruction.BINARY_OP =>
+        if inst.operands.length() >= 3 then
+          let op be inst.operands[0].value
+          let left be inst.operands[1].value
+          let right be inst.operands[2].value
+          return "BINARY_OP " + op + " " + left + " " + right
+        end
+        return "BINARY_OP _ _ _",
+      SIRInstruction.UNARY_OP =>
+        if inst.operands.length() >= 2 then
+          return "UNARY_OP " + inst.operands[0].value + " " + inst.operands[1].value
+        end
+        return "UNARY_OP _ _",
+      SIRInstruction.CALL_FUNCTION =>
+        if inst.operands.length() > 0 then
+          let fn_name be inst.operands[0].value
+          let args be []
+          for i in 1..inst.operands.length() do
+            let _ be args.push(inst.operands[i].value)
+          end
+          return "CALL " + fn_name + " " + args.join(" ")
+        end
+        return "CALL _",
+      SIRInstruction.CALL_COGNITIVE =>
+        if inst.operands.length() >= 2 then
+          let keyword be inst.operands[0].value
+          let strategy be inst.operands[1].value
+          return "COG_CALL " + keyword + " " + strategy
+        end
+        return "COG_CALL _ _",
+      SIRInstruction.JUMP =>
+        if inst.operands.length() > 0 then
+          return "JUMP @" + inst.operands[0].value
+        end
+        return "JUMP _",
+      SIRInstruction.JUMP_IF_FALSE =>
+        if inst.operands.length() >= 2 then
+          return "JUMP_IF_FALSE " + inst.operands[0].value + " @" + inst.operands[1].value
+        end
+        return "JUMP_IF_FALSE _ _",
+      SIRInstruction.JUMP_IF_TRUE =>
+        if inst.operands.length() >= 2 then
+          return "JUMP_IF_TRUE " + inst.operands[0].value + " @" + inst.operands[1].value
+        end
+        return "JUMP_IF_TRUE _ _",
+      SIRInstruction.RETURN =>
+        if inst.operands.length() > 0 then
+          return "RETURN " + inst.operands[0].value
+        end
+        return "RETURN void",
+      SIRInstruction.CONSTRUCT_ENTITY =>
+        if inst.operands.length() > 0 then
+          return "CONSTRUCT " + inst.operands[0].value
+        end
+        return "CONSTRUCT _",
+      SIRInstruction.ACCESS_FIELD =>
+        if inst.operands.length() >= 2 then
+          return "FIELD_ACCESS " + inst.operands[0].value + " " + inst.operands[1].value
+        end
+        return "FIELD_ACCESS _ _",
+      SIRInstruction.MATCH_DISPATCH =>
+        if inst.operands.length() > 0 then
+          let scrutinee be inst.operands[0].value
+          let targets be []
+          for i in 1..inst.operands.length() do
+            let _ be targets.push(inst.operands[i].value)
+          end
+          return "MATCH " + scrutinee + " " + targets.join(" ")
+        end
+        return "MATCH _",
+      SIRInstruction.LIST_BUILD =>
+        return "LIST_BUILD " + inst.operands.length().to_string(),
+      SIRInstruction.MAP_BUILD =>
+        return "MAP_BUILD " + inst.operands.length().to_string(),
+      SIRInstruction.ENTER_SCOPE => return "ENTER_SCOPE",
+      SIRInstruction.EXIT_SCOPE => return "EXIT_SCOPE",
+      SIRInstruction.NOOP => return "NOOP",
+      _ => return "UNKNOWN"
+    end
+  end
+end
+
+// ──────────────────────────────────────────────
+// NativeCEmitter — emits C source code
+// ──────────────────────────────────────────────
+entity NativeCEmitter
+  property headers: List<String> = []
+  property functions_code: List<String> = []
+  property includes: List<String> = []
+
+  fn init(self) -> NativeCEmitter do
+    let emitter be NativeCEmitter{
+      headers = [],
+      functions_code = [],
+      includes = ["#include <stdio.h>", "#include <stdlib.h>", "#include <string.h>"]
+    }
+    return emitter
+  end
+
+  fn emit_includes(self) -> String do
+    let lines be []
+    for inc in self.includes do
+      let _ be lines.push(inc)
+    end
+    let _ be lines.push("")
+    return lines.join("\n")
+  end
+
+  fn generate(self, sir_module: SIRModule) -> GeneratedCode do
+    let emitter be NativeCEmitter.init()
+    let parts be []
+    let _ be parts.push("/* ORREN Compiled C Output */")
+    let _ be parts.push("/* Module: " + sir_module.module_name + " */")
+    let _ be parts.push("")
+    let _ be parts.push(emitter.emit_includes())
+    for pair in sir_module.functions do
+      let fn be pair.value
+      let c_code be emitter.emit_function(fn)
+      let _ be parts.push(c_code)
+    end
+    let symbols_map be {}
+    for pair in sir_module.functions do
+      let fn be pair.value
+      let _ be symbols_map[fn.name] = "orren_" + fn.name
+    end
+    return GeneratedCode{
+      target = CodeTarget.NATIVE_C,
+      code = parts.join("\n"),
+      symbols = symbols_map,
+      attributes = SemanticAttributes{}
+    }
+  end
+
+  fn emit_function(self, fn: SIRFunction) -> String do
+    let lines be []
+    let _ be lines.push("/* Function: " + fn.name + " */")
+    let _ be lines.push("void orren_" + fn.name + "() {")
+    let indent be "    "
+    for blk in fn.blocks do
+      if blk.label != "entry" then
+        let _ be lines.push(indent + "/* block: " + blk.label + " */")
+      end
+      for inst in blk.instructions do
+        let c_line be self.emit_instruction(inst)
+        let _ be lines.push(indent + c_line)
+      end
+    end
+    let _ be lines.push("}")
+    let _ be lines.push("")
+    return lines.join("\n")
+  end
+
+  fn emit_instruction(self, inst: SIRInstruction_) -> String do
+    match inst.opcode with
+      SIRInstruction.LOAD_CONST =>
+        if inst.result exists and inst.operands.length() > 0 then
+          let r be inst.result as SIROperand
+          return "orren_value_t " + r.value + " = " + inst.operands[0].value + ";"
+        end
+        return "/* LOAD_CONST */",
+      SIRInstruction.LOAD_VAR =>
+        if inst.result exists and inst.operands.length() > 0 then
+          let r be inst.result as SIROperand
+          return "orren_value_t " + r.value + " = " + inst.operands[0].value + ";"
+        end
+        return "/* LOAD_VAR */",
+      SIRInstruction.STORE_VAR =>
+        if inst.result exists and inst.operands.length() > 0 then
+          let r be inst.result as SIROperand
+          return r.value + " = " + inst.operands[0].value + ";"
+        end
+        return "/* STORE_VAR */",
+      SIRInstruction.BINARY_OP =>
+        if inst.operands.length() >= 3 and inst.result exists then
+          let r be inst.result as SIROperand
+          let op be inst.operands[0].value
+          let c_op be "?"
+          match op with
+            "+" => let c_op be "+",
+            "-" => let c_op be "-",
+            "*" => let c_op be "*",
+            "/" => let c_op be "/",
+            "==" => let c_op be "==",
+            "!=" => let c_op be "!=",
+            "<" => let c_op be "<",
+            ">" => let c_op be ">",
+            "<=" => let c_op be "<=",
+            ">=" => let c_op be ">=",
+            _ => let c_op be op
+          end
+          return "orren_value_t " + r.value + " = " + inst.operands[1].value + " " + c_op + " " + inst.operands[2].value + ";"
+        end
+        return "/* BINARY_OP */",
+      SIRInstruction.CALL_FUNCTION =>
+        if inst.operands.length() > 0 and inst.result exists then
+          let r be inst.result as SIROperand
+          let fn_name be inst.operands[0].value
+          return "orren_value_t " + r.value + " = orren_" + fn_name + "();"
+        end
+        return "/* CALL */",
+      SIRInstruction.CALL_COGNITIVE =>
+        if inst.operands.length() >= 2 and inst.result exists then
+          let r be inst.result as SIROperand
+          let kw be inst.operands[0].value
+          let strat be inst.operands[1].value
+          return "orren_value_t " + r.value + " = orren_cognitive_" + kw + "(\"" + strat + "\");"
+        end
+        return "/* COG_CALL */",
+      SIRInstruction.JUMP =>
+        if inst.operands.length() > 0 then
+          return "goto lbl_" + inst.operands[0].value + ";"
+        end
+        return "/* JUMP */",
+      SIRInstruction.JUMP_IF_FALSE =>
+        if inst.operands.length() >= 2 then
+          return "if (!" + inst.operands[0].value + ") goto lbl_" + inst.operands[1].value + ";"
+        end
+        return "/* JUMP_IF_FALSE */",
+      SIRInstruction.JUMP_IF_TRUE =>
+        if inst.operands.length() >= 2 then
+          return "if (" + inst.operands[0].value + ") goto lbl_" + inst.operands[1].value + ";"
+        end
+        return "/* JUMP_IF_TRUE */",
+      SIRInstruction.RETURN =>
+        if inst.operands.length() > 0 then
+          return "return " + inst.operands[0].value + ";"
+        end
+        return "return;",
+      SIRInstruction.CONSTRUCT_ENTITY =>
+        if inst.result exists and inst.operands.length() > 0 then
+          let r be inst.result as SIROperand
+          return "orren_value_t " + r.value + " = orren_construct_" + inst.operands[0].value + "();"
+        end
+        return "/* CONSTRUCT */",
+      SIRInstruction.NOOP => return "/* noop */",
+      _ => return "/* unhandled: " + inst.opcode.to_string() + " */"
+    end
+  end
+end
+
+// ──────────────────────────────────────────────
+// WasmEmitter — emits WebAssembly text format
+// ──────────────────────────────────────────────
+entity WasmEmitter
+  property module_header: String = "(module\n"
+  property function_bodies: List<String> = []
+  property imports: List<String> = []
+  property exports_section: List<String> = []
+
+  fn init(self) -> WasmEmitter do
+    return WasmEmitter{
+      module_header = "(module\n",
+      function_bodies = [],
+      imports = ["  (import \"env\" \"print\" (func $print (param i32)))"],
+      exports_section = []
+    }
+  end
+
+  fn generate(self, sir_module: SIRModule) -> GeneratedCode do
+    let emitter be WasmEmitter.init()
+    let parts be []
+    let _ be parts.push(";; ORREN Compiled WebAssembly Output")
+    let _ be parts.push(";; Module: " + sir_module.module_name)
+    let _ be parts.push("")
+    let _ be parts.push("(module")
+    for imp in emitter.imports do
+      let _ be parts.push(imp)
+    end
+    for pair in sir_module.functions do
+      let fn be pair.value
+      let wasm_fn be emitter.emit_function(fn)
+      let _ be parts.push(wasm_fn)
+    end
+    let _ be parts.push(") ;; end module")
+    let symbols_map be {}
+    for pair in sir_module.functions do
+      let fn be pair.value
+      let _ be symbols_map[fn.name] = "$" + fn.name
+    end
+    return GeneratedCode{
+      target = CodeTarget.WASM,
+      code = parts.join("\n"),
+      symbols = symbols_map,
+      attributes = SemanticAttributes{}
+    }
+  end
+
+  fn emit_function(self, fn: SIRFunction) -> String do
+    let lines be []
+    let _ be lines.push("  ;; Function: " + fn.name)
+    let _ be lines.push("  (func $" + fn.name)
+    for blk in fn.blocks do
+      if blk.label != "entry" then
+        let _ be lines.push("    ;; block: " + blk.label)
+      end
+      for inst in blk.instructions do
+        let wasm_inst be self.emit_wasm_instruction(inst)
+        let _ be lines.push("    " + wasm_inst)
+      end
+    end
+    let _ be lines.push("  )")
+    return lines.join("\n")
+  end
+
+  fn emit_wasm_instruction(self, inst: SIRInstruction_) -> String do
+    match inst.opcode with
+      SIRInstruction.LOAD_CONST =>
+        if inst.operands.length() > 0 then
+          let val be inst.operands[0].value
+          let _ = val
+          return "(i32.const " + val + ") ;; LOAD_CONST"
+        end
+        return "(i32.const 0)",
+      SIRInstruction.LOAD_VAR =>
+        if inst.operands.length() > 0 then
+          return "(local.get $" + inst.operands[0].value + ")"
+        end
+        return "(local.get $unknown)",
+      SIRInstruction.STORE_VAR =>
+        if inst.result exists then
+          let r be inst.result as SIROperand
+          return "(local.set $" + r.value + ")"
+        end
+        return "(local.set $unknown)",
+      SIRInstruction.BINARY_OP =>
+        if inst.operands.length() >= 3 then
+          let op be inst.operands[0].value
+          let wasm_op be "i32.add"
+          match op with
+            "+" => let wasm_op be "i32.add",
+            "-" => let wasm_op be "i32.sub",
+            "*" => let wasm_op be "i32.mul",
+            "/" => let wasm_op be "i32.div_s",
+            "==" => let wasm_op be "i32.eq",
+            "!=" => let wasm_op be "i32.ne",
+            "<" => let wasm_op be "i32.lt_s",
+            ">" => let wasm_op be "i32.gt_s",
+            "<=" => let wasm_op be "i32.le_s",
+            ">=" => let wasm_op be "i32.ge_s",
+            _ => let wasm_op be "i32.add"
+          end
+          return "(" + wasm_op + ") ;; BINARY_OP " + op
+        end
+        return "(i32.add) ;; fallback BINARY_OP",
+      SIRInstruction.CALL_FUNCTION =>
+        if inst.operands.length() > 0 then
+          return "(call $" + inst.operands[0].value + ")"
+        end
+        return "(call $unknown)",
+      SIRInstruction.JUMP =>
+        if inst.operands.length() > 0 then
+          return "(br $lbl_" + inst.operands[0].value + ")"
+        end
+        return "(br $unknown)",
+      SIRInstruction.JUMP_IF_FALSE =>
+        if inst.operands.length() >= 2 then
+          return "(br_if $lbl_" + inst.operands[1].value + ")"
+        end
+        return "(br_if $unknown)",
+      SIRInstruction.RETURN => "return",
+      SIRInstruction.NOOP => ";; noop",
+      _ => ";; unhandled: " + inst.opcode.to_string()
+    end
+  end
+end
+
+// ──────────────────────────────────────────────
+// CodeGenerator — main entry point for codegen
+// ──────────────────────────────────────────────
+entity CodeGenerator
+  property target: CodeTarget = CodeTarget.BYTECODE
+  property sir_module: Optional<SIRModule> = None
+  property ssa_module: Optional<SSAModule> = None
+
+  fn init(self, target: CodeTarget) -> CodeGenerator do
+    return CodeGenerator{
+      target = target,
+      sir_module = None,
+      ssa_module = None
+    }
+  end
+
+  fn compile(self, sir: SIRModule) -> GeneratedCode do
+    let _ be self.sir_module = Some(sir)
+    match self.target with
+      CodeTarget.BYTECODE =>
+        let emitter be BytecodeEmitter.init()
+        return emitter.generate(sir),
+      CodeTarget.NATIVE_C =>
+        let emitter be NativeCEmitter.init()
+        return emitter.generate(sir),
+      CodeTarget.WASM =>
+        let emitter be WasmEmitter.init()
+        return emitter.generate(sir),
+      CodeTarget.ORREN_VM =>
+        let emitter be BytecodeEmitter.init()
+        return emitter.generate(sir)
+    end
+  end
+
+  fn compile_with_ssa(self, ssa: SSAModule) -> GeneratedCode do
+    let _ be self.ssa_module = Some(ssa)
+    let sir_from_ssa be SIRModule{ module_name = ssa.module_name }
+    for pair in ssa.functions do
+      let fn_name be pair.key
+      let ssa_fn be pair.value
+      let sir_fn be SIRFunction{
+        name = fn_name,
+        params = [],
+        blocks = [],
+        entry_label = ssa_fn.entry_block
+      }
+      for p in ssa_fn.params do
+        let _ be sir_fn.params.push(p.ssa_name())
+      end
+      for blk_pair in ssa_fn.blocks do
+        let blk be blk_pair.value
+        let sir_blk be SIRBlock{ label = blk.label, instructions = [] }
+        for inst in blk.instructions do
+          let _ be sir_blk.add(inst)
+        end
+        let _ be sir_fn.blocks.push(sir_blk)
+      end
+      let _ be sir_from_ssa.add_function(sir_fn)
+    end
+    return self.compile(sir_from_ssa)
+  end
+end
+
+export { CodeTarget, GeneratedCode, BytecodeEmitter, NativeCEmitter, WasmEmitter, CodeGenerator }

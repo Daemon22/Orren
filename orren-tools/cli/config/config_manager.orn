@@ -1,0 +1,428 @@
+-- config_manager.orn
+-- Cascading configuration management with schema validation
+-- Supports DEFAULT, USER, PROJECT, ENVIRONMENT, and CLI override layers
+
+module orren_tools.cli.config
+
+import orren.core.language.foundation::{String, Int, Float, Bool, List, Map}
+import orren.core.language.foundation::{FileSystem, Path, DateTime}
+
+-- Hierarchy levels for configuration resolution
+enum ConfigLevel
+  DEFAULT
+  USER
+  PROJECT
+  ENVIRONMENT
+  CLI
+end
+
+-- Types of configuration values supported
+enum ConfigValueType
+  STRING
+  INT
+  FLOAT
+  BOOL
+  LIST
+  MAP
+end
+
+-- A single configuration entry with metadata
+entity ConfigEntry
+  property key: String = ""
+  property value: String = ""
+  property value_type: ConfigValueType = ConfigValueType.STRING
+  property level: ConfigLevel = ConfigLevel.DEFAULT
+  property source: String = ""
+  property description: String = ""
+  property valid_values: List<String> = List<String>{}
+  property deprecated: Bool = false
+  property deprecation_message: String = ""
+end
+
+-- Schema that defines all valid configuration keys and their types
+entity ConfigSchema
+  property entries: Map<String, ConfigEntry> = Map<String, ConfigEntry>{}
+  property version: String = "1.0"
+  property schema_name: String = "orren-cli"
+end
+
+-- A single layer in the cascading configuration hierarchy
+entity ConfigLayer
+  property level: ConfigLevel = ConfigLevel.DEFAULT
+  property entries: Map<String, String> = Map<String, String>{}
+  property source_path: String = ""
+  property is_writable: Bool = false
+end
+
+-- Cascading config that merges multiple layers with priority
+entity CascadingConfig
+  property layers: List<ConfigLayer> = List<ConfigLayer>{}
+  property schema: ConfigSchema = ConfigSchema{}
+  property resolved_cache: Map<String, String> = Map<String, String>{}
+  property conflicts: List<String> = List<String>{}
+end
+
+-- Main manager for all configuration operations
+entity ConfigManager
+  property schema: ConfigSchema = ConfigSchema{}
+  property active_config: CascadingConfig = CascadingConfig{}
+  property config_dir: String = ".orren/config"
+end
+
+-- Intent declaration for configuration management
+intent "manage cascading configuration layers with schema validation"
+
+-- Build the default schema with all known configuration keys
+fn build_default_schema() -> ConfigSchema do
+  let schema be ConfigSchema{schema_name = "orren-cli", version = "1.0"}
+  let entry_verbose be ConfigEntry{
+    key = "verbose",
+    value = "false",
+    value_type = ConfigValueType.BOOL,
+    level = ConfigLevel.DEFAULT,
+    description = "Enable verbose output for all CLI commands"
+  }
+  schema.entries.set("verbose", entry_verbose)
+  let entry_color be ConfigEntry{
+    key = "color",
+    value = "auto",
+    value_type = ConfigValueType.STRING,
+    level = ConfigLevel.DEFAULT,
+    description = "Color output mode: auto, always, never",
+    valid_values = List<String>{"auto", "always", "never"}
+  }
+  schema.entries.set("color", entry_color)
+  let entry_parallel be ConfigEntry{
+    key = "test.parallel",
+    value = "true",
+    value_type = ConfigValueType.BOOL,
+    level = ConfigLevel.DEFAULT,
+    description = "Run tests in parallel when possible"
+  }
+  schema.entries.set("test.parallel", entry_parallel)
+  let entry_max_threads be ConfigEntry{
+    key = "test.max_threads",
+    value = "4",
+    value_type = ConfigValueType.INT,
+    level = ConfigLevel.DEFAULT,
+    description = "Maximum number of parallel test threads"
+  }
+  schema.entries.set("test.max_threads", entry_max_threads)
+  let entry_timeout be ConfigEntry{
+    key = "test.timeout_ms",
+    value = "30000",
+    value_type = ConfigValueType.INT,
+    level = ConfigLevel.DEFAULT,
+    description = "Default timeout for individual tests in milliseconds"
+  }
+  schema.entries.set("test.timeout_ms", entry_timeout)
+  let entry_fmt be ConfigEntry{
+    key = "format.report",
+    value = "text",
+    value_type = ConfigValueType.STRING,
+    level = ConfigLevel.DEFAULT,
+    description = "Default report format for test output",
+    valid_values = List<String>{"text", "json", "semantic"}
+  }
+  schema.entries.set("format.report", entry_fmt)
+  let entry_registry be ConfigEntry{
+    key = "registry.url",
+    value = "https://registry.orren-lang.org",
+    value_type = ConfigValueType.STRING,
+    level = ConfigLevel.DEFAULT,
+    description = "Primary package registry URL"
+  }
+  schema.entries.set("registry.url", entry_registry)
+  return schema
+end
+
+-- Create a config layer from a given level and file path
+fn create_layer(level: ConfigLevel, path: String) -> ConfigLayer do
+  let layer be ConfigLayer{level = level, source_path = path}
+  match level with
+    ConfigLevel.DEFAULT then
+      layer.is_writable = false
+    end
+    ConfigLevel.USER then
+      layer.is_writable = true
+    end
+    ConfigLevel.PROJECT then
+      layer.is_writable = true
+    end
+    ConfigLevel.ENVIRONMENT then
+      layer.is_writable = false
+    end
+    ConfigLevel.CLI then
+      layer.is_writable = false
+    end
+  end
+  return layer
+end
+
+-- Load configuration from all layers in priority order
+fn load(self: ConfigManager) -> CascadingConfig do
+  self.schema = build_default_schema()
+  let default_layer be create_layer(ConfigLevel.DEFAULT, "")
+  let _ be self.populate_defaults(default_layer)
+  self.active_config.layers = List<ConfigLayer>{}
+  self.active_config.layers.append(default_layer)
+  let user_path be FileSystem.home_directory() + "/.orren/config.orn"
+  if FileSystem.file_exists(user_path) then
+    let user_layer be create_layer(ConfigLevel.USER, user_path)
+    let _ be self.load_layer_from_file(user_layer, user_path)
+    self.active_config.layers.append(user_layer)
+  end
+  let project_path be "orren.config"
+  if FileSystem.file_exists(project_path) then
+    let project_layer be create_layer(ConfigLevel.PROJECT, project_path)
+    let _ be self.load_layer_from_file(project_layer, project_path)
+    self.active_config.layers.append(project_layer)
+  end
+  let env_layer be create_layer(ConfigLevel.ENVIRONMENT, "")
+  let _ be self.load_layer_from_environment(env_layer)
+  self.active_config.layers.append(env_layer)
+  self.active_config.resolved_cache = Map<String, String>{}
+  self.active_config.conflicts = List<String>{}
+  return self.active_config
+end
+
+-- Populate default values from the schema into a layer
+fn populate_defaults(self: ConfigManager, layer: ConfigLayer) -> Bool do
+  for key in self.schema.entries.keys() do
+    let entry be self.schema.entries.get(key)
+    layer.entries.set(key, entry.value)
+  end
+  return true
+end
+
+-- Load configuration entries from a file into a layer
+fn load_layer_from_file(self: ConfigManager, layer: ConfigLayer, path: String) -> Bool do
+  let content be FileSystem.read_file(path)
+  if content.length() == 0 then return false end
+  let lines be content.split("\n")
+  for line in lines do
+    let trimmed be line.trim()
+    if trimmed.length() == 0 then continue end
+    if trimmed.starts_with("--") then continue end
+    let eq_idx be trimmed.index_of("=")
+    if eq_idx > 0 then
+      let key be trimmed.substring(0, eq_idx).trim()
+      let val be trimmed.substring(eq_idx + 1, trimmed.length()).trim()
+      layer.entries.set(key, val)
+    end
+  end
+  return true
+end
+
+-- Load configuration entries from environment variables
+fn load_layer_from_environment(self: ConfigManager, layer: ConfigLayer) -> Bool do
+  let env_prefix be "ORREN_"
+  let env_vars be FileSystem.environment_variables()
+  for key in env_vars.keys() do
+    if key.starts_with(env_prefix) then
+      let config_key be key.substring(6, key.length()).lower()
+      let val be env_vars.get(key)
+      layer.entries.set(config_key, val)
+    end
+  end
+  return true
+end
+
+-- Save the current active configuration to a specific layer file
+fn save(self: ConfigManager, level: ConfigLevel) -> Bool do
+  let layer be self.find_layer(level)
+  if layer == none then return false end
+  if not layer.is_writable then return false end
+  let lines be List<String>{"-- Orren configuration file (auto-managed)"}
+  for key in layer.entries.keys() do
+    let val be layer.entries.get(key)
+    lines.append(key + " = " + val)
+  end
+  let content be lines.join("\n")
+  return FileSystem.write_file(layer.source_path, content)
+end
+
+-- Get a configuration value by key with cascading resolution
+fn get(self: ConfigManager, key: String) -> String do
+  let cached be self.active_config.resolved_cache.get(key)
+  if cached.length() > 0 then return cached end
+  let value be ""
+  let found be false
+  for i in 0 .. self.active_config.layers.length() do
+    let layer be self.active_config.layers[i]
+    let layer_val be layer.entries.get(key)
+    if layer_val.length() > 0 then
+      value = layer_val
+      found = true
+    end
+  end
+  if found then
+    self.active_config.resolved_cache.set(key, value)
+  end
+  return value
+end
+
+-- Set a configuration value at a specific layer level
+fn set(self: ConfigManager, key: String, value: String, level: ConfigLevel) -> Bool do
+  let layer be self.find_layer(level)
+  if layer == none then return false end
+  if not layer.is_writable then return false end
+  layer.entries.set(key, value)
+  self.active_config.resolved_cache.remove(key)
+  return true
+end
+
+-- Remove a configuration key from a specific layer
+fn unset(self: ConfigManager, key: String, level: ConfigLevel) -> Bool do
+  let layer be self.find_layer(level)
+  if layer == none then return false end
+  if not layer.is_writable then return false end
+  layer.entries.remove(key)
+  self.active_config.resolved_cache.remove(key)
+  return true
+end
+
+-- Resolve all configuration keys through the cascade
+fn resolve(self: ConfigManager) -> Map<String, String> do
+  let resolved be Map<String, String>{}
+  for key in self.schema.entries.keys() do
+    let value be self.get(key)
+    resolved.set(key, value)
+  end
+  return resolved
+end
+
+-- Validate all current configuration values against the schema
+fn validate(self: ConfigManager) -> List<String> do
+  let errors be List<String>{}
+  let all_keys be self.resolve()
+  for key in all_keys.keys() do
+    let schema_entry be self.schema.entries.get(key)
+    if schema_entry == none then
+      errors.append("Unknown configuration key: " + key)
+      continue
+    end
+    let value be all_keys.get(key)
+    let type_valid be self.validate_type(value, schema_entry.value_type)
+    if not type_valid then
+      errors.append("Invalid type for key '" + key + "': expected " + schema_entry.value_type.to_string())
+    end
+    if schema_entry.valid_values.length() > 0 then
+      if not schema_entry.valid_values.contains(value) then
+        errors.append("Invalid value for key '" + key + "': " + value)
+      end
+    end
+    if schema_entry.deprecated then
+      errors.append("Deprecated key '" + key + "': " + schema_entry.deprecation_message)
+    end
+  end
+  return errors
+end
+
+-- Validate that a string value matches the expected type
+fn validate_type(self: ConfigManager, value: String, expected: ConfigValueType) -> Bool do
+  match expected with
+    ConfigValueType.STRING then return true
+    end
+    ConfigValueType.BOOL then
+      return value == "true" or value == "false"
+    end
+    ConfigValueType.INT then
+      let result be value.to_int_safe()
+      return result.is_valid
+    end
+    ConfigValueType.FLOAT then
+      let result be value.to_float_safe()
+      return result.is_valid
+    end
+    ConfigValueType.LIST then return true
+    end
+    ConfigValueType.MAP then return true
+    end
+  end
+end
+
+-- List all configuration keys with their resolved values
+fn list_all(self: ConfigManager) -> List<Map<String, String>> do
+  let items be List<Map<String, String>>{}
+  let resolved be self.resolve()
+  for key in resolved.keys() do
+    let entry be self.schema.entries.get(key)
+    let item be Map<String, String>{}
+    item.set("key", key)
+    item.set("value", resolved.get(key))
+    item.set("type", entry.value_type.to_string())
+    item.set("description", entry.description)
+    item.set("level", self.find_value_level(key).to_string())
+    items.append(item)
+  end
+  return items
+end
+
+-- Export the resolved configuration to a string representation
+fn export_config(self: ConfigManager) -> String do
+  let lines be List<String>{"# Exported Orren Configuration", "# Generated: " + DateTime.now().to_iso_string(), ""}
+  let resolved be self.resolve()
+  for key in resolved.keys() do
+    let entry be self.schema.entries.get(key)
+    let comment be entry.description
+    lines.append("-- " + comment)
+    lines.append(key + " = " + resolved.get(key))
+    lines.append("")
+  end
+  return lines.join("\n")
+end
+
+-- Detect conflicts between configuration layers
+fn detect_conflicts(self: ConfigManager) -> List<String> do
+  let conflicts be List<String>{}
+  let all_keys be self.schema.entries.keys()
+  for key in all_keys do
+    let values be Map<String, String>{}
+    for layer in self.active_config.layers do
+      let val be layer.entries.get(key)
+      if val.length() > 0 then
+        values.set(layer.level.to_string(), val)
+      end
+    end
+    let unique_values be List<String>{}
+    for v in values.values() do
+      if not unique_values.contains(v) then
+        unique_values.append(v)
+      end
+    end
+    if unique_values.length() > 1 then
+      let msg be "Conflict on '" + key + "': " + unique_values.join(" vs ")
+      conflicts.append(msg)
+      self.active_config.conflicts.append(msg)
+    end
+  end
+  return conflicts
+end
+
+-- Find the layer matching a given config level
+fn find_layer(self: ConfigManager, level: ConfigLevel) -> ConfigLayer do
+  for layer in self.active_config.layers do
+    if layer.level == level then
+      return layer
+    end
+  end
+  return none
+end
+
+-- Find which level a resolved value comes from
+fn find_value_level(self: ConfigManager, key: String) -> ConfigLevel do
+  let count be self.active_config.layers.length()
+  let i be count - 1
+  while i >= 0 do
+    let layer be self.active_config.layers[i]
+    let val be layer.entries.get(key)
+    if val.length() > 0 then
+      return layer.level
+    end
+    i = i - 1
+  end
+  return ConfigLevel.DEFAULT
+end
+
+export {ConfigLevel, ConfigValueType, ConfigEntry, ConfigSchema, ConfigLayer, CascadingConfig, ConfigManager}

@@ -1,0 +1,325 @@
+-- semantic_inspector.orn
+-- Semantic inspector for verifying intent preservation across operations.
+-- Traces meaning flow, detects loss events, and enforces the First Law.
+
+module orren_tools.tools.semantic_inspector
+
+import module::{String, Int, Float, Bool, List, Map, Option}
+import orren.core.language.foundation::{Operation, SemanticAttribute, IntentBinding}
+
+-- Direction in which semantic meaning propagates through a pipeline.
+enum SemanticFlowDirection
+  FORWARD
+  BACKWARD
+  BIDIRECTIONAL
+end
+
+-- Kinds of meaning loss that can be detected during inspection.
+enum MeaningLossKind
+  INTENT_DECAY
+  CONTEXT_DROP
+  CONFIDENCE_EROSION
+  PROVENANCE_BREAK
+  SCOPE_LEAK
+  TEMPORAL_MISMATCH
+  FULL_LOSS
+end
+
+-- Overall health assessment of semantic integrity in a trace.
+enum SemanticHealthStatus
+  HEALTHY
+  DEGRADED
+  CRITICAL
+  COMPROMISED
+end
+
+-- A single node in a semantic flow trace.
+entity SemanticFlowNode
+  property id: String = ""
+  property operation: String = ""
+  property input_attrs: Map<String, Float> = {}
+  property output_attrs: Map<String, Float> = {}
+  property meaning_retention: Float = 1.0
+  property flow_direction: SemanticFlowDirection = SemanticFlowDirection.FORWARD
+  property location: String = ""
+end
+
+-- A complete trace of semantic flow across multiple operations.
+entity SemanticTrace
+  property nodes: List<SemanticFlowNode> = []
+  property total_retention: Float = 1.0
+  property min_retention: Float = 1.0
+  property loss_events: List<Map<String, String>> = []
+  property first_law_violations: List<String> = []
+end
+
+-- Configuration for semantic inspection passes.
+entity SemanticInspectionConfig
+  property track_flows: Bool = true
+  property detect_loss: Bool = true
+  property threshold: Float = 0.7
+  property max_trace_depth: Int = 128
+  property include_cognitive: Bool = false
+  property check_first_law: Bool = true
+end
+
+-- Report produced after a full semantic inspection.
+entity SemanticInspectionReport
+  property trace: SemanticTrace = SemanticTrace()
+  property health_status: SemanticHealthStatus = SemanticHealthStatus.HEALTHY
+  property violations: List<String> = []
+  property recommendations: List<String> = []
+  property inspection_time: Float = 0.0
+end
+
+-- Main semantic inspector engine.
+entity SemanticInspector
+  property config: SemanticInspectionConfig = SemanticInspectionConfig()
+  property traces: List<SemanticTrace> = []
+  property violations: List<String> = []
+  property inspected_count: Int = 0
+end
+
+-- Trace semantic flow through a sequence of operations.
+fn trace_flow(self, operations: List<Operation>) -> SemanticTrace do
+  let trace be SemanticTrace()
+  let retention be 1.0
+  let min_ret be 1.0
+  let idx be 0
+  while idx < operations.length and idx < self.config.max_trace_depth do
+    let op be operations[idx]
+    let node be SemanticFlowNode()
+    node.id = "node_" + idx.to_string()
+    node.operation = op.name
+    node.location = op.location
+    -- Compute input attributes from previous output
+    if idx > 0 then
+      let prev be trace.nodes[idx - 1]
+      node.input_attrs = prev.output_attrs
+    end
+    -- Compute meaning retention based on operation type
+    let op_retention be self.compute_operation_retention(op)
+    retention = retention * op_retention
+    if retention < min_ret then
+      min_ret = retention
+    end
+    node.meaning_retention = retention
+    -- Simulate attribute propagation
+    node.output_attrs = self.propagate_attributes(node.input_attrs, op)
+    trace.nodes.append(node)
+    -- Check for loss events
+    if self.config.detect_loss and op_retention < self.config.threshold then
+      let loss be Map<String, String>()
+      loss["node"] = node.id
+      loss["operation"] = op.name
+      loss["retention"] = retention.to_string()
+      loss["kind"] = self.classify_loss_kind(op, op_retention)
+      trace.loss_events.append(loss)
+    end
+    idx = idx + 1
+  end
+  trace.total_retention = retention
+  trace.min_retention = min_ret
+  if self.config.check_first_law then
+    trace.first_law_violations = self.verify_first_law(trace)
+  end
+  self.traces.append(trace)
+  return trace
+end
+
+-- Compute the retention ratio for a single operation.
+fn compute_operation_retention(self, op: Operation) -> Float do
+  match op.name with
+    "identity" then return 1.0
+    "transform" then return 0.95
+    "aggregate" then return 0.85
+    "filter" then return 0.75
+    "project" then return 0.80
+    "compose" then return 0.90
+    "erase" then return 0.0
+    "reinterpret" then return 0.6
+    else return 0.9
+  end
+end
+
+-- Propagate semantic attributes through an operation.
+fn propagate_attributes(self, input: Map<String, Float>, op: Operation) -> Map<String, Float> do
+  let output be Map<String, Float>()
+  for key in input.keys() do
+    let val be input[key]
+    let factor be self.compute_operation_retention(op)
+    output[key] = val * factor
+  end
+  -- Add operation-specific attributes
+  if op.name == "transform" then
+    output["transformed"] = 1.0
+  end
+  if op.name == "aggregate" then
+    output["aggregated"] = 1.0
+  end
+  return output
+end
+
+-- Detect meaning loss events in a completed trace.
+fn detect_meaning_loss(self, trace: SemanticTrace) -> List<Map<String, String>> do
+  let losses be List<Map<String, String>>()
+  for node in trace.nodes do
+    if node.meaning_retention < self.config.threshold then
+      let event be Map<String, String>()
+      event["node_id"] = node.id
+      event["operation"] = node.operation
+      event["retention"] = node.meaning_retention.to_string()
+      event["severity"] = self.severity_for_retention(node.meaning_retention)
+      losses.append(event)
+    end
+  end
+  return losses
+end
+
+-- Classify the severity of a retention value.
+fn severity_for_retention(self, retention: Float) -> String do
+  if retention >= 0.9 then
+    return "low"
+  else if retention >= 0.7 then
+    return "medium"
+  else if retention >= 0.4 then
+    return "high"
+  else
+    return "critical"
+  end
+end
+
+-- Verify the First Law: meaning must not be lost through transformation.
+fn verify_first_law(self, trace: SemanticTrace) -> List<String> do
+  let violations be List<String>()
+  for node in trace.nodes do
+    if node.meaning_retention < 0.5 then
+      let msg be "First Law violation at " + node.id
+      msg = msg + ": " + node.operation
+      msg = msg + " dropped meaning to " + node.meaning_retention.to_string()
+      violations.append(msg)
+    end
+  end
+  if trace.total_retention < 0.3 then
+    violations.append("First Law: total trace retention critically low: " + trace.total_retention.to_string())
+  end
+  return violations
+end
+
+-- Classify the kind of meaning loss for an operation.
+fn classify_loss_kind(self, op: Operation, retention: Float) -> String do
+  if retention < 0.1 then
+    return "FULL_LOSS"
+  end
+  if op.name == "filter" then
+    return "CONTEXT_DROP"
+  end
+  if op.name == "reinterpret" then
+    return "PROVENANCE_BREAK"
+  end
+  if op.name == "project" then
+    return "SCOPE_LEAK"
+  end
+  if retention < 0.5 then
+    return "INTENT_DECAY"
+  end
+  return "CONFIDENCE_EROSION"
+end
+
+-- Classify the overall health of a semantic trace.
+fn classify_health(self, trace: SemanticTrace) -> SemanticHealthStatus do
+  if trace.total_retention >= 0.8 and trace.loss_events.length == 0 then
+    return SemanticHealthStatus.HEALTHY
+  end
+  if trace.total_retention >= 0.5 and trace.loss_events.length <= 2 then
+    return SemanticHealthStatus.DEGRADED
+  end
+  if trace.total_retention >= 0.2 then
+    return SemanticHealthStatus.CRITICAL
+  end
+  return SemanticHealthStatus.COMPROMISED
+end
+
+-- Produce a full inspection report from a trace.
+fn produce_report(self, trace: SemanticTrace) -> SemanticInspectionReport do
+  let report be SemanticInspectionReport()
+  report.trace = trace
+  report.health_status = self.classify_health(trace)
+  report.violations = trace.first_law_violations
+  let losses be self.detect_meaning_loss(trace)
+ for loss in losses do
+    let rec be loss["node_id"] + ": " + loss["operation"]
+    rec = rec + " (" + loss["severity"] + ")"
+    report.violations.append(rec)
+  end
+  report.recommendations = self.recommend_fixes(trace)
+  self.inspected_count = self.inspected_count + 1
+  return report
+end
+
+-- Generate recommendations for fixing detected semantic issues.
+fn recommend_fixes(self, trace: SemanticTrace) -> List<String> do
+  let recs be List<String>()
+  for node in trace.nodes do
+    if node.meaning_retention < self.config.threshold then
+      let msg be "Add intent binding before " + node.operation
+      msg = msg + " at " + node.location
+      recs.append(msg)
+    end
+  end
+  if trace.total_retention < 0.5 then
+    recs.append("Consider introducing a semantic checkpoint in the pipeline")
+    recs.append("Review whether operations can be reordered to minimize loss")
+  end
+  if trace.first_law_violations.length > 0 then
+    recs.append("First Law violations detected: add explicit meaning preservation")
+  end
+  return recs
+end
+
+-- Inspect a single operation in isolation and return a flow node.
+fn inspect_operation(self, op: Operation) -> SemanticFlowNode do
+  let node be SemanticFlowNode()
+  node.id = "inspect_" + self.inspected_count.to_string()
+  node.operation = op.name
+  node.location = op.location
+  node.meaning_retention = self.compute_operation_retention(op)
+  node.output_attrs = self.propagate_attributes({}, op)
+  if node.meaning_retention < 0.5 then
+    node.flow_direction = SemanticFlowDirection.BACKWARD
+  else
+    node.flow_direction = SemanticFlowDirection.FORWARD
+  end
+  self.inspected_count = self.inspected_count + 1
+  return node
+end
+
+-- Aggregate multiple traces into a combined summary trace.
+fn aggregate_traces(self) -> SemanticTrace do
+  let combined be SemanticTrace()
+  let total_ret be 0.0
+  let min_ret be 1.0
+  let total_nodes be 0
+  for trace in self.traces do
+    total_ret = total_ret + trace.total_retention
+    if trace.min_retention < min_ret then
+      min_ret = trace.min_retention
+    end
+    total_nodes = total_nodes + trace.nodes.length
+    for loss in trace.loss_events do
+      combined.loss_events.append(loss)
+    end
+    for violation in trace.first_law_violations do
+      combined.first_law_violations.append(violation)
+    end
+  end
+  if self.traces.length > 0 then
+    combined.total_retention = total_ret / self.traces.length.to_float()
+  end
+  combined.min_retention = min_ret
+  return combined
+end
+
+export {SemanticFlowNode, SemanticTrace, SemanticInspectionConfig}
+export {SemanticInspectionReport, SemanticInspector}
+export {SemanticFlowDirection, MeaningLossKind, SemanticHealthStatus}

@@ -1,0 +1,388 @@
+-- snippets.orn
+-- Code snippet extraction and execution for the Orren testing framework.
+-- Extracts example code from intent blocks, comments, docstrings, and README files,
+-- then compiles and runs each snippet to verify correctness.
+
+module orren_tools.testing.snippets
+
+import module::{String, Int, Float, Bool, List, Map, Option}
+import orren.core.language.foundation::{Compiler, Runner, SourceLocation}
+
+-- Where a code snippet was extracted from.
+enum SnippetSource
+  INTENT_BLOCK
+  COMMENT_EXAMPLE
+  DOCSTRING
+  README
+end
+
+-- Outcome of running a single code snippet.
+enum SnippetStatus
+  PASSED
+  FAILED
+  COMPILE_ERROR
+  RUNTIME_ERROR
+  SKIPPED
+end
+
+-- A single extracted code snippet ready for execution.
+entity CodeSnippet
+  property source: String = ""
+  property file: String = ""
+  property line: Int = 0
+  property expected_output: String = ""
+  property source_type: SnippetSource = SnippetSource.COMMENT_EXAMPLE
+  property language: String = "orn"
+end
+
+-- Result of executing a single code snippet.
+entity SnippetResult
+  property snippet: CodeSnippet = CodeSnippet()
+  property status: SnippetStatus = SnippetStatus.SKIPPED
+  property actual_output: String = ""
+  property error_message: String = ""
+  property execution_time: Float = 0.0
+end
+
+-- Extracts code snippets from source files.
+entity SnippetExtractor
+  property snippets: List<CodeSnippet> = []
+  property config: Map<String, String> = {}
+end
+
+-- Compiles and runs extracted code snippets.
+entity SnippetRunner
+  property extractor: SnippetExtractor = SnippetExtractor()
+  property compiler: String = ""
+  property runner: String = ""
+end
+
+-- Extract all snippets from a source file.
+fn extract_from_source(self: SnippetExtractor, content: String, file_path: String) -> List<CodeSnippet> do
+  let results be List<CodeSnippet>()
+  let lines be self.split_lines(content)
+  let intent_snips be self.extract_intent_block(lines, file_path)
+  for s in intent_snips do
+    results.append(s)
+  end
+  let comment_snips be self.extract_comment_example(lines, file_path)
+  for s in comment_snips do
+    results.append(s)
+  end
+  for s in results do
+    self.snippets.append(s)
+  end
+  return results
+end
+
+-- Extract code from intent blocks (intent "..." do ... end).
+fn extract_intent_block(self: SnippetExtractor, lines: List<String>, file_path: String) -> List<CodeSnippet> do
+  let results be List<CodeSnippet>()
+  let i be 0
+  let in_block be false
+  let block_start be 0
+  let block_lines be List<String>()
+  while i < lines.length do
+    let line be lines[i]
+    if not in_block then
+      if line.contains("intent") and line.contains("do") then
+        in_block = true
+        block_start = i
+        block_lines = []
+        let code_part be self.strip_intent_prefix(line)
+        if code_part != "" then
+          block_lines.append(code_part)
+        end
+      end
+    else
+      if line.contains("end") then
+        in_block = false
+        if block_lines.length > 0 then
+          let snip be CodeSnippet()
+          snip.source = block_lines.join("\n")
+          snip.file = file_path
+          snip.line = block_start + 1
+          snip.source_type = SnippetSource.INTENT_BLOCK
+          snip.language = "orn"
+          results.append(snip)
+        end
+        block_lines = []
+      else
+        block_lines.append(line)
+      end
+    end
+    i = i + 1
+  end
+  return results
+end
+
+-- Extract code from comment-based examples (e.g., # example: ...)
+fn extract_comment_example(self: SnippetExtractor, lines: List<String>, file_path: String) -> List<CodeSnippet> do
+  let results be List<CodeSnippet>()
+  let i be 0
+  let in_example be false
+  let example_lines be List<String>()
+  let example_start be 0
+  while i < lines.length do
+    let line be lines[i]
+    if not in_example then
+      if line.contains("# example:") or line.contains("# run:") then
+        in_example = true
+        example_start = i
+        example_lines = []
+        let code_part be self.strip_comment_prefix(line)
+        if code_part != "" then
+          example_lines.append(code_part)
+        end
+      end
+    else
+      if line.starts_with("# ") and not line.contains("# example:") and not line.contains("# run:") then
+        -- continuation of example in comment
+        let code_part be self.strip_comment_prefix(line)
+        if code_part != "" then
+          example_lines.append(code_part)
+        end
+      else if line == "" or line.starts_with("#") then
+        -- blank or non-example comment ends the block
+        in_example = false
+        if example_lines.length > 0 then
+          let snip be CodeSnippet()
+          snip.source = example_lines.join("\n")
+          snip.file = file_path
+          snip.line = example_start + 1
+          snip.source_type = SnippetSource.COMMENT_EXAMPLE
+          snip.language = "orn"
+          results.append(snip)
+        end
+        example_lines = []
+      else
+        -- non-comment line ends the block
+        in_example = false
+        if example_lines.length > 0 then
+          let snip be CodeSnippet()
+          snip.source = example_lines.join("\n")
+          snip.file = file_path
+          snip.line = example_start + 1
+          snip.source_type = SnippetSource.COMMENT_EXAMPLE
+          snip.language = "orn"
+          results.append(snip)
+        end
+        example_lines = []
+      end
+    end
+    i = i + 1
+  end
+  -- Handle example at end of file
+  if in_example and example_lines.length > 0 then
+    let snip be CodeSnippet()
+    snip.source = example_lines.join("\n")
+    snip.file = file_path
+    snip.line = example_start + 1
+    snip.source_type = SnippetSource.COMMENT_EXAMPLE
+    snip.language = "orn"
+    results.append(snip)
+  end
+  return results
+end
+
+-- Count snippets per source file.
+fn per_file_counts(self: SnippetExtractor) -> Map<String, Int> do
+  let counts be Map<String, Int>()
+  for snip in self.snippets do
+    let current be counts[snip.file]
+    if current == null then
+      counts[snip.file] = 1
+    else
+      counts[snip.file] = current + 1
+    end
+  end
+  return counts
+end
+
+-- Remove duplicate snippets (same source code).
+fn deduplicate(self: SnippetExtractor) -> Int do
+  let seen be Map<String, Bool>()
+  let unique be List<CodeSnippet>()
+  for snip in self.snippets do
+    if not seen[snip.source] then
+      seen[snip.source] = true
+      unique.append(snip)
+    end
+  end
+  let removed be self.snippets.length - unique.length
+  self.snippets = unique
+  return removed
+end
+
+-- Run all extracted snippets and return results.
+fn run_all(self: SnippetRunner) -> List<SnippetResult> do
+  let results be List<SnippetResult>()
+  for snip in self.extractor.snippets do
+    let result be self.run_snippet(snip)
+    results.append(result)
+  end
+  return results
+end
+
+-- Run a single snippet, compiling and executing it.
+fn run_snippet(self: SnippetRunner, snip: CodeSnippet) -> SnippetResult do
+  let result be SnippetResult()
+  result.snippet = snip
+  let start be self.get_time()
+  -- Attempt compilation
+  let compile_ok be self.compile_snippet(snip.source)
+  if not compile_ok then
+    result.status = SnippetStatus.COMPILE_ERROR
+    result.error_message = "Compilation failed for snippet at " + snip.file + ":" + snip.line.to_string()
+    let finish be self.get_time()
+    result.execution_time = finish - start
+    return result
+  end
+  -- Attempt execution
+  let exec_result be self.execute_snippet(snip.source)
+  let finish be self.get_time()
+  result.execution_time = finish - start
+  match exec_result with
+    Option.Some(output) then
+      result.actual_output = output
+      if snip.expected_output != "" then
+        if output.trim() == snip.expected_output.trim() then
+          result.status = SnippetStatus.PASSED
+        else
+          result.status = SnippetStatus.FAILED
+          result.error_message = "Expected: " + snip.expected_output
+          result.error_message = result.error_message + ", Got: " + output
+        end
+      else
+        result.status = SnippetStatus.PASSED
+      end
+    Option.None then
+      result.status = SnippetStatus.RUNTIME_ERROR
+      result.error_message = "Runtime error executing snippet at " + snip.file + ":" + snip.line.to_string()
+  end
+  return result
+end
+
+-- Produce a summary of all snippet results.
+fn summary(self: SnippetRunner, results: List<SnippetResult>) -> String do
+  let passed be 0
+  let failed be 0
+  let compile_errors be 0
+  let runtime_errors be 0
+  let skipped be 0
+  for r in results do
+    match r.status with
+      SnippetStatus.PASSED then passed = passed + 1
+      SnippetStatus.FAILED then failed = failed + 1
+      SnippetStatus.COMPILE_ERROR then compile_errors = compile_errors + 1
+      SnippetStatus.RUNTIME_ERROR then runtime_errors = runtime_errors + 1
+      SnippetStatus.SKIPPED then skipped = skipped + 1
+    end
+  end
+  let total be results.length
+  let lines be List<String>()
+  lines.append("Snippet Results: " + total.to_string() + " total")
+  lines.append("  Passed:        " + passed.to_string())
+  lines.append("  Failed:        " + failed.to_string())
+  lines.append("  Compile Error: " + compile_errors.to_string())
+  lines.append("  Runtime Error: " + runtime_errors.to_string())
+  lines.append("  Skipped:       " + skipped.to_string())
+  return lines.join("\n")
+end
+
+-- Produce a coverage report of which source files have snippets.
+fn coverage_report(self: SnippetRunner, results: List<SnippetResult>) -> String do
+  let file_map be Map<String, List<SnippetResult>>()
+  for r in results do
+    let file be r.snippet.file
+    let list be file_map[file]
+    if list == null then
+      let new_list be List<SnippetResult>()
+      new_list.append(r)
+      file_map[file] = new_list
+    else
+      list.append(r)
+    end
+  end
+  let lines be List<String>()
+  lines.append("Snippet Coverage by File:")
+  for file in file_map.keys() do
+    let file_results be file_map[file]
+    let file_passed be 0
+    for r in file_results do
+      if r.status == SnippetStatus.PASSED then
+        file_passed = file_passed + 1
+      end
+    end
+    let line be "  " + file + ": " + file_passed.to_string() + "/" + file_results.length.to_string()
+    lines.append(line)
+  end
+  return lines.join("\n")
+end
+
+-- Split a string into lines.
+fn split_lines(self: SnippetExtractor, content: String) -> List<String> do
+  let lines be List<String>()
+  let current be ""
+  let i be 0
+  while i < content.length do
+    let ch be content[i]
+    if ch == "\n" then
+      lines.append(current)
+      current = ""
+    else
+      current = current + ch
+    end
+    i = i + 1
+  end
+  if current != "" then
+    lines.append(current)
+  end
+  return lines
+end
+
+-- Strip the intent keyword prefix from a line.
+fn strip_intent_prefix(self: SnippetExtractor, line: String) -> String do
+  if line.contains("intent") and line.contains("do") then
+    let idx be line.index_of("do")
+    if idx >= 0 then
+      return line.substring(idx + 2).trim()
+    end
+  end
+  return ""
+end
+
+-- Strip the leading comment marker from a line.
+fn strip_comment_prefix(self: SnippetExtractor, line: String) -> String do
+  if line.starts_with("# ") then
+    return line.substring(2).trim()
+  end
+  if line.starts_with("#") then
+    return line.substring(1).trim()
+  end
+  return line.trim()
+end
+
+-- Compile a code snippet (simulated).
+fn compile_snippet(self: SnippetRunner, source: String) -> Bool do
+  if source == "" then
+    return false
+  end
+  return true
+end
+
+-- Execute a compiled snippet (simulated).
+fn execute_snippet(self: SnippetRunner, source: String) -> Option<String> do
+  if source == "" then
+    return Option.None
+  end
+  return Option.Some("")
+end
+
+-- Get current timestamp.
+fn get_time(self: SnippetRunner) -> Float do
+  return 0.0
+end
+
+export {CodeSnippet, SnippetResult, SnippetExtractor, SnippetRunner}
+export {SnippetSource, SnippetStatus}

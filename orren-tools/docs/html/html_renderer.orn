@@ -1,0 +1,403 @@
+-- html_renderer.orn
+-- Renders Orren documentation as fully-featured HTML pages
+-- Supports themes, navigation, search indexing, and semantic bars
+
+module orren_tools.docs.html
+
+import orren.core.language.foundation::{String, Int, Float, Bool, List, Map}
+import orren.core.language.foundation::{FileSystem, Path}
+
+-- Visual theme for the rendered HTML output
+enum HtmlTheme
+  LIGHT
+  DARK
+  SEMANTIC
+end
+
+-- Built-in style presets for HTML rendering
+enum StylePreset
+  MINIMAL
+  ORREN_DEFAULT
+  RICH
+end
+
+-- Configuration for HTML rendering behavior and appearance
+entity HtmlConfig
+  property theme: HtmlTheme = HtmlTheme.LIGHT
+  property style_preset: StylePreset = StylePreset.ORREN_DEFAULT
+  property include_search: Bool = true
+  property include_navigation: Bool = true
+  property favicon_path: String = ""
+  property css_path: String = ""
+  property js_path: String = ""
+  property output_dir: String = "docs/html"
+  property page_title_suffix: String = " - Orren Docs"
+  property syntax_highlighting: Bool = true
+end
+
+-- A complete HTML page with all sections
+entity HtmlPage
+  property title: String = ""
+  property content: String = ""
+  property navigation: String = ""
+  property breadcrumbs: String = ""
+  property sidebar: String = ""
+  property related_modules: List<String> = List<String>{}
+end
+
+-- Main HTML renderer that produces styled documentation pages
+entity HtmlRenderer
+  property config: HtmlConfig = HtmlConfig{}
+  property page_buffer: List<String> = List<String>{}
+  property nav_buffer: List<String> = List<String>{}
+  property script_buffer: List<String> = List<String>{}
+  property style_buffer: List<String> = List<String>{}
+end
+
+intent "render Orren module documentation as fully-styled HTML pages with themes, navigation, search, and semantic annotations"
+
+-- Render a complete module page with all sections
+fn render_module_page(self: HtmlRenderer, module_name: String, description: String, elements: List<Map<String, String>>, intents: List<String>) -> HtmlPage do
+  let page be HtmlPage{title = module_name + self.config.page_title_suffix}
+  self.page_buffer = List<String>{}
+  self.page_buffer.append("<!DOCTYPE html>")
+  self.page_buffer.append("<html lang=\"en\">")
+  self.page_buffer.append("<head>")
+  self.page_buffer.append("<meta charset=\"UTF-8\">")
+  self.page_buffer.append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">")
+  self.page_buffer.append("<title>" + page.title + "</title>")
+  if self.config.favicon_path.length() > 0 then
+    self.page_buffer.append("<link rel=\"icon\" href=\"" + self.config.favicon_path + "\">")
+  end
+  if self.config.css_path.length() > 0 then
+    self.page_buffer.append("<link rel=\"stylesheet\" href=\"" + self.config.css_path + "\">")
+  end
+  self.page_buffer.append(self.inline_css())
+  self.page_buffer.append("</head>")
+  self.page_buffer.append("<body class=\"" + self.theme_class() + "\">")
+  -- Breadcrumbs
+  page.breadcrumbs = self.generate_breadcrumbs(module_name)
+  self.page_buffer.append(page.breadcrumbs)
+  -- Navigation
+  if self.config.include_navigation then
+    page.navigation = self.generate_sidebar(module_name, elements)
+    self.page_buffer.append("<nav class=\"sidebar\">" + page.navigation + "</nav>")
+  end
+  -- Main content
+  self.page_buffer.append("<main class=\"content\">")
+  self.page_buffer.append("<h1>" + self.escape_html(module_name) + "</h1>")
+  if description.length() > 0 then
+    self.page_buffer.append("<p class=\"description\">" + self.escape_html(description) + "</p>")
+  end
+  -- Render intents
+  for intent_text in intents do
+    self.page_buffer.append("<blockquote class=\"intent\">" + self.escape_html(intent_text) + "</blockquote>")
+  end
+  -- Render elements
+  for elem in elements do
+    let kind be elem["kind"]
+    match kind with
+      "entity" then
+        let detail be self.render_entity_detail(elem)
+        self.page_buffer.append(detail)
+      end
+      "enum" then
+        self.page_buffer.append("<section class=\"enum-block\">")
+        self.page_buffer.append("<h2>Enum: " + self.escape_html(elem["name"]) + "</h2>")
+        self.page_buffer.append("</section>")
+      end
+      "function" then
+        self.page_buffer.append("<section class=\"function-block\">")
+        self.page_buffer.append("<h3>" + self.escape_html(elem["name"]) + "</h3>")
+        let sig be elem["signature"]
+        if sig.length() > 0 then
+          self.page_buffer.append("<pre><code>" + self.escape_html(sig) + "</code></pre>")
+        end
+        self.page_buffer.append("</section>")
+      end
+    end
+  end
+  self.page_buffer.append("</main>")
+  self.page_buffer.append(self.inline_js())
+  self.page_buffer.append("</body>")
+  self.page_buffer.append("</html>")
+  page.content = self.page_buffer.join("\n")
+  return page
+end
+
+-- Generate a sidebar navigation HTML string
+fn generate_sidebar(self: HtmlRenderer, current_module: String, elements: List<Map<String, String>>) -> String do
+  let buf be List<String>{}
+  buf.append("<div class=\"sidebar-header\">Navigation</div>")
+  buf.append("<ul class=\"nav-list\">")
+  buf.append("<li class=\"nav-item active\"><a href=\"#top\">" + self.escape_html(current_module) + "</a></li>")
+  for elem in elements do
+    let name be elem["name"]
+    let kind be elem["kind"]
+    let icon be match kind with
+      "entity" then "&#x1F4E6;"
+      end
+      "enum" then "&#x1F3A8;"
+      end
+      "function" then "&#x2699;"
+      end
+    end
+    let slug be self.html_slugify(name)
+    buf.append("<li class=\"nav-item nav-" + kind + "\"><a href=\"#" + slug + "\">" + icon + " " + self.escape_html(name) + "</a></li>")
+  end
+  buf.append("</ul>")
+  return buf.join("\n")
+end
+
+-- Generate breadcrumbs HTML from a module path
+fn generate_breadcrumbs(self: HtmlRenderer, module_path: String) -> String do
+  let parts be module_path.split(".")
+  let buf be List<String>{}
+  buf.append("<nav class=\"breadcrumbs\" aria-label=\"breadcrumb\">")
+  buf.append("<ol>")
+  let accumulated be ""
+  for i in 0 .. parts.length() do
+    let part be parts[i]
+    if accumulated.length() > 0 then
+      accumulated = accumulated + "." + part
+    else
+      accumulated = part
+    end
+    buf.append("<li><a href=\"" + self.html_slugify(accumulated) + ".html\">" + self.escape_html(part) + "</a></li>")
+  end
+  buf.append("</ol>")
+  buf.append("</nav>")
+  return buf.join("\n")
+end
+
+-- Embed semantic annotation bars into the page content
+fn embed_semantic_bars(self: HtmlRenderer, elements: List<Map<String, String>>) -> String do
+  let buf be List<String>{}
+  for elem in elements do
+    let semantic be elem["semantic_relevance"]
+    if semantic.length() > 0 then
+      buf.append("<div class=\"semantic-bar\" data-element=\"" + self.escape_html(elem["name"]) + "\">")
+      let pairs be semantic.split(";")
+      for pair in pairs do
+        let kv be pair.split("=")
+        if kv.length() == 2 then
+          buf.append("<span class=\"semantic-label\">" + self.escape_html(kv[0].trim()) + ":</span>")
+          buf.append("<span class=\"semantic-value\">" + self.escape_html(kv[1].trim()) + "</span>")
+        end
+      end
+      buf.append("</div>")
+    end
+  end
+  return buf.join("\n")
+end
+
+-- Generate a JSON search index for client-side search
+fn generate_search_index(self: HtmlRenderer, modules: List<Map<String, String>>) -> String do
+  let buf be List<String>{}
+  buf.append("{\"entries\":[")
+  let first be true
+  for mod in modules do
+    let name be mod["name"]
+    let desc be mod["description"]
+    if not first then
+      buf.append(",")
+    end
+    buf.append("{\"name\":\"" + self.escape_json(name) + "\",\"description\":\"" + self.escape_json(desc) + "\"}")
+    first = false
+  end
+  buf.append("]}")
+  return buf.join("")
+end
+
+-- Generate an index page listing all documented modules
+fn generate_module_index(self: HtmlRenderer, modules: List<String>) -> String do
+  let buf be List<String>{}
+  buf.append("<!DOCTYPE html>")
+  buf.append("<html lang=\"en\"><head>")
+  buf.append("<title>Module Index" + self.config.page_title_suffix + "</title>")
+  buf.append(self.inline_css())
+  buf.append("</head><body class=\"" + self.theme_class() + "\">")
+  buf.append("<h1>Module Index</h1>")
+  buf.append("<ul class=\"module-list\">")
+  for mod in modules do
+    let slug be self.html_slugify(mod)
+    buf.append("<li><a href=\"" + slug + ".html\">" + self.escape_html(mod) + "</a></li>")
+  end
+  buf.append("</ul>")
+  buf.append("</body></html>")
+  return buf.join("\n")
+end
+
+-- Generate a full multi-page documentation site
+fn generate_full_site(self: HtmlRenderer, all_modules: List<Map<String, String>>) -> Bool do
+  -- Create output directory
+  let _ be FileSystem.ensure_directory(self.config.output_dir)
+  -- Generate module index
+  let module_names be List<String>{}
+  for mod in all_modules do
+    module_names.append(mod["name"])
+  end
+  let index_html be self.generate_module_index(module_names)
+  let index_path be self.config.output_dir + "/index.html"
+  let _ be FileSystem.write_file(index_path, index_html)
+  -- Generate search index
+  if self.config.include_search then
+    let search_json be self.generate_search_index(all_modules)
+    let search_path be self.config.output_dir + "/search.json"
+    let _ be FileSystem.write_file(search_path, search_json)
+  end
+  return true
+end
+
+-- Render detailed HTML for an entity element
+fn render_entity_detail(self: HtmlRenderer, elem: Map<String, String>) -> String do
+  let buf be List<String>{}
+  buf.append("<section class=\"entity-block\">")
+  buf.append("<h2>Entity: " + self.escape_html(elem["name"]) + "</h2>")
+  let desc be elem["description"]
+  if desc.length() > 0 then
+    buf.append("<p>" + self.escape_html(desc) + "</p>")
+  end
+  let props_str be elem["properties"]
+  if props_str.length() > 0 then
+    buf.append("<table class=\"properties-table\">")
+    buf.append("<thead><tr><th>Property</th><th>Type</th><th>Default</th></tr></thead>")
+    buf.append("<tbody>")
+    let props be props_str.split(";")
+    for prop in props do
+      let parts be prop.split(",")
+      if parts.length() >= 3 then
+        buf.append("<tr>")
+        buf.append("<td><code>" + self.escape_html(parts[0].trim()) + "</code></td>")
+        buf.append("<td><code>" + self.escape_html(parts[1].trim()) + "</code></td>")
+        buf.append("<td><code>" + self.escape_html(parts[2].trim()) + "</code></td>")
+        buf.append("</tr>")
+      end
+    end
+    buf.append("</tbody></table>")
+  end
+  buf.append("</section>")
+  return buf.join("\n")
+end
+
+-- Generate inline CSS based on theme and style preset
+fn inline_css(self: HtmlRenderer) -> String do
+  let buf be List<String>{}
+  buf.append("<style>")
+  match self.config.style_preset with
+    StylePreset.MINIMAL then
+      buf.append("body{font-family:sans-serif;max-width:800px;margin:0 auto;padding:1rem;}")
+      buf.append("h1,h2,h3{margin-top:1.5rem;}")
+      buf.append("code{background:#f4f4f4;padding:0.2rem 0.4rem;border-radius:3px;}")
+      buf.append("pre{background:#f4f4f4;padding:1rem;overflow-x:auto;border-radius:3px;}")
+    end
+    StylePreset.ORREN_DEFAULT then
+      buf.append("body{font-family:'Segoe UI',sans-serif;max-width:960px;margin:0 auto;padding:2rem;color:#333;}")
+      buf.append(".sidebar{position:fixed;left:0;top:0;width:240px;height:100vh;background:#f8f9fa;padding:1rem;overflow-y:auto;}")
+      buf.append(".content{margin-left:260px;}")
+      buf.append(".breadcrumbs ol{list-style:none;padding:0;display:flex;gap:0.5rem;}")
+      buf.append(".breadcrumbs li::after{content:'>';margin-left:0.5rem;}")
+      buf.append(".breadcrumbs li:last-child::after{content:'';}")
+      buf.append(".properties-table{width:100%;border-collapse:collapse;margin:1rem 0;}")
+      buf.append(".properties-table th,.properties-table td{border:1px solid #ddd;padding:0.5rem;text-align:left;}")
+      buf.append(".properties-table th{background:#f0f0f0;}")
+      buf.append(".intent{border-left:4px solid #6c5ce7;padding:0.75rem 1rem;background:#f8f7ff;margin:1rem 0;}")
+      buf.append(".semantic-bar{background:#e8f5e9;padding:0.5rem 1rem;border-radius:4px;margin:0.5rem 0;}")
+      buf.append(".nav-list{list-style:none;padding:0;}")
+      buf.append(".nav-item{margin:0.25rem 0;}")
+      buf.append(".nav-item a{text-decoration:none;color:#333;}")
+      buf.append(".nav-item.active a{font-weight:bold;color:#6c5ce7;}")
+    end
+    StylePreset.RICH then
+      buf.append("body{font-family:Georgia,serif;max-width:1100px;margin:0 auto;padding:2rem;color:#2c3e50;}")
+      buf.append(".sidebar{position:fixed;left:0;top:0;width:280px;height:100vh;background:linear-gradient(180deg,#2c3e50,#3498db);color:white;padding:1.5rem;overflow-y:auto;}")
+      buf.append(".sidebar a{color:#ecf0f1;text-decoration:none;}")
+      buf.append(".content{margin-left:300px;line-height:1.7;}")
+      buf.append(".properties-table{width:100%;border-collapse:collapse;margin:1.5rem 0;box-shadow:0 2px 4px rgba(0,0,0,0.1);}")
+      buf.append(".properties-table th{background:#2c3e50;color:white;padding:0.75rem 1rem;}")
+      buf.append(".properties-table td{padding:0.75rem 1rem;border-bottom:1px solid #ecf0f1;}")
+      buf.append(".intent{border-left:5px solid #e74c3c;padding:1rem 1.5rem;background:#fef9f9;font-style:italic;margin:1.5rem 0;}")
+      buf.append(".semantic-bar{background:linear-gradient(90deg,#e8f8f5,#d5f5e3);padding:0.75rem 1.25rem;border-radius:6px;margin:0.75rem 0;border:1px solid #a3d9a5;}")
+    end
+  end
+  -- Dark theme overrides
+  if self.config.theme == HtmlTheme.DARK then
+    buf.append("body{background:#1e1e1e;color:#d4d4d4;}")
+    buf.append("code{background:#2d2d2d;}")
+    buf.append("pre{background:#2d2d2d;}")
+    buf.append("th,td{border-color:#444!important;}")
+  end
+  -- Semantic theme overrides
+  if self.config.theme == HtmlTheme.SEMANTIC then
+    buf.append(".semantic-bar{display:block!important;}")
+    buf.append(".entity-block{border-left:3px solid #2980b9;}")
+  end
+  buf.append("</style>")
+  return buf.join("\n")
+end
+
+-- Generate inline JavaScript for search and interactions
+fn inline_js(self: HtmlRenderer) -> String do
+  if not self.config.include_search then return "" end
+  let buf be List<String>{}
+  buf.append("<script>")
+  buf.append("function searchModules(query){")
+  buf.append("  if(!query||query.length<2)return[];")
+  buf.append("  fetch('search.json').then(r=>r.json()).then(data=>{")
+  buf.append("    const results=data.entries.filter(e=>e.name.includes(query)||e.description.includes(query));")
+  buf.append("    const list=document.getElementById('search-results');")
+  buf.append("    list.innerHTML='';")
+  buf.append("    results.forEach(r=>{const li=document.createElement('li');li.innerHTML='<a href="'+r.name+'.html">'+r.name+'</a>';list.appendChild(li);});")
+  buf.append("  });")
+  buf.append("}")
+  buf.append("</script>")
+  return buf.join("\n")
+end
+
+-- Get the CSS class name for the current theme
+fn theme_class(self: HtmlRenderer) -> String do
+  match self.config.theme with
+    HtmlTheme.LIGHT then return "theme-light" end
+    HtmlTheme.DARK then return "theme-dark" end
+    HtmlTheme.SEMANTIC then return "theme-semantic" end
+  end
+  return "theme-light"
+end
+
+-- Escape HTML special characters
+fn escape_html(self: HtmlRenderer, text: String) -> String do
+  let result be text
+  result = result.replace("&", "&amp;")
+  result = result.replace("<", "&lt;")
+  result = result.replace(">", "&gt;")
+  result = result.replace("\"", "&quot;")
+  return result
+end
+
+-- Escape special characters for JSON strings
+fn escape_json(self: HtmlRenderer, text: String) -> String do
+  let result be text
+  result = result.replace("\\", "\\\\")
+  result = result.replace("\"", "\\\"")
+  result = result.replace("\n", "\\n")
+  return result
+end
+
+-- Convert a name to an HTML-safe slug for anchor IDs
+fn html_slugify(self: HtmlRenderer, text: String) -> String do
+  let result be text.to_lower()
+  let buf be ""
+  for i in 0 .. result.length() do
+    let ch be result.substring(i, i + 1)
+    if ch == " " or ch == "_" then
+      buf = buf + "-"
+    else if ch == "." then
+      buf = buf + "-"
+    else
+      buf = buf + ch
+    end end
+  end
+  return buf
+end
+
+export {HtmlTheme, StylePreset, HtmlConfig, HtmlPage, HtmlRenderer}

@@ -1,0 +1,439 @@
+-- dependency_manager.orn
+-- Dependency resolution, installation, and lock file management
+-- Supports registry, git, local, and path-based dependency sources
+
+module orren_tools.cli.deps
+
+import orren.core.language.foundation::{String, Int, Float, Bool, List, Map}
+import orren.core.language.foundation::{FileSystem, Path, DateTime, Timer}
+
+-- Source from which a dependency can be obtained
+enum DependencySource
+  REGISTRY
+  GIT
+  LOCAL
+  PATH
+end
+
+-- Version constraint types for dependency resolution
+enum VersionConstraint
+  EXACT
+  CARET
+  TILDE
+  RANGE
+  ANY
+end
+
+-- Status of a resolved or unresolved dependency
+enum DepStatus
+  INSTALLED
+  MISSING
+  OUTDATED
+  CONFLICTED
+  INVALID
+end
+
+-- Specification of a single dependency requirement
+entity DependencySpec
+  property name: String = ""
+  property source: DependencySource = DependencySource.REGISTRY
+  property version_constraint: VersionConstraint = VersionConstraint.ANY
+  property constraint_value: String = ""
+  property optional: Bool = false
+  property dev_only: Bool = false
+  property resolved_version: String = ""
+  property resolved_path: String = ""
+end
+
+-- Semantic version representation
+entity Version
+  property major: Int = 0
+  property minor: Int = 0
+  property patch: Int = 0
+  property pre_release: String = ""
+  property build_meta: String = ""
+end
+
+-- Lock file that pins exact dependency versions
+entity LockFile
+  property dependencies: Map<String, String> = Map<String, String>{}
+  property registry_urls: List<String> = List<String>{}
+  property lock_time: String = ""
+  property orren_tools_version: String = ""
+end
+
+-- Internal resolver that traverses dependency graphs
+entity DependencyResolver
+  property search_paths: List<String> = List<String>{}
+  property registries: List<String> = List<String>{}
+  property cache_dir: String = ".orren/deps/cache"
+  property max_depth: Int = 64
+  property resolved_cache: Map<String, String> = Map<String, String>{}
+end
+
+-- Public-facing manager for all dependency operations
+entity DependencyManager
+  property config: Map<String, String> = Map<String, String>{}
+  property resolver: DependencyResolver = DependencyResolver{}
+  property lock_file: LockFile = LockFile{}
+  property install_dir: String = ".orren/deps"
+end
+
+-- Intent declaration for dependency management
+intent "manage project dependencies with resolution, installation, and locking"
+
+-- Parse a version string into a Version entity
+fn parse(self: Version, version_str: String) -> Version do
+  let parts be version_str.split(".")
+  let v be Version{}
+  if parts.length() >= 1 then
+    v.major = parts[0].to_int()
+  end
+  if parts.length() >= 2 then
+    v.minor = parts[1].to_int()
+  end
+  if parts.length() >= 3 then
+    let patch_part be parts[2]
+    let pre_idx be patch_part.index_of("-")
+    if pre_idx >= 0 then
+      v.patch = patch_part.substring(0, pre_idx).to_int()
+      v.pre_release = patch_part.substring(pre_idx + 1, patch_part.length())
+    else
+      v.patch = patch_part.to_int()
+    end
+  end
+  return v
+end
+
+-- Compare two versions: returns -1, 0, or 1
+fn compare(self: Version, other: Version) -> Int do
+  if self.major != other.major then
+    if self.major > other.major then return 1 end
+    return -1
+  end
+  if self.minor != other.minor then
+    if self.minor > other.minor then return 1 end
+    return -1
+  end
+  if self.patch != other.patch then
+    if self.patch > other.patch then return 1 end
+    return -1
+  end
+  return 0
+end
+
+-- Convert a Version to its canonical string representation
+fn to_string(self: Version) -> String do
+  let base be self.major.to_string() + "." + self.minor.to_string() + "." + self.patch.to_string()
+  if self.pre_release.length() > 0 then
+    return base + "-" + self.pre_release
+  end
+  return base
+end
+
+-- Check if this version satisfies a given constraint
+fn satisfies(self: Version, constraint: VersionConstraint, value: String) -> Bool do
+  match constraint with
+    VersionConstraint.ANY then
+      return true
+    end
+    VersionConstraint.EXACT then
+      let target be Version{}.parse(value)
+      return self.compare(target) == 0
+    end
+    VersionConstraint.CARET then
+      let target be Version{}.parse(value)
+      if self.compare(target) < 0 then return false end
+      if self.major != target.major then return false end
+      return true
+    end
+    VersionConstraint.TILDE then
+      let target be Version{}.parse(value)
+      if self.compare(target) < 0 then return false end
+      if self.major != target.major then return false end
+      if self.minor != target.minor then return false end
+      return true
+    end
+    VersionConstraint.RANGE then
+      let bounds be value.split("..")
+      if bounds.length() == 2 then
+        let low be Version{}.parse(bounds[0])
+        let high be Version{}.parse(bounds[1])
+        return self.compare(low) >= 0 and self.compare(high) <= 0
+      end
+      return false
+    end
+  end
+end
+
+-- Resolve all dependencies in the manifest
+fn resolve_all(self: DependencyManager, specs: List<DependencySpec>) -> List<DependencySpec> do
+  let resolved be List<DependencySpec>{}
+  let depth be 0
+  for spec in specs do
+    let r_spec be self.resolve_single(spec, depth)
+    resolved.append(r_spec)
+  end
+  let transitives be self.resolve_transitives(resolved)
+  for t in transitives do
+    resolved.append(t)
+  end
+  return resolved
+end
+
+-- Resolve a single dependency specification
+fn resolve_single(self: DependencyManager, spec: DependencySpec, depth: Int) -> DependencySpec do
+  if depth > self.resolver.max_depth then
+    spec.resolved_version = "FAILED:max_depth"
+    return spec
+  end
+  match spec.source with
+    DependencySource.REGISTRY then
+      let cached be self.resolver.resolved_cache.get(spec.name)
+      if cached.length() > 0 then
+        spec.resolved_version = cached
+        return spec
+      end
+      let latest be self.query_registry(spec.name)
+      spec.resolved_version = latest
+      self.resolver.resolved_cache.set(spec.name, latest)
+      return spec
+    end
+    DependencySource.GIT then
+      spec.resolved_version = self.resolve_git_ref(spec.constraint_value)
+      return spec
+    end
+    DependencySource.LOCAL then
+      spec.resolved_path = spec.constraint_value
+      spec.resolved_version = "local"
+      return spec
+    end
+    DependencySource.PATH then
+      spec.resolved_path = spec.constraint_value
+      spec.resolved_version = "path"
+      return spec
+    end
+  end
+end
+
+-- Resolve transitive dependencies of already resolved specs
+fn resolve_transitives(self: DependencyManager, specs: List<DependencySpec>) -> List<DependencySpec> do
+  let result be List<DependencySpec>{}
+  for spec in specs do
+    let manifest be self.load_dep_manifest(spec)
+    if manifest.length() > 0 then
+      let sub_specs be self.parse_dep_manifest(manifest)
+      for sub in sub_specs do
+        let resolved be self.resolve_single(sub, 1)
+        result.append(resolved)
+      end
+    end
+  end
+  return result
+end
+
+-- Query the registry for the latest version of a package
+fn query_registry(self: DependencyManager, package_name: String) -> String do
+  for reg in self.resolver.registries do
+    let url be reg + "/api/packages/" + package_name + "/latest"
+    let response be FileSystem.http_get(url)
+    if response.status == 200 then
+      return response.body.to_string()
+    end
+  end
+  return "0.0.0"
+end
+
+-- Resolve a git reference to a commit hash
+fn resolve_git_ref(self: DependencyManager, ref: String) -> String do
+  let output be FileSystem.command("git", List<String>{"rev-parse", ref})
+  if output.status == 0 then
+    return output.stdout.trim()
+  end
+  return "unknown"
+end
+
+-- Load the manifest of a dependency for transitive resolution
+fn load_dep_manifest(self: DependencyManager, spec: DependencySpec) -> String do
+  if spec.resolved_path.length() > 0 then
+    let manifest_path be spec.resolved_path + "/orren.manifest"
+    return FileSystem.read_file(manifest_path)
+  end
+  return ""
+end
+
+-- Parse dependency specifications from a manifest string
+fn parse_dep_manifest(self: DependencyManager, manifest: String) -> List<DependencySpec> do
+  let specs be List<DependencySpec>{}
+  let lines be manifest.split("\n")
+  for line in lines do
+    let trimmed be line.trim()
+    if trimmed.starts_with("depends ") then
+      let dep_str be trimmed.substring(8, trimmed.length())
+      let parts be dep_str.split(" ")
+      if parts.length() >= 1 then
+        let spec be DependencySpec{name = parts[0]}
+        if parts.length() >= 2 then
+          spec.constraint_value = parts[1]
+        end
+        specs.append(spec)
+      end
+    end
+  end
+  return specs
+end
+
+-- Install all resolved dependencies to the install directory
+fn install(self: DependencyManager, specs: List<DependencySpec>) -> List<String> do
+  let installed be List<String>{}
+  for spec in specs do
+    let target_dir be self.install_dir + "/" + spec.name
+    let already_exists be FileSystem.directory_exists(target_dir)
+    if already_exists then
+      let _ be FileSystem.remove_directory(target_dir)
+    end
+    match spec.source with
+      DependencySource.REGISTRY then
+        let _ be self.install_from_registry(spec, target_dir)
+      end
+      DependencySource.GIT then
+        let _ be self.install_from_git(spec, target_dir)
+      end
+      DependencySource.LOCAL then
+        let _ be FileSystem.copy_directory(spec.resolved_path, target_dir)
+      end
+      DependencySource.PATH then
+        let _ be FileSystem.create_symlink(spec.resolved_path, target_dir)
+      end
+    end
+    installed.append(spec.name)
+  end
+  return installed
+end
+
+-- Install a dependency from the package registry
+fn install_from_registry(self: DependencyManager, spec: DependencySpec, target_dir: String) -> Bool do
+  for reg in self.resolver.registries do
+    let url be reg + "/packages/" + spec.name + "/" + spec.resolved_version + "/download"
+    let archive be FileSystem.download_file(url)
+    if archive.length() > 0 then
+      let _ be FileSystem.extract_archive(archive, target_dir)
+      return true
+    end
+  end
+  return false
+end
+
+-- Install a dependency from a git repository
+fn install_from_git(self: DependencyManager, spec: DependencySpec, target_dir: String) -> Bool do
+  let output be FileSystem.command("git", List<String>{"clone", spec.constraint_value, target_dir})
+  return output.status == 0
+end
+
+-- Update all dependencies to their latest compatible versions
+fn update(self: DependencyManager, specs: List<DependencySpec>) -> List<DependencySpec> do
+  let updated be List<DependencySpec>{}
+  for spec in specs do
+    let latest be self.query_registry(spec.name)
+    if latest.length() > 0 and latest != spec.resolved_version then
+      spec.resolved_version = latest
+    end
+    updated.append(spec)
+  end
+  return updated
+end
+
+-- Check which dependencies have newer versions available
+fn check_outdated(self: DependencyManager, specs: List<DependencySpec>) -> List<DependencySpec> do
+  let outdated be List<DependencySpec>{}
+  for spec in specs do
+    if spec.source != DependencySource.REGISTRY then continue end
+    let current be Version{}.parse(spec.resolved_version)
+    let latest_str be self.query_registry(spec.name)
+    let latest be Version{}.parse(latest_str)
+    if current.compare(latest) < 0 then
+      spec.resolved_version = latest_str
+      outdated.append(spec)
+    end
+  end
+  return outdated
+end
+
+-- Generate a lock file from resolved dependencies
+fn generate_lock(self: DependencyManager, specs: List<DependencySpec>) -> LockFile do
+  let lock be LockFile{}
+  lock.lock_time = DateTime.now().to_iso_string()
+  lock.orren_tools_version = "0.1.0"
+  for reg in self.resolver.registries do
+    lock.registry_urls.append(reg)
+  end
+  for spec in specs do
+    lock.dependencies.set(spec.name, spec.resolved_version)
+  end
+  self.lock_file = lock
+  return lock
+end
+
+-- Load a previously generated lock file
+fn load_lock(self: DependencyManager, path: String) -> LockFile do
+  let content be FileSystem.read_file(path)
+  if content.length() == 0 then
+    return LockFile{}
+  end
+  let lines be content.split("\n")
+  let lock be LockFile{}
+  for line in lines do
+    let trimmed be line.trim()
+    if trimmed.starts_with("lock_time:") then
+      lock.lock_time = trimmed.substring(10, trimmed.length()).trim()
+    end
+    if trimmed.starts_with("dep ") then
+      let parts be trimmed.split(" ")
+      if parts.length() >= 2 then
+        lock.dependencies.set(parts[1], parts[2])
+      end
+    end
+  end
+  self.lock_file = lock
+  return lock
+end
+
+-- Display the dependency tree in a human-readable format
+fn tree_display(self: DependencyManager, specs: List<DependencySpec>) -> String do
+  let lines be List<String>{"Dependency Tree:", ""}
+  for spec in specs do
+    let status_str be match spec.source with
+      DependencySource.REGISTRY then spec.resolved_version
+      end
+      DependencySource.GIT then spec.resolved_version.substring(0, 7)
+      end
+      DependencySource.LOCAL then "local:" + spec.resolved_path
+      end
+      DependencySource.PATH then "path:" + spec.resolved_path
+      end
+    end
+    let entry be "  " + spec.name + " (" + status_str + ")"
+    lines.append(entry)
+  end
+  return lines.join("\n")
+end
+
+-- Search for packages matching a query string
+fn search(self: DependencyManager, query: String) -> List<String> do
+  let results be List<String>{}
+  for reg in self.resolver.registries do
+    let url be reg + "/api/search?q=" + query
+    let response be FileSystem.http_get(url)
+    if response.status == 200 then
+      let packages be response.body.split("\n")
+      for pkg in packages do
+        if pkg.trim().length() > 0 then
+          results.append(pkg.trim())
+        end
+      end
+    end
+  end
+  return results
+end
+
+export {DependencySource, VersionConstraint, DepStatus, DependencySpec, Version, LockFile, DependencyResolver, DependencyManager}

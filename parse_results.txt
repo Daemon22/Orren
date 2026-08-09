@@ -1,0 +1,108 @@
+=== PASSED: 58 ===
+  .\orren\bridge\fabric.orn
+  .\orren\cli\entry_points.orn
+  .\orren\compiler\codegen.orn
+  .\orren\compiler\sir.orn
+  .\orren\compiler\opt\optimizations.orn
+  .\orren\core\language\foundation.orn
+  .\orren\core\semantic\model.orn
+  .\orren\lsp\server.orn
+  .\orren\parser\ast.orn
+  .\orren\parser\lexer.orn
+  .\orren\parser\parser.orn
+  .\orren\parser\tokens.orn
+  .\orren\runtime\prelude.orn
+  .\orren\runtime\vibe.orn
+  .\orren\standard_library\agents\agents.orn
+  .\orren\standard_library\brill\brilliant.orn
+  .\orren\standard_library\cog\cognition.orn
+  .\orren\standard_library\mind\mind.orn
+  .\orren\standard_library\prel\prelude.orn
+  .\orren\standard_library\sem\semantics.orn
+  .\orren\standard_library\ty\types.orn
+  .\orren\standard_library\vibe\vibe_runtime.orn
+  .\orren\upmp\engine.orn
+  .\orren\vm\executor.orn
+  .\orren-tools\TOOLS_MANIFEST.orn
+  .\orren-tools\build\config.orn
+  .\orren-tools\build\cache\cache.orn
+  .\orren-tools\ci\pipeline\pipeline.orn
+  .\orren-tools\ci\runners\runners.orn
+  .\orren-tools\cli\clean\clean.orn
+  .\orren-tools\cli\publish\publish.orn
+  .\orren-tools\cli\run\run_runner.orn
+  .\orren-tools\docs\markdown\markdown_renderer.orn
+  .\orren-tools\lsp\diagnostics\diagnostics.orn
+  .\orren-tools\lsp\documents\documents.orn
+  .\orren-tools\lsp\protocol\protocol.orn
+  .\orren-tools\lsp\server\server.orn
+  .\orren-tools\registry\auth\auth.orn
+  .\orren-tools\registry\client\client.orn
+  .\orren-tools\registry\index\index.orn
+  .\orren-tools\sdk\analyzer\analyzer.orn
+  .\orren-tools\sdk\call_hierarchy\call_hierarchy.orn
+  .\orren-tools\sdk\completion\completion.orn
+  .\orren-tools\sdk\debugger\debugger.orn
+  .\orren-tools\sdk\formatter\formatter.orn
+  .\orren-tools\sdk\highlight\highlight.orn
+  .\orren-tools\sdk\hover\hover.orn
+  .\orren-tools\sdk\inspector\inspector.orn
+  .\orren-tools\sdk\linker\linker.orn
+  .\orren-tools\sdk\linter\linter.orn
+  .\orren-tools\sdk\navigation\navigation.orn
+  .\orren-tools\sdk\profiler\profiler.orn
+  .\orren-tools\sdk\refactor\refactor.orn
+  .\orren-tools\sdk\rename\rename.orn
+  .\orren-tools\sdk\repl\repl.orn
+  .\orren-tools\sdk\type_inference\type_inference.orn
+  .\orren-tools\testing\coverage\coverage.orn
+  .\orren-tools\tools\lint_rules\standard_rules.orn
+
+=== FAILED: 47 ===
+  .\orren\cognitive\engine.orn: SYNTAX ERROR: Expected RPAREN, got COMMA (',') at line 600
+  .\orren\compiler\driver.orn: SYNTAX ERROR: Expected RPAREN, got PLUS ('+') at line 163
+  .\orren\compiler\semantic_analysis.orn: SYNTAX ERROR: Expected RBRACKET, got RETURN ('return') at line 145
+  .\orren\compiler\ssa.orn: SYNTAX ERROR: Expected RBRACKET, got END ('end') at line 235
+  .\orren\runtime\mediator.orn: SYNTAX ERROR: Expected identifier, got NL ('\\n') at line 842
+  .\orren\standard_library\io\io.orn: SYNTAX ERROR: Expected END, got ELSE ('else') at line 586
+  .\orren-tools\build\artifacts.orn: SYNTAX ERROR: Expected identifier, got LPAREN ('(') at line 248
+  .\orren-tools\build\pipeline.orn: SYNTAX ERROR: Expected identifier, got LPAREN ('(') at line 181
+  .\orren-tools\build\compdb\compdb.orn: SYNTAX ERROR: Expected RPAREN, got DOT ('.') at line 128
+  .\orren-tools\build\workspace\workspace.orn: SYNTAX ERROR: Expected RPAREN, got IDENT ('new') at line 325
+  .\orren-tools\ci\artifacts\artifacts.orn: SYNTAX ERROR: Expected RPAREN, got INT (5) at line 130
+  .\orren-tools\cli\check\check.orn: SYNTAX ERROR: Expected RBRACKET, got FOR ('for') at line 117
+  .\orren-tools\cli\config\config_manager.orn: SYNTAX ERROR: Expected RBRACE, got STRING ('always') at line 92
+  .\orren-tools\cli\deps\dependency_manager.orn: SYNTAX ERROR: Expected RBRACE, got IDENT ('ref') at line 249
+  .\orren-tools\cli\info\info.orn: SYNTAX ERROR: Expected identifier, got LBRACE ('{') at line 11
+  .\orren-tools\cli\scaffold\scaffold.orn: SYNTAX ERROR: Expected RBRACE, got IDENT ('PROJECT_NAME') at line 114
+  .\orren-tools\cli\search\search.orn: SYNTAX ERROR: Expected RPAREN, got IDENT ('a') at line 279
+  .\orren-tools\docs\examples\extractor.orn: SYNTAX ERROR: Expected END, got ELSE ('else') at line 177
+  .\orren-tools\docs\generator\doc_generator.orn: SYNTAX ERROR: Expected END, got ELSE ('else') at line 171
+  .\orren-tools\docs\html\html_renderer.orn: SYNTAX ERROR: Expected RPAREN, got IDENT ('html') at line 350
+  .\orren-tools\docs\latex\latex_renderer.orn: SYNTAX ERROR: Expected RPAREN, got IDENT ('bottomrule') at line 266
+  .\orren-tools\docs\search_index\search_index.orn: SYNTAX ERROR: Expected RPAREN, got IDENT ('new') at line 86
+  .\orren-tools\registry\publish\publish.orn: SYNTAX ERROR: Expected RPAREN, got INT (5) at line 304
+  .\orren-tools\sdk\semantic_tokens\semantic_tokens.orn: SYNTAX ERROR: Expected RPAREN, got IDENT ('idx') at line 446
+  .\orren-tools\testing\assertions\assertions.orn: SYNTAX ERROR: Expected RBRACE, got STRING ('timestamp') at line 229
+  .\orren-tools\testing\benchmarks\benchmarks.orn: SYNTAX ERROR: Expected RBRACE, got STRING ('================') at line 296
+  .\orren-tools\testing\fixtures\fixtures.orn: SYNTAX ERROR: Expected RPAREN, got LET ('let') at line 70
+  .\orren-tools\testing\fuzzing\fuzzer.orn: SYNTAX ERROR: Expected RPAREN, got IDENT ('bit_pos') at line 185
+  .\orren-tools\testing\mocking\mocking.orn: SYNTAX ERROR: Expected RPAREN, got LET ('let') at line 216
+  .\orren-tools\testing\properties\property_testing.orn: SYNTAX ERROR: Expected RBRACE, got STRING ('=====================') at line 283
+  .\orren-tools\testing\reporters\reporters.orn: SYNTAX ERROR: Expected RPAREN, got IDENT ('entry') at line 124
+  .\orren-tools\testing\runner\test_runner.orn: SYNTAX ERROR: Expected RBRACE, got STRING ('==========') at line 342
+  .\orren-tools\testing\snippets\snippets.orn: SYNTAX ERROR: Expected RPAREN, got LET ('let') at line 63
+  .\orren-tools\tools\api_extractor\api_extractor.orn: SYNTAX ERROR: Expected RPAREN, got LET ('let') at line 170
+  .\orren-tools\tools\ast_viewer\ast_viewer.orn: SYNTAX ERROR: Expected RPAREN, got IDENT ('stack') at line 63
+  .\orren-tools\tools\bytecode_disasm\disassembler.orn: SYNTAX ERROR: Expected RPAREN, got FOR ('for') at line 138
+  .\orren-tools\tools\changelog\changelog.orn: SYNTAX ERROR: Expected RBRACKET, got FOR ('for') at line 233
+  .\orren-tools\tools\code_metrics\code_metrics.orn: SYNTAX ERROR: Expected RBRACKET, got IDENT ('parts') at line 97
+  .\orren-tools\tools\compat_checker\compat_checker.orn: SYNTAX ERROR: Expected RBRACKET, got FOR ('for') at line 152
+  .\orren-tools\tools\dead_code_detector\dead_code.orn: SYNTAX ERROR: Expected RPAREN, got FOR ('for') at line 79
+  .\orren-tools\tools\dep_graph\dep_graph.orn: SYNTAX ERROR: Expected RPAREN, got END ('end') at line 146
+  .\orren-tools\tools\license_checker\license_checker.orn: SYNTAX ERROR: Expected RBRACKET, got IDENT ('lines') at line 161
+  .\orren-tools\tools\migrate\migrator.orn: SYNTAX ERROR: Expected RBRACE, got STRING ('================') at line 301
+  .\orren-tools\tools\perf_analyzer\perf_analyzer.orn: SYNTAX ERROR: Expected RBRACKET, got IDENT ('lines') at line 121
+  .\orren-tools\tools\security_scanner\security_scanner.orn: SYNTAX ERROR: Expected RBRACKET, got COMMA (',') at line 110
+  .\orren-tools\tools\semantic_inspector\semantic_inspector.orn: SYNTAX ERROR: Expected RPAREN, got IDENT ('loss') at line 113
+  .\orren-tools\tools\version_bumper\version_bumper.orn: SYNTAX ERROR: Expected RPAREN, got LET ('let') at line 329

@@ -1,0 +1,400 @@
+-- license_checker.orn - License compliance checking for Orren project dependencies
+-- Part of the Orren Developer Utilities suite
+
+import orren.core.language.foundation::{String, Int, List, Map, Bool, Float}
+import orren.core.language.foundation::{Regex, File, FileReader}
+
+module orren_tools.tools.license_checker
+
+-- Compatibility result between two licenses
+enum LicenseCompatibility
+    COMPATIBLE
+    INCOMPATIBLE
+    UNKNOWN
+    REQUIRES_ATTRIBUTION
+end
+
+-- Broad category of a license
+enum LicenseCategory
+    PERMISSIVE
+    COPYLEFT
+    WEAK_COPYLEFT
+    PROPRIETARY
+    PUBLIC_DOMAIN
+end
+
+-- Information about a single recognized license
+entity LicenseInfo
+    property spdx_id: String = ""
+    property name: String = ""
+    property category: LicenseCategory = LicenseCategory.PERMISSIVE
+    property compatibility: LicenseCompatibility = LicenseCompatibility.COMPATIBLE
+    property url: String = ""
+
+    fn is_permissive(self) -> Bool do
+        return self.category == LicenseCategory.PERMISSIVE
+    end
+
+    fn is_copyleft(self) -> Bool do
+        return self.category == LicenseCategory.COPYLEFT
+    end
+
+    fn is_weak_copyleft(self) -> Bool do
+        return self.category == LicenseCategory.WEAK_COPYLEFT
+    end
+
+    fn requires_attribution(self) -> Bool do
+        return self.compatibility == LicenseCompatibility.REQUIRES_ATTRIBUTION
+    end
+
+    fn matches_id(self, candidate: String) -> Bool do
+        if self.spdx_id.to_lower() == candidate.to_lower() then
+            return true
+        end
+        if self.name.to_lower() == candidate.to_lower() then
+            return true
+        end
+        return false
+    end
+
+    fn matches_text(self, text: String) -> Bool do
+        if text == "" then return false end
+        let be lower = text.to_lower()
+        if lower.has(self.spdx_id.to_lower()) then return true end
+        let be words = self.name.split(" ")
+        for word in words do
+            if word.length() >= 4 and lower.has(word.to_lower()) then
+                return true
+            end
+        end
+        return false
+    end
+
+    fn summary(self) -> String do
+        let be cat_str = category_label(self.category)
+        let be comp_str = compat_label(self.compatibility)
+        return self.spdx_id + " (" + self.name + ") [" + cat_str + ", " + comp_str + "]"
+    end
+end
+
+-- Helper: convert category to label string
+fn category_label(c: LicenseCategory) -> String do
+    match c with
+    case LicenseCategory.PERMISSIVE do return "Permissive" end
+    case LicenseCategory.COPYLEFT do return "Copyleft" end
+    case LicenseCategory.WEAK_COPYLEFT do return "Weak Copyleft" end
+    case LicenseCategory.PROPRIETARY do return "Proprietary" end
+    case LicenseCategory.PUBLIC_DOMAIN do return "Public Domain" end
+    end
+end
+
+-- Helper: convert compatibility to label string
+fn compat_label(c: LicenseCompatibility) -> String do
+    match c with
+    case LicenseCompatibility.COMPATIBLE do return "Compatible" end
+    case LicenseCompatibility.INCOMPATIBLE do return "Incompatible" end
+    case LicenseCompatibility.UNKNOWN do return "Unknown" end
+    case LicenseCompatibility.REQUIRES_ATTRIBUTION do return "Requires Attribution" end
+    end
+end
+
+-- License record for a single dependency
+entity DependencyLicense
+    property dependency_name: String = ""
+    property version: String = ""
+    property license: LicenseInfo = LicenseInfo {}
+    property compatible: Bool = true
+    property issue: String = ""
+
+    fn to_string(self) -> String do
+        let be status = "OK"
+        if not self.compatible then
+            let be status = "ISSUE: " + self.issue
+        end
+        return self.dependency_name + " " + self.version + " -> "
+            + self.license.spdx_id + " [" + status + "]"
+    end
+end
+
+-- Aggregated report of all dependency license checks
+entity LicenseReport
+    property dependencies_checked: Int = 0
+    property compatible_count: Int = 0
+    property incompatible_count: Int = 0
+    property requires_attribution: Int = 0
+    property details: List<DependencyLicense> = []
+
+    fn add_detail(self, detail: DependencyLicense) -> LicenseReport do
+        self.details.append(detail)
+        let be self = self.recalculate()
+        return self
+    end
+
+    fn recalculate(self) -> LicenseReport do
+        let be compat = 0
+        let be incompat = 0
+        let be attr = 0
+        for d in self.details do
+            if d.compatible then
+                if d.license.requires_attribution() then
+                    let be attr = attr + 1
+                else
+                    let be compat = compat + 1
+                end
+            else
+                let be incompat = incompat + 1
+            end
+        end
+        self.dependencies_checked = self.details.length()
+        self.compatible_count = compat
+        self.incompatible_count = incompat
+        self.requires_attribution = attr
+        return self
+    end
+
+    fn is_compliant(self) -> Bool do
+        return self.incompatible_count == 0
+    end
+
+    fn summary(self) -> String do
+        let be lines: List<String> = []
+        lines.append("License Compliance Report")
+        lines.append("=========================")
+        lines.append("Dependencies checked: " + self.dependencies_checked.to_string())
+        lines.append("Compatible: " + self.compatible_count.to_string())
+        lines.append("Incompatible: " + self.incompatible_count.to_string())
+        lines.append("Requires attribution: " + self.requires_attribution.to_string())
+        let be status = "PASS"
+        if not self.is_compliant() then
+            let be status = "FAIL"
+        end
+        lines.append("Overall: " + status)
+        if self.incompatible_count > 0 then
+            lines.append("")
+            lines.append("Incompatible dependencies:")
+            for d in self.details do
+                if not d.compatible then
+                    lines.append("  - " + d.to_string())
+                end
+            end
+        end
+        if self.requires_attribution > 0 then
+            lines.append("")
+            lines.append("Dependencies requiring attribution:")
+            for d in self.details do
+                if d.compatible and d.license.requires_attribution() then
+                    lines.append("  - " + d.to_string())
+                end
+            end
+        end
+        return join(lines)
+    end
+end
+
+-- Helper to join list of strings
+fn join(parts: List<String>) -> String do
+    let be result = ""
+    for part in parts do
+        if result == "" then
+            let be result = part
+        else
+            let be result = result + "\n" + part
+        end
+    end
+    return result
+end
+
+-- Main license checker with knowledge base and analysis
+entity LicenseChecker
+    property config: Map<String, String> = {}
+    property known_licenses: List<LicenseInfo> = []
+
+    fn new(config: Map<String, String>) -> LicenseChecker do
+        let be checker = LicenseChecker {}
+        checker.config = config
+        checker.known_licenses = checker.build_database()
+        return checker
+    end
+
+    fn make_license(self, spdx: String, name: String,
+                        cat: LicenseCategory,
+                        comp: LicenseCompatibility) -> LicenseInfo do
+        let be info = LicenseInfo {}
+        info.spdx_id = spdx
+        info.name = name
+        info.category = cat
+        info.compatibility = comp
+        return info
+    end
+
+    fn build_database(self) -> List<LicenseInfo> do
+        let be db: List<LicenseInfo> = []
+        let be P = LicenseCategory.PERMISSIVE
+        let be C = LicenseCompatibility.COMPATIBLE
+        let be A = LicenseCompatibility.REQUIRES_ATTRIBUTION
+        db.append(self.make_license("MIT", "MIT License", P, C))
+        db.append(self.make_license("Apache-2.0", "Apache License 2.0", P, A))
+        db.append(self.make_license("GPL-3.0", "GNU GPL v3", LicenseCategory.COPYLEFT, LicenseCompatibility.INCOMPATIBLE))
+        db.append(self.make_license("LGPL-3.0", "GNU LGPL v3", LicenseCategory.WEAK_COPYLEFT, A))
+        db.append(self.make_license("BSD-2-Clause", "BSD 2-Clause", P, C))
+        db.append(self.make_license("BSD-3-Clause", "BSD 3-Clause", P, C))
+        db.append(self.make_license("MPL-2.0", "Mozilla PL 2.0", LicenseCategory.WEAK_COPYLEFT, A))
+        db.append(self.make_license("CC0-1.0", "CC0 v1.0", LicenseCategory.PUBLIC_DOMAIN, C))
+        db.append(self.make_license("Unlicense", "The Unlicense", LicenseCategory.PUBLIC_DOMAIN, C))
+        db.append(self.make_license("ISC", "ISC License", P, C))
+        return db
+    end
+
+    fn parse_identifier(self, raw: String) -> LicenseInfo do
+        let be normalized = raw.trim().to_upper()
+        for license in self.known_licenses do
+            if license.matches_id(normalized) then
+                return license
+            end
+        end
+        let be unknown = LicenseInfo {}
+        unknown.spdx_id = raw
+        unknown.name = raw
+        unknown.category = LicenseCategory.UNKNOWN
+        unknown.compatibility = LicenseCompatibility.UNKNOWN
+        return unknown
+    end
+
+    fn detect_from_text(self, text: String) -> LicenseInfo do
+        if text == "" then
+            let be empty = LicenseInfo {}
+            empty.spdx_id = "NONE"
+            empty.name = "No license detected"
+            empty.compatibility = LicenseCompatibility.INCOMPATIBLE
+            return empty
+        end
+        let be best_match = LicenseInfo {}
+        let be best_score = 0
+        for license in self.known_licenses do
+            if license.matches_text(text) then
+                let be score = license.spdx_id.length()
+                if score > best_score then
+                    let be best_score = score
+                    let be best_match = license
+                end
+            end
+        end
+        if best_score > 0 then
+            return best_match
+        end
+        let be unknown = LicenseInfo {}
+        unknown.spdx_id = "CUSTOM"
+        unknown.name = "Custom/Unknown License"
+        unknown.compatibility = LicenseCompatibility.UNKNOWN
+        return unknown
+    end
+
+    fn check_compatibility(self, dep_license: LicenseInfo,
+                           project_license: LicenseInfo) -> Bool do
+        if dep_license.compatibility == LicenseCompatibility.INCOMPATIBLE then
+            return false
+        end
+        if project_license.is_copyleft() and dep_license.is_permissive() then
+            return true
+        end
+        if project_license.is_permissive() and dep_license.is_copyleft() then
+            return false
+        end
+        if project_license.is_permissive() and dep_license.is_weak_copyleft() then
+            return true
+        end
+        if dep_license.category == LicenseCategory.PUBLIC_DOMAIN then
+            return true
+        end
+        if project_license.category == LicenseCategory.PUBLIC_DOMAIN then
+            return dep_license.is_permissive()
+        end
+        return true
+    end
+
+    fn check_dependency(self, name: String, version: String,
+                        license_id: String,
+                        project_license: LicenseInfo) -> DependencyLicense do
+        let be dl = DependencyLicense {}
+        dl.dependency_name = name
+        dl.version = version
+        let be info = self.parse_identifier(license_id)
+        dl.license = info
+        dl.compatible = self.check_compatibility(info, project_license)
+        if not dl.compatible then
+            dl.issue = "License " + info.spdx_id + " is incompatible with project license "
+                + project_license.spdx_id
+        else if info.compatibility == LicenseCompatibility.UNKNOWN then
+            dl.issue = "Unknown license: manual review recommended"
+        end
+        return dl
+    end
+
+    fn check_all(self, deps: List<Map<String, String>>,
+                 project_license_id: String) -> LicenseReport do
+        let be report = LicenseReport {}
+        let be project_lic = self.parse_identifier(project_license_id)
+        for dep in deps do
+            let be name = dep.get("name")
+            let be version = dep.get("version")
+            let be lic = dep.get("license")
+            let be dl = self.check_dependency(name, version, lic, project_lic)
+            report.add_detail(dl)
+        end
+        return report
+    end
+
+    fn scan_project(self, project_dir: String) -> LicenseReport do
+        let be report = LicenseReport {}
+        let be project_lic = self.parse_identifier("MIT")
+        let be path = project_dir + "/orn.toml"
+        if File.exists(path) then
+            let be content = FileReader.read(path)
+            let be deps = self.parse_manifest_deps(content)
+            for dep in deps do
+                let be dl = self.check_dependency(
+                    dep.get("name"), dep.get("version"),
+                    dep.get("license"), project_lic
+                )
+                report.add_detail(dl)
+            end
+        end
+        return report
+    end
+
+    fn parse_manifest_deps(self, content: String) -> List<Map<String, String>> do
+        let be deps: List<Map<String, String>> = []
+        let be in_deps = false
+        let be current: Map<String, String> = {}
+        for line in content.split("\n") do
+            let be t = line.trim()
+            if t.starts_with("[dependencies]") then
+                let be in_deps = true
+            else if t.starts_with("[") then
+                if current.has("name") then deps.append(current) end
+                let be current: Map<String, String> = {}
+                let be in_deps = false
+            else if in_deps and t.has("=") then
+                let be parts = t.split("=")
+                if parts.length() >= 2 then
+                    let be k = parts[0].trim()
+                    let be v = parts[1].trim()
+                    if k == "name" or k == "version" or k == "license" then
+                        current.set(k, v)
+                    end
+                end
+            end
+        end
+        if current.has("name") then deps.append(current) end
+        return deps
+    end
+end
+
+export {
+    LicenseCompatibility,
+    LicenseCategory,
+    LicenseInfo,
+    DependencyLicense,
+    LicenseReport,
+    LicenseChecker
+}

@@ -1,0 +1,376 @@
+-- scaffold.orn
+-- Project scaffolding engine for Orren toolchain
+-- Generates project structures from templates with variable substitution
+
+module orren_tools.cli.scaffold
+
+import orren.core.language.foundation::{String, Int, Float, Bool, List, Map}
+import orren.core.language.foundation::{FileSystem, Path, DateTime, Timer}
+
+-- Enum representing the kinds of projects that can be scaffolded
+enum ProjectKind
+  BARE
+  LIBRARY
+  AGENT
+  SIRE
+  SDK_EXTENSION
+end
+
+-- Template variables available for substitution in scaffold templates
+enum TemplateVariable
+  PROJECT_NAME
+  AUTHOR
+  VERSION
+  DESCRIPTION
+  LICENSE
+  MODULE_PREFIX
+  DATE
+end
+
+-- Core configuration for a scaffold operation
+entity ScaffoldConfig
+  property name: String = ""
+  property kind: ProjectKind = ProjectKind.BARE
+  property author: String = ""
+  property version: String = "0.1.0"
+  property description: String = ""
+  property license: String = "MIT"
+  property module_prefix: String = ""
+  property include_tests: Bool = true
+  property include_docs: Bool = true
+  property include_ci: Bool = false
+  property include_examples: Bool = false
+  property stdlib_version: String = "latest"
+end
+
+-- Template engine that performs variable substitution on template strings
+entity TemplateEngine
+  property variables: Map<String, String> = Map<String, String>{}
+  property templates_cached: Bool = false
+  property delimiters_start: String = "{{"
+  property delimiters_end: String = "}}"
+end
+
+-- Represents a single generated file in the scaffold output
+entity GeneratedFile
+  property path: String = ""
+  property content: String = ""
+  property permissions: Int = 644
+  property executable: Bool = false
+end
+
+-- Final result of a scaffold operation
+entity ScaffoldResult
+  property project_name: String = ""
+  property kind: ProjectKind = ProjectKind.BARE
+  property files_generated: List<GeneratedFile> = List<GeneratedFile>{}
+  property total_lines: Int = 0
+  property scaffold_time: Int = 0
+  property warnings: List<String> = List<String>{}
+end
+
+-- Main scaffolder that coordinates the entire project generation process
+entity ProjectScaffolder
+  property config: ScaffoldConfig = ScaffoldConfig{}
+  property templates: TemplateEngine = TemplateEngine{}
+  property results: ScaffoldResult = ScaffoldResult{}
+end
+
+-- Intent declaration for the scaffolding subsystem
+intent "scaffold new Orren projects from configurable templates"
+
+-- Resolve a TemplateVariable to its string value from the current config
+fn resolve_variable(self: ProjectScaffolder, var: TemplateVariable) -> String do
+  match var with
+    TemplateVariable.PROJECT_NAME then
+      return self.config.name
+    end
+    TemplateVariable.AUTHOR then
+      return self.config.author
+    end
+    TemplateVariable.VERSION then
+      return self.config.version
+    end
+    TemplateVariable.DESCRIPTION then
+      return self.config.description
+    end
+    TemplateVariable.LICENSE then
+      return self.config.license
+    end
+    TemplateVariable.MODULE_PREFIX then
+      return self.config.module_prefix
+    end
+    TemplateVariable.DATE then
+      let current_date be DateTime.now().to_iso_string()
+      return current_date
+    end
+  end
+end
+
+-- Apply template substitution across all known variables in a string
+fn apply_template(self: ProjectScaffolder, template: String) -> String do
+  let result be template
+  let all_vars be List<TemplateVariable>{
+    TemplateVariable.PROJECT_NAME,
+    TemplateVariable.AUTHOR,
+    TemplateVariable.VERSION,
+    TemplateVariable.DESCRIPTION,
+    TemplateVariable.LICENSE,
+    TemplateVariable.MODULE_PREFIX,
+    TemplateVariable.DATE
+  }
+  for v in all_vars do
+    let var_name be v.to_string()
+    let replacement be self.resolve_variable(v)
+    let pattern be "{{" + var_name + "}}"
+    result = result.replace(pattern, replacement)
+  end
+  return result
+end
+
+-- Validate the project name meets naming conventions
+fn validate_name(self: ProjectScaffolder, name: String) -> Bool do
+  if name.length() == 0 then
+    return false
+  end
+  if name.length() > 128 then
+    return false
+  end
+  let first_char be name.char_at(0)
+  if first_char >= "0" and first_char <= "9" then
+    return false
+  end
+  let valid_chars be "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+  for i in 0 .. name.length() do
+    let ch be name.char_at(i)
+    if not valid_chars.contains(ch) then
+      return false
+    end
+  end
+  return true
+end
+
+-- Create the top-level directory structure for the project
+fn create_directory_structure(self: ProjectScaffolder) -> Bool do
+  let base be self.config.name
+  let dirs be List<String>{
+    base,
+    base + "/src",
+    base + "/src/" + self.config.module_prefix
+  }
+  if self.config.include_tests then
+    dirs.append(base + "/tests")
+  end
+  if self.config.include_docs then
+    dirs.append(base + "/docs")
+  end
+  if self.config.include_ci then
+    dirs.append(base + "/.ci")
+  end
+  if self.config.include_examples then
+    dirs.append(base + "/examples")
+  end
+  for dir_path in dirs do
+    let success be FileSystem.create_directory(dir_path)
+    if not success then
+      self.results.warnings.append("Failed to create directory: " + dir_path)
+    end
+  end
+  return true
+end
+
+-- Generate the orren.manifest file for the project
+fn generate_manifest(self: ProjectScaffolder) -> GeneratedFile do
+  let template be
+    "module {{PROJECT_NAME}}\n" +
+    "version \"{{VERSION}}\"\n" +
+    "author \"{{AUTHOR}}\"\n" +
+    "description \"{{DESCRIPTION}}\"\n" +
+    "license \"{{LICENSE}}\"\n"
+  let content be self.apply_template(template)
+  let file be GeneratedFile{
+    path = self.config.name + "/orren.manifest",
+    content = content,
+    permissions = 644,
+    executable = false
+  }
+  self.results.files_generated.append(file)
+  return file
+end
+
+-- Generate the main source entry point file
+fn generate_source(self: ProjectScaffolder) -> GeneratedFile do
+  let entry_content be
+    "-- Auto-generated entry point for {{PROJECT_NAME}}\n" +
+    "module {{PROJECT_NAME}}\n\n" +
+    "import orren.core.language.foundation::{String, Int, List}\n\n" +
+    "intent \"{{DESCRIPTION}}\"\n\n" +
+    "fn main() -> Int do\n" +
+    "  return 0\n" +
+    "end\n"
+  let content be self.apply_template(entry_content)
+  let file be GeneratedFile{
+    path = self.config.name + "/src/" + self.config.module_prefix + "/main.orn",
+    content = content,
+    permissions = 644,
+    executable = false
+  }
+  self.results.files_generated.append(file)
+  return file
+end
+
+-- Generate a .gitignore appropriate for Orren projects
+fn generate_gitignore(self: ProjectScaffolder) -> GeneratedFile do
+  let gitignore_content be
+    "# Orren build artifacts\n" +
+    "/build/\n" +
+    "/dist/\n" +
+    "/.orren/\n" +
+    "*.ornc\n" +
+    "*.orna\n" +
+    "\n# IDE files\n" +
+    ".vscode/\n" +
+    ".idea/\n" +
+    "*.swp\n" +
+    "\n# OS files\n" +
+    ".DS_Store\n" +
+    "Thumbs.db\n"
+  let file be GeneratedFile{
+    path = self.config.name + "/.gitignore",
+    content = gitignore_content,
+    permissions = 644,
+    executable = false
+  }
+  self.results.files_generated.append(file)
+  return file
+end
+
+-- Generate a README.md file for the project
+fn generate_readme(self: ProjectScaffolder) -> GeneratedFile do
+  let readme_template be
+    "# {{PROJECT_NAME}}\n\n" +
+    "{{DESCRIPTION}}\n\n" +
+    "## Author\n\n" +
+    "{{AUTHOR}}\n\n" +
+    "## License\n\n" +
+    "This project is licensed under the {{LICENSE}} license.\n\n" +
+    "## Getting Started\n\n" +
+    "```sh\n" +
+    "orren build\n" +
+    "orren test\n" +
+    "```\n"
+  let content be self.apply_template(readme_template)
+  let file be GeneratedFile{
+    path = self.config.name + "/README.md",
+    content = content,
+    permissions = 644,
+    executable = false
+  }
+  self.results.files_generated.append(file)
+  return file
+end
+
+-- Generate test directory scaffolding with a basic test file
+fn generate_tests(self: ProjectScaffolder) -> List<GeneratedFile> do
+  let files be List<GeneratedFile>{}
+  let test_content be
+    "-- Auto-generated tests for {{PROJECT_NAME}}\n" +
+    "module {{PROJECT_NAME}}.tests\n\n" +
+    "import orren_tools.testing.runner::{TestSuite, TestStatus}\n\n" +
+    "fn test_placeholder() -> TestStatus do\n" +
+    "  return TestStatus.PASSED\n" +
+    "end\n"
+  let content be self.apply_template(test_content)
+  let test_file be GeneratedFile{
+    path = self.config.name + "/tests/basic_tests.orn",
+    content = content,
+    permissions = 644,
+    executable = false
+  }
+  files.append(test_file)
+  self.results.files_generated.append(test_file)
+  return files
+end
+
+-- Generate CI configuration files
+fn generate_ci(self: ProjectScaffolder) -> List<GeneratedFile> do
+  let files be List<GeneratedFile>{}
+  let ci_template be
+    "# CI configuration for {{PROJECT_NAME}}\n" +
+    "stages:\n" +
+    "  - build\n" +
+    "  - test\n" +
+    "  - deploy\n\n" +
+    "build:\n" +
+    "  script:\n" +
+    "    - orren build --release\n\n" +
+    "test:\n" +
+    "  script:\n" +
+    "    - orren test --verbose\n"
+  let content be self.apply_template(ci_template)
+  let ci_file be GeneratedFile{
+    path = self.config.name + "/.ci/pipeline.yml",
+    content = content,
+    permissions = 644,
+    executable = false
+  }
+  files.append(ci_file)
+  self.results.files_generated.append(ci_file)
+  return files
+end
+
+-- List all available template kinds for the user
+fn list_templates(self: ProjectScaffolder) -> List<String> do
+  let kinds be List<String>{}
+  for k in List<ProjectKind>{ProjectKind.BARE, ProjectKind.LIBRARY, ProjectKind.AGENT, ProjectKind.SIRE, ProjectKind.SDK_EXTENSION} do
+    let desc be match k with
+      ProjectKind.BARE then "bare - Minimal empty project"
+      end
+      ProjectKind.LIBRARY then "library - Reusable library project"
+      end
+      ProjectKind.AGENT then "agent - AI agent project"
+      end
+      ProjectKind.SIRE then "sire - Sire orchestration project"
+      end
+      ProjectKind.SDK_EXTENSION then "sdk_extension - SDK extension project"
+      end
+    end
+    kinds.append(desc)
+  end
+  return kinds
+end
+
+-- Main entry point: create the entire project from configuration
+fn create_project(self: ProjectScaffolder) -> ScaffoldResult do
+  let timer be Timer.start()
+  if not self.validate_name(self.config.name) then
+    self.results.warnings.append("Invalid project name: " + self.config.name)
+    return self.results
+  end
+  if self.config.module_prefix.length() == 0 then
+    self.config.module_prefix = self.config.name.replace("-", "_")
+  end
+  let _ be self.create_directory_structure()
+  let _ be self.generate_manifest()
+  let _ be self.generate_source()
+  let _ be self.generate_gitignore()
+  let _ be self.generate_readme()
+  if self.config.include_tests then
+    let _ be self.generate_tests()
+  end
+  if self.config.include_ci then
+    let _ be self.generate_ci()
+  end
+  self.results.project_name = self.config.name
+  self.results.kind = self.config.kind
+  let total be 0
+  for f in self.results.files_generated do
+    let line_count be f.content.count("\n") + 1
+    total = total + line_count
+  end
+  self.results.total_lines = total
+  self.results.scaffold_time = timer.elapsed_ns()
+  return self.results
+end
+
+export {ProjectKind, TemplateVariable, ScaffoldConfig, TemplateEngine, GeneratedFile, ScaffoldResult, ProjectScaffolder}

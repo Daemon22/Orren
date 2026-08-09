@@ -1,0 +1,332 @@
+-- orren_tools.sdk.formatter
+-- Code formatter for Orren source files with configurable style rules.
+-- Handles indentation, alignment, blank lines, trailing whitespace, and comments.
+
+import orren.core.language.foundation::{String, Int, Bool, List, Map, Result, Ok, Err, None}
+
+module orren_tools.sdk.formatter
+
+-- Supported indentation styles.
+enum IndentStyle
+  SPACES
+  TABS
+end
+
+-- Supported line ending conventions.
+enum LineEnding
+  LF
+  CRLF
+  CR
+end
+
+-- Configuration controlling all formatting behavior.
+entity FormatConfig
+  property indent_size: Int = 2
+  property indent_style: IndentStyle = IndentStyle.SPACES
+  property max_width: Int = 100
+  property line_ending: LineEnding = LineEnding.LF
+  property align_assignments: Bool = true
+  property align_properties: Bool = true
+  property blank_lines_after_entity: Int = 2
+  property blank_lines_after_fn: Int = 1
+  property max_blank_lines: Int = 2
+  property trailing_newline: Bool = true
+  property format_comments: Bool = true
+
+  -- Create the default formatting configuration.
+  fn default() -> FormatConfig do
+    let cfg be FormatConfig.new()
+    cfg.indent_size = 2
+    cfg.indent_style = IndentStyle.SPACES
+    cfg.max_width = 100
+    cfg.line_ending = LineEnding.LF
+    cfg.align_assignments = true
+    cfg.align_properties = true
+    cfg.blank_lines_after_entity = 2
+    cfg.blank_lines_after_fn = 1
+    cfg.max_blank_lines = 2
+    cfg.trailing_newline = true
+    cfg.format_comments = true
+    return cfg
+  end
+
+  -- Return the indent string based on style and size.
+  fn indent_unit(self) -> String do
+    match self.indent_style with
+      IndentStyle.SPACES then
+        let mut unit be ""
+        let mut i be 0
+        while i < self.indent_size do
+          unit = unit + " "
+          i = i + 1
+        end
+        return unit
+      IndentStyle.TABS then
+        return "\t"
+    end
+  end
+
+  -- Return the line ending sequence as a string.
+  fn line_ending_str(self) -> String do
+    match self.line_ending with
+      LineEnding.LF then return "\n"
+      LineEnding.CRLF then return "\r\n"
+      LineEnding.CR then return "\r"
+    end
+  end
+end
+
+-- A single formatting rule with a name, description, and severity.
+entity FormatRule
+  property name: String = ""
+  property description: String = ""
+  property enabled: Bool = true
+  property severity: String = "info"
+
+  -- Create a new rule with the given name and description.
+  fn create(rule_name: String, rule_desc: String) -> FormatRule do
+    let rule be FormatRule.new()
+    rule.name = rule_name
+    rule.description = rule_desc
+    return rule
+  end
+end
+
+-- Result of formatting a single source file.
+entity FormatResult
+  property formatted_source: String = ""
+  property changes_count: Int = 0
+  property rules_applied: List<String> = List<String>.new()
+  property file: String = ""
+  property formatting_time: Int = 0
+
+  -- Return a summary string of formatting changes.
+  fn summary(self) -> String do
+    let msg be self.file + ": " + self.changes_count.to_string() + " changes"
+    msg = msg + " (" + self.rules_applied.length().to_string() + " rules)"
+    return msg
+  end
+end
+
+-- Main source formatter that applies rules to Orren source code.
+entity SourceFormatter
+  property config: FormatConfig = FormatConfig.default()
+  property rules: List<FormatRule> = List<FormatRule>.new()
+  property total_formatted: Int = 0
+  property total_changes: Int = 0
+
+  -- Create a new formatter with default rules.
+  fn create() -> SourceFormatter do
+    let fmt be SourceFormatter.new()
+    fmt.config = FormatConfig.default()
+    let r1 be FormatRule.create("indent", "Normalize indentation to configured style")
+    fmt.rules.append(r1)
+    let r2 be FormatRule.create("align-assignments", "Align assignment operators across consecutive lines")
+    fmt.rules.append(r2)
+    let r3 be FormatRule.create("align-properties", "Align property declarations in entities")
+    fmt.rules.append(r3)
+    let r4 be FormatRule.create("blank-lines", "Normalize blank line counts between declarations")
+    fmt.rules.append(r4)
+    let r5 be FormatRule.create("trailing-whitespace", "Remove trailing whitespace from all lines")
+    fmt.rules.append(r5)
+    let r6 be FormatRule.create("trailing-newline", "Ensure file ends with exactly one newline")
+    fmt.rules.append(r6)
+    let r7 be FormatRule.create("comments", "Normalize comment formatting and spacing")
+    fmt.rules.append(r7)
+    return fmt
+  end
+
+  -- Apply indentation formatting to a line based on its nesting level.
+  fn format_indent(self, line: String, level: Int) -> String do
+    let unit be self.config.indent_unit()
+    let mut prefix be ""
+    let mut i be 0
+    while i < level do
+      prefix = prefix + unit
+      i = i + 1
+    end
+    let stripped be line.trim_start()
+    return prefix + stripped
+  end
+
+  -- Align a block of assignment lines by their = operator.
+  fn align_assignments(self, lines: List<String>) -> List<String> do
+    let mut max_colon_pos be 0
+    for line in lines do
+      let pos be line.index_of(": ")
+      if pos > max_colon_pos then
+        max_colon_pos = pos
+      end
+    end
+    let mut aligned be List<String>.new()
+    for line in lines do
+      let pos be line.index_of(": ")
+      if pos >= 0 then
+        let before be line.substring(0, pos)
+        let after be line.substring(pos + 1)
+        let padding be max_colon_pos - pos
+        let mut spaces be ""
+        let mut j be 0
+        while j < padding do
+          spaces = spaces + " "
+          j = j + 1
+        end
+        aligned.append(before + spaces + ": " + after.trim_start())
+      else
+        aligned.append(line)
+      end
+    end
+    return aligned
+  end
+
+  -- Normalize blank lines between sections to the configured count.
+  fn normalize_blank_lines(self, lines: List<String>) -> List<String> do
+    let mut result be List<String>.new()
+    let mut blank_count be 0
+    for line in lines do
+      if line.trim() == "" then
+        blank_count = blank_count + 1
+        if blank_count <= self.config.max_blank_lines then
+          result.append("")
+        end
+      else
+        blank_count = 0
+        result.append(line)
+      end
+    end
+    return result
+  end
+
+  -- Remove trailing whitespace from a single line.
+  fn strip_trailing_whitespace(line: String) -> String do
+    return line.trim_end()
+  end
+
+  -- Ensure the source ends with exactly one trailing newline.
+  fn enforce_trailing_newline(self, source: String) -> String do
+    let ending be self.config.line_ending_str()
+    let mut result be source
+    while result.ends_with(ending + ending) do
+      result = result.substring(0, result.length() - ending.length())
+    end
+    if result.ends_with(ending) == false then
+      result = result + ending
+    end
+    return result
+  end
+
+  -- Format comments by ensuring consistent spacing after --.
+  fn format_comment_line(line: String) -> String do
+    if line.contains("--") == false then
+      return line
+    end
+    if line.trim_start().starts_with("-- ") then
+      return line
+    end
+    if line.trim_start().starts_with("--") then
+      let idx be line.index_of("--")
+      let before be line.substring(0, idx + 2)
+      let after be line.substring(idx + 2).trim_start()
+      return before + " " + after
+    end
+    return line
+  end
+
+  -- Format a complete Orren source string, applying all enabled rules.
+  fn format_source(self, source: String, file_name: String) -> FormatResult do
+    let mut result be FormatResult.new()
+    result.file = file_name
+    let mut changes be 0
+    let mut rules_hit be List<String>.new()
+    let mut lines be source.split("\n")
+    -- Strip trailing whitespace from every line.
+    let mut cleaned be List<String>.new()
+    for line in lines do
+      let stripped be SourceFormatter.strip_trailing_whitespace(line)
+      if stripped != line then
+        changes = changes + 1
+      end
+      cleaned.append(stripped)
+    end
+    if self.config.format_comments then
+      let mut commented be List<String>.new()
+      for line in cleaned do
+        let formatted be SourceFormatter.format_comment_line(line)
+        if formatted != line then
+          changes = changes + 1
+        end
+        commented.append(formatted)
+      end
+      cleaned = commented
+    end
+    cleaned = self.normalize_blank_lines(cleaned)
+    let mut output be ""
+    for line in cleaned do
+      output = output + line + "\n"
+    end
+    output = self.enforce_trailing_newline(output)
+    result.formatted_source = output
+    result.changes_count = changes
+    result.rules_applied = rules_hit
+    self.total_formatted = self.total_formatted + 1
+    self.total_changes = self.total_changes + changes
+    return result
+  end
+
+  -- Detect formatting violations without modifying the source.
+  fn detect_violations(self, source: String, file_name: String) -> List<String> do
+    let mut violations be List<String>.new()
+    let lines be source.split("\n")
+    for line in lines do
+      if line != SourceFormatter.strip_trailing_whitespace(line) then
+        violations.append(file_name + ": trailing whitespace detected")
+      end
+    end
+    return violations
+  end
+
+  -- Return a summary of total formatting operations performed.
+  fn summary(self) -> String do
+    return "Formatted " + self.total_formatted.to_string() + " files, " + self.total_changes.to_string() + " total changes"
+  end
+
+  -- Reset cumulative statistics.
+  fn reset_stats(self) do
+    self.total_formatted = 0
+    self.total_changes = 0
+  end
+
+  -- Enable or disable a rule by name.
+  fn set_rule_enabled(self, rule_name: String, enabled: Bool) -> Bool do
+    for rule in self.rules do
+      if rule.name == rule_name then
+        rule.enabled = enabled
+        return true
+      end
+    end
+    return false
+  end
+
+  -- Check if a named rule is currently enabled.
+  fn is_rule_enabled(self, rule_name: String) -> Bool do
+    for rule in self.rules do
+      if rule.name == rule_name then
+        return rule.enabled
+      end
+    end
+    return false
+  end
+
+  -- Count how many rules are currently enabled.
+  fn enabled_rule_count(self) -> Int do
+    let mut count be 0
+    for rule in self.rules do
+      if rule.enabled then
+        count = count + 1
+      end
+    end
+    return count
+  end
+end
+
+export { IndentStyle, LineEnding, FormatConfig, FormatRule, FormatResult, SourceFormatter }

@@ -1,0 +1,392 @@
+-- index.orn: Local package index for caching and offline access to the registry.
+-- Builds, searches, and maintains a local index of known packages.
+-- Supports serialization and deserialization for persistence.
+
+module orren_tools.registry.index
+
+import module::{String, Int, Bool, Float, List, Map, Result, Time}
+import orren.core.language.foundation::{SourceLocation, ModuleResolver}
+
+-- The current state of the local package index.
+enum IndexState
+    EMPTY
+    LOADING
+    READY
+    CORRUPT
+    OUTDATED
+end
+
+-- Caching status of an individual package in the local index.
+enum PackageStatus
+    CACHED
+    OUTDATED
+    NOT_CACHED
+    PENDING_DOWNLOAD
+end
+
+-- Converts an IndexState to a display string.
+fn index_state_label(s: IndexState) -> String do
+    return match s with
+        IndexState.EMPTY => "empty"
+        IndexState.LOADING => "loading"
+        IndexState.READY => "ready"
+        IndexState.CORRUPT => "corrupt"
+        IndexState.OUTDATED => "outdated"
+    end
+end
+
+-- Converts a PackageStatus to a display string.
+fn package_status_label(s: PackageStatus) -> String do
+    return match s with
+        PackageStatus.CACHED => "cached"
+        PackageStatus.OUTDATED => "outdated"
+        PackageStatus.NOT_CACHED => "not_cached"
+        PackageStatus.PENDING_DOWNLOAD => "pending_download"
+    end
+end
+
+-- A single entry in the local package index.
+entity IndexEntry
+    property name: String = ""
+    property latest_version: String = ""
+    property cached_versions: List<String> = List<String>.new()
+    property description: String = ""
+    property author: String = ""
+    property downloads: Int = 0
+    property last_checked: Int = 0
+    property tags: List<String> = List<String>.new()
+    property dependencies: List<String> = List<String>.new()
+
+    intent "Represent a single package entry in the local index"
+
+    -- Returns the caching status of this entry.
+    fn status(self) -> PackageStatus do
+        if self.cached_versions.length == 0 then
+            return PackageStatus.NOT_CACHED
+        end
+        if self.cached_versions.contains(self.latest_version) then
+            return PackageStatus.CACHED
+        end
+        return PackageStatus.OUTDATED
+    end
+
+    -- Returns whether this entry is up to date with the latest version.
+    fn is_up_to_date(self) -> Bool do
+        return self.cached_versions.contains(self.latest_version)
+    end
+
+    -- Returns whether the entry has been checked recently.
+    fn is_fresh(self, max_age_ns: Int) -> Bool do
+        let age be Time.now_ns() - self.last_checked
+        return age < max_age_ns
+    end
+
+    -- Adds a cached version to this entry if not already present.
+    fn add_cached_version(self, version: String) do
+        if not self.cached_versions.contains(version) then
+            self.cached_versions.append(version)
+        end
+    end
+
+    -- Returns a summary string for this entry.
+    fn summary(self) -> String do
+        let status be package_status_label(self.status())
+        return self.name + " v" + self.latest_version + " (" + status + ", " + String.from_int(self.downloads) + " downloads)"
+    end
+
+    -- Serializes this entry to a string representation.
+    fn serialize(self) -> String do
+        let parts be List<String>.new()
+        parts.append("name=" + self.name)
+        parts.append("latest=" + self.latest_version)
+        parts.append("author=" + self.author)
+        parts.append("desc=" + self.description)
+        parts.append("downloads=" + String.from_int(self.downloads))
+        parts.append("checked=" + String.from_int(self.last_checked))
+        let versions_str be ""
+        for v in self.cached_versions do
+            if versions_str.length > 0 then
+                versions_str = versions_str + ","
+            end
+            versions_str = versions_str + v
+        end
+        parts.append("cached_versions=" + versions_str)
+        let tags_str be ""
+        for t in self.tags do
+            if tags_str.length > 0 then
+                tags_str = tags_str + ","
+            end
+            tags_str = tags_str + t
+        end
+        parts.append("tags=" + tags_str)
+        let deps_str be ""
+        for d in self.dependencies do
+            if deps_str.length > 0 then
+                deps_str = deps_str + ","
+            end
+            deps_str = deps_str + d
+        end
+        parts.append("deps=" + deps_str)
+        let result be ""
+        for part in parts do
+            if result.length > 0 then
+                result = result + ";"
+            end
+            result = result + part
+        end
+        return result
+    end
+end
+
+-- The local package index that caches remote registry data.
+entity PackageIndex
+    property entries: Map<String, IndexEntry> = Map<String, IndexEntry>.new()
+    property state: IndexState = IndexState.EMPTY
+    property index_dir: String = ""
+    property total_packages: Int = 0
+    property last_updated: Int = 0
+
+    intent "Manage a local index of packages for offline access and caching"
+
+    -- Initializes the index and loads from disk if available.
+    fn build(self) -> Bool do
+        self.state = IndexState.LOADING
+        let loaded be self.load_from_disk()
+        if loaded then
+            self.state = IndexState.READY
+            return true
+        end
+        self.entries = Map<String, IndexEntry>.new()
+        self.total_packages = 0
+        self.state = IndexState.READY
+        return true
+    end
+
+    -- Adds or updates an entry in the index.
+    fn upsert_entry(self, entry: IndexEntry) do
+        let existing be self.entries.get(entry.name)
+        if existing == nothing then
+            self.total_packages = self.total_packages + 1
+        end
+        self.entries.set(entry.name, entry)
+        self.last_updated = Time.now_ns()
+    end
+
+    -- Searches the index for packages matching a name substring.
+    fn search(self, query: String, limit: Int) -> List<IndexEntry> do
+        let results be List<IndexEntry>.new()
+        let keys be self.entries.keys()
+        let count be 0
+        for key in keys do
+            if count >= limit then
+                return results
+            end
+            let entry be self.entries.get(key)
+            if entry == nothing then
+                continue
+            end
+            let e be entry
+            if e.name.contains(query) then
+                results.append(e)
+                count = count + 1
+            end
+        end
+        return results
+    end
+
+    -- Searches entries by tag.
+    fn search_by_tag(self, tag: String, limit: Int) -> List<IndexEntry> do
+        let results be List<IndexEntry>.new()
+        let keys be self.entries.keys()
+        let count be 0
+        for key in keys do
+            if count >= limit then
+                return results
+            end
+            let entry be self.entries.get(key)
+            if entry == nothing then
+                continue
+            end
+            let e be entry
+            for t in e.tags do
+                if t == tag then
+                    results.append(e)
+                    count = count + 1
+                    break
+                end
+            end
+        end
+        return results
+    end
+
+    -- Returns all entries whose cached version is not the latest.
+    fn outdated_entries(self) -> List<IndexEntry> do
+        let outdated be List<IndexEntry>.new()
+        let keys be self.entries.keys()
+        for key in keys do
+            let entry be self.entries.get(key)
+            if entry == nothing then
+                continue
+            end
+            let e be entry
+            if not e.is_up_to_date() then
+                outdated.append(e)
+            end
+        end
+        return outdated
+    end
+
+    -- Removes entries that have not been checked within the given age.
+    fn prune_stale(self, max_age_ns: Int) -> Int do
+        let stale_keys be List<String>.new()
+        let keys be self.entries.keys()
+        for key in keys do
+            let entry be self.entries.get(key)
+            if entry == nothing then
+                continue
+            end
+            let e be entry
+            if not e.is_fresh(max_age_ns) then
+                stale_keys.append(key)
+            end
+        end
+        for key in stale_keys do
+            self.entries.remove(key)
+        end
+        self.total_packages = self.entries.size()
+        return stale_keys.length
+    end
+
+    -- Gets an entry by exact package name.
+    fn get_entry(self, name: String) -> IndexEntry do
+        let entry be self.entries.get(name)
+        if entry == nothing then
+            let empty be IndexEntry.new()
+            empty.name = name
+            return empty
+        end
+        return entry
+    end
+
+    -- Serializes the entire index to a string for persistence.
+    fn serialize(self) -> String do
+        let lines be List<String>.new()
+        lines.append("# orren package index v1")
+        lines.append("updated=" + String.from_int(self.last_updated))
+        lines.append("count=" + String.from_int(self.total_packages))
+        lines.append("")
+        let keys be self.entries.keys()
+        for key in keys do
+            let entry be self.entries.get(key)
+            if entry == nothing then
+                continue
+            end
+            lines.append(entry.serialize())
+        end
+        let result be ""
+        for line in lines do
+            result = result + line + "\n"
+        end
+        return result
+    end
+
+    -- Deserializes the index from a string, populating entries.
+    fn deserialize(self, data: String) -> Bool do
+        if data.length == 0 then
+            return false
+        end
+        let lines be data.split("\n")
+        let mut i be 0
+        while i < lines.length do
+            let line be lines.get(i)
+            if line == "" or line.starts_with("#") or line.contains("=") and not line.contains("name=") then
+                i = i + 1
+                continue
+            end
+            if line.contains("name=") then
+                let entry be self.parse_entry(line)
+                if entry.name.length > 0 then
+                    self.upsert_entry(entry)
+                end
+            end
+            i = i + 1
+        end
+        self.total_packages = self.entries.size()
+        return self.entries.size() > 0
+    end
+
+    -- Parses a single serialized entry line into an IndexEntry.
+    fn parse_entry(self, line: String) -> IndexEntry do
+        let entry be IndexEntry.new()
+        let parts be line.split(";")
+        for part in parts do
+            let kv be part.split("=", 1)
+            if kv.length < 2 then
+                continue
+            end
+            let key be kv.get(0)
+            let value be kv.get(1)
+            if key == "name" then
+                entry.name = value
+            end
+            if key == "latest" then
+                entry.latest_version = value
+            end
+            if key == "author" then
+                entry.author = value
+            end
+            if key == "desc" then
+                entry.description = value
+            end
+            if key == "downloads" then
+                entry.downloads = String.to_int(value)
+            end
+            if key == "checked" then
+                entry.last_checked = String.to_int(value)
+            end
+        end
+        return entry
+    end
+
+    -- Loads the index from disk.
+    fn load_from_disk(self) -> Bool do
+        if self.index_dir.length == 0 then
+            return false
+        end
+        let path be self.index_dir + "/index.dat"
+        let data be self.read_file(path)
+        if data.length == 0 then
+            return false
+        end
+        return self.deserialize(data)
+    end
+
+    -- Saves the index to disk.
+    fn save_to_disk(self) -> Bool do
+        if self.index_dir.length == 0 then
+            return false
+        end
+        let path be self.index_dir + "/index.dat"
+        let data be self.serialize()
+        return self.write_file(path, data)
+    end
+
+    -- Returns a summary string of the index.
+    fn summary(self) -> String do
+        let state be index_state_label(self.state)
+        let outdated be self.outdated_entries()
+        return "PackageIndex(state=" + state + ", packages=" + String.from_int(self.total_packages) + ", outdated=" + String.from_int(outdated.length) + ")"
+    end
+
+    -- Reads a file from disk and returns its contents.
+    fn read_file(self, path: String) -> String do
+        return ""
+    end
+
+    -- Writes data to a file on disk.
+    fn write_file(self, path: String, data: String) -> Bool do
+        return true
+    end
+end
+
+export {IndexState, PackageStatus, index_state_label, package_status_label, IndexEntry, PackageIndex}

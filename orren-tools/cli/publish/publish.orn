@@ -1,0 +1,391 @@
+-- orren_tools.cli.publish
+-- Publish Orren packages to a registry with authentication,
+-- version validation, manifest generation, and upload support.
+
+module orren_tools.cli.publish
+
+import orren.core.language.foundation::{String, Int, Float, Bool, List, Map}
+import orren.core.language.foundation::{Result, Ok, Err, Option, Some, None}
+import orren.core.language.foundation::{File, Path, DateTime, Duration}
+import orren.core.crypto::{HashAlgorithm, Hasher, Checksum}
+import orren.core.net::{HttpClient, HttpRequest, HttpResponse, StatusCode, AuthHeader, BearerToken}
+
+intent "Publish Orren packages to remote registries, local archives, and Git releases"
+
+enum PublishTarget
+  REGISTRY
+  LOCAL_ARCHIVE
+  GIT_RELEASE
+end
+
+enum PublishStatus
+  DRAFT
+  READY
+  PUBLISHED
+  FAILED
+  REVOKED
+end
+
+entity PublishConfig
+  property registry_url: String = "https://registry.orren-lang.org"
+  property auth_token: String = ""
+  property dry_run: Bool = false
+  property force: Bool = false
+  property skip_tests: Bool = false
+  property target: PublishTarget = PublishTarget.REGISTRY
+  property api_version: String = "v2"
+end
+
+entity PackageManifest
+  property name: String = ""
+  property version: String = "0.0.0"
+  property description: String = ""
+  property author: String = ""
+  property license: String = "MIT"
+  property dependencies: Map<String, String> = {}
+  property exports: List<String> = []
+  property modules: List<String> = []
+  property entry_point: String = "src/main.orn"
+  property checksum: String = ""
+end
+
+entity PublishResult
+  property status: PublishStatus = PublishStatus.DRAFT
+  property package_name: String = ""
+  property version: String = ""
+  property registry_url: String = ""
+  property publish_time: String = ""
+  property warnings: List<String> = []
+  property errors: List<String> = []
+end
+
+entity PackagePublisher
+  property config: PublishConfig = PublishConfig{}
+  property manifest: PackageManifest = PackageManifest{}
+  property result: PublishResult = PublishResult{}
+end
+
+-- ── helpers ────────────────────────────────────────────────────────────
+fn validate_version(self, version: String) -> Bool
+  let parts be version.split(".")
+  if parts.length != 3 then
+    return false
+  end
+  for part in parts do
+    let parsed be part.to_int()
+    if parsed.is_none() then
+      return false
+    end
+  end
+  return true
+end
+
+-- Compute a SHA-256 checksum of all source files under the given root directory.
+fn compute_checksum(self, root: String) -> Result<String, String>
+  let hasher be Hasher.create(HashAlgorithm.SHA256)
+  let source_files be self.list_source_files(root)
+  if source_files.length == 0 then
+    return Err("No source files found under " + root)
+  end
+  for file_path in source_files do
+    let content be File.read(file_path)
+    match content with
+    case Ok(text) do hasher.update(text.bytes()) end
+    case Err(e) do return Err("Failed to read " + file_path + ": " + e.message()) end
+    end
+  end
+  return Ok(hasher.finalize().to_hex())
+end
+
+-- Recursively list every .orn file beneath the project root.
+fn list_source_files(self, root: String) -> List<String>
+  let files be List<String>[]
+  let entries be Path.list_dir(root)
+  for entry in entries do
+    let full be root + "/" + entry
+    if Path.is_dir(full) then
+      for child in self.list_source_files(full) do
+        files.append(child)
+      end
+    else
+      if entry.ends_with(".orn") then
+        files.append(full)
+      end
+    end
+  end
+  return files
+end
+
+-- ── PackagePublisher methods ────────────────────────────────────────────
+fn build_auth_header(self) -> Result<AuthHeader, String>
+  let token be self.config.auth_token
+  if token.is_empty() then
+    return Err("Authentication token is not configured")
+  end
+  return Ok(AuthHeader.bearer(BearerToken{value: token}))
+end
+
+-- Validate the package manifest fields and populates warnings.
+fn validate_package(self) -> Bool
+  let m be self.manifest
+  let valid be true
+  if m.name.is_empty() then
+    self.result.errors.append("Package name must not be empty")
+    valid = false
+  end
+  if !self.validate_version(m.version) then
+    self.result.errors.append("Invalid version format: " + m.version)
+    valid = false
+  end
+  if !File.exists(m.entry_point) then
+    self.result.warnings.append("Entry point not found: " + m.entry_point)
+  end
+  if m.author.is_empty() then
+    self.result.warnings.append("No author specified in manifest")
+  end
+  let known_licenses be ["MIT", "Apache-2.0", "BSD-3", "GPL-3.0", "ISC"]
+  let found be false
+  for lic in known_licenses do
+    if lic == m.license then found = true end
+  end
+  if !found then
+    self.result.warnings.append("Unrecognized license: " + m.license)
+  end
+  return valid
+end
+
+-- Generate the full PackageManifest by scanning the project directory.
+fn generate_manifest(self, project_dir: String) -> Result<PackageManifest, String>
+  let manifest_file be project_dir + "/orren.toml"
+  if !File.exists(manifest_file) then
+    return Err("No orren.toml found in " + project_dir)
+  end
+  let raw be File.read(manifest_file)
+  match raw with
+  case Ok(text) do
+    let parsed be self.parse_toml(text)
+    match parsed with
+    case Ok(table) do
+      let m be PackageManifest{}
+      m.name = table.get_string("package.name").unwrap_or("")
+      m.version = table.get_string("package.version").unwrap_or("0.0.0")
+      m.description = table.get_string("package.description").unwrap_or("")
+      m.author = table.get_string("package.author").unwrap_or("")
+      m.license = table.get_string("package.license").unwrap_or("MIT")
+      m.entry_point = table.get_string("package.entry_point").unwrap_or("src/main.orn")
+      m.modules = self.list_source_files(project_dir + "/src")
+      let checksum be self.compute_checksum(project_dir + "/src")
+      match checksum with
+      case Ok(hex) do m.checksum = hex end
+      case Err(e) do self.result.warnings.append("Checksum failed: " + e) end
+      end
+      m.dependencies = table.get_table("dependencies").unwrap_or(Map<String, String>{})
+      self.manifest = m
+      return Ok(m)
+    end
+    case Err(e) do return Err("Failed to parse orren.toml: " + e) end
+    end
+  end
+  case Err(e) do return Err("Cannot read orren.toml: " + e.message()) end
+  end
+end
+
+-- Minimal TOML parser sufficient for orren.toml manifests.
+fn parse_toml(self, text: String) -> Result<Map<String, String>, String>
+  let table be Map<String, String>{}
+  let lines be text.split("\n")
+  for line in lines do
+    let trimmed be line.trim()
+    -- Skip comments and empty lines.
+    if trimmed.starts_with("#") or trimmed.is_empty() then
+      continue
+    end
+    if trimmed.contains("=") then
+      let parts be trimmed.split("=")
+      if parts.length == 2 then
+        let key be parts[0].trim().strip_quotes()
+        let value be parts[1].trim().strip_quotes()
+        table.put(key, value)
+      end
+    end
+  end
+  return Ok(table)
+end
+
+fn authenticate(self) -> Result<String, String>
+  let auth be self.build_auth_header()
+  match auth with
+  case Ok(header) do
+    let url be self.config.registry_url + "/api/" + self.config.api_version + "/auth/verify"
+    let request be HttpRequest{method: "GET", url: url, headers: [header.to_string()]}
+    let client be HttpClient{}
+    let response be client.send(request)
+    match response with
+    case Ok(resp) do
+      if resp.status == StatusCode.OK then
+        return Ok(resp.body())
+      else
+        return Err("Authentication failed: " + resp.status.to_string())
+      end
+    end
+    case Err(e) do
+      return Err("Network error during authentication: " + e.message())
+    end
+    end
+  end
+  case Err(e) do
+    return Err(e)
+  end
+  end
+end
+
+fn upload_package(self, archive_path: String) -> Result<String, String>
+  let session be self.authenticate()
+  match session with
+  case Err(e) do
+    return Err(e)
+  end
+  case Ok(_) do
+    let bytes be File.read_bytes(archive_path)
+    match bytes with
+    case Ok(data) do
+      let url be self.config.registry_url + "/api/" + self.config.api_version + "/packages/publish"
+      let request be HttpRequest{
+        method: "POST",
+        url: url,
+        body: data,
+        content_type: "application/octet-stream"
+      }
+      let client be HttpClient{}
+      let response be client.send(request)
+      match response with
+      case Ok(resp) do
+        if resp.status == StatusCode.CREATED or resp.status == StatusCode.OK then
+          return Ok(resp.body())
+        else
+          return Err("Upload rejected: " + resp.status.to_string() + " - " + resp.body())
+        end
+      end
+      case Err(e) do
+        return Err("Upload failed: " + e.message())
+      end
+      end
+    end
+    case Err(e) do
+      return Err("Cannot read archive: " + e.message())
+    end
+    end
+  end
+  end
+end
+
+fn publish_local_archive(self, project_dir: String, archive_dir: String) -> Result<PublishResult, String>
+  let archive_path be archive_dir + "/" + self.manifest.name + "-" + self.manifest.version + ".tar.gz"
+  -- In dry-run mode we simulate the archive step.
+  if self.config.dry_run then
+    self.result.warnings.append("Dry run: would archive to " + archive_path)
+    self.result.status = PublishStatus.READY
+    self.result.package_name = self.manifest.name
+    self.result.version = self.manifest.version
+    return Ok(self.result)
+  end
+  let packed be self.pack_project(project_dir, archive_path)
+  match packed with
+  case Ok(_) do
+    self.result.status = PublishStatus.PUBLISHED
+    self.result.package_name = self.manifest.name
+    self.result.version = self.manifest.version
+    self.result.registry_url = "file://" + archive_dir
+    self.result.publish_time = DateTime.now().to_string()
+    return Ok(self.result)
+  end
+  case Err(e) do
+    self.result.status = PublishStatus.FAILED
+    self.result.errors.append("Archive failed: " + e)
+    return Err(e)
+  end
+  end
+end
+
+fn pack_project(self, project_dir: String, output_path: String) -> Result<String, String>
+  let entries be self.list_source_files(project_dir)
+  if entries.length == 0 then
+    return Err("Nothing to pack")
+  end
+  let manifest_bytes be self.manifest.to_json().bytes()
+  let packer be orren.core.archive.TarGzPacker{}
+  packer.add_bytes("orren-manifest.json", manifest_bytes)
+  for entry in entries do
+    let data be File.read_bytes(entry)
+    match data with
+    case Ok(bytes) do
+      let rel be Path.relative_to(entry, project_dir)
+      packer.add_bytes(rel, bytes)
+    end
+    case Err(e) do
+      return Err("Failed to read " + entry + ": " + e.message())
+    end
+    end
+  end
+  packer.write(output_path)
+  return Ok(output_path)
+end
+
+fn publish(self, project_dir: String) -> Result<PublishResult, String>
+  let gen be self.generate_manifest(project_dir)
+  match gen with
+  case Err(e) do
+    self.result.status = PublishStatus.FAILED
+    self.result.errors.append(e)
+    return Err("Manifest generation failed: " + e)
+  end
+  case Ok(_) do end
+  end
+  if !self.validate_package() then
+    self.result.status = PublishStatus.FAILED
+    return Err("Package validation failed with " + self.result.errors.length.to_string() + " errors")
+  end
+  match self.config.target with
+  case PublishTarget.REGISTRY do
+    let archive be "/tmp/orren-" + self.manifest.name + "-" + self.manifest.version + ".tar.gz"
+    let packed be self.pack_project(project_dir, archive)
+    match packed with
+    case Err(e) do self.result.status = PublishStatus.FAILED; return Err(e) end
+    case Ok(_) do end
+    end
+    if self.config.dry_run then
+      self.result.warnings.append("Dry run: would upload to " + self.config.registry_url)
+      self.result.status = PublishStatus.READY
+      self.result.package_name = self.manifest.name
+      self.result.version = self.manifest.version
+      return Ok(self.result)
+    end
+    let uploaded be self.upload_package(archive)
+    match uploaded with
+    case Ok(_) do
+      self.result.status = PublishStatus.PUBLISHED
+      self.result.package_name = self.manifest.name
+      self.result.version = self.manifest.version
+      self.result.registry_url = self.config.registry_url
+      self.result.publish_time = DateTime.now().to_string()
+      return Ok(self.result)
+    end
+    case Err(e) do
+      self.result.status = PublishStatus.FAILED
+      self.result.errors.append(e)
+      return Err(e)
+    end
+    end
+  end
+  case PublishTarget.LOCAL_ARCHIVE do
+    return self.publish_local_archive(project_dir, project_dir + "/dist")
+  end
+  case PublishTarget.GIT_RELEASE do
+    self.result.warnings.append("Git release publishing is not yet implemented")
+    self.result.status = PublishStatus.FAILED
+    return Err("Git release target is not supported")
+  end
+  end
+end
+
+export {PublishConfig, PackageManifest, PublishResult, PackagePublisher, PublishTarget, PublishStatus}

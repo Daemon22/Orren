@@ -1,0 +1,566 @@
+-- refactor.orn: Automated refactoring operations for Orren source code.
+-- Provides extract, inline, rename, move, simplify, and reorder operations
+-- with semantic preservation verification and change previews.
+
+module orren_tools.sdk.refactor
+
+import module::{String, Int, Bool, List, Map, Result, File, Path}
+import orren.core.language.foundation::{SourceLocation, ModuleResolver}
+
+-- The kind of refactoring operation to perform.
+enum RefactorKind
+    EXTRACT_FUNCTION
+    EXTRACT_ENTITY
+    INLINE
+    RENAME
+    MOVE
+    SIMPLIFY
+    INTRODUCE_PARAMETER
+    REORDER_PROPERTIES
+end
+
+-- Assessed risk level of a refactoring operation.
+enum RefactorRisk
+    SAFE
+    LOW
+    MEDIUM
+    HIGH
+end
+
+-- A proposed refactoring operation with metadata and change preview.
+entity RefactorOperation
+    property kind: RefactorKind = RefactorKind.EXTRACT_FUNCTION
+    property name: String = ""
+    property description: String = ""
+    property risk: RefactorRisk = RefactorRisk.LOW
+    property affected_files: List<String> = List<String>.new()
+    property preview_changes: List<ChangePreview> = List<ChangePreview>.new()
+
+    -- Adds an affected file path to this operation.
+    fn add_affected_file(self, path: String) do
+        if not self.affected_files.contains(path) then
+            self.affected_files.append(path)
+        end
+    end
+
+    -- Adds a change preview for a specific file.
+    fn add_preview(self, file: String, old_lines: List<String>, new_lines: List<String>) do
+        let preview be ChangePreview.new()
+        preview.file_path = file
+        preview.old_lines = old_lines
+        preview.new_lines = new_lines
+        preview.diff_size = old_lines.length - new_lines.length
+        self.preview_changes.append(preview)
+        self.add_affected_file(file)
+    end
+
+    -- Returns the total number of lines changed across all previews.
+    fn total_lines_changed(self) -> Int do
+        let total be 0
+        for preview in self.preview_changes do
+            total = total + preview.diff_size.abs()
+        end
+        return total
+    end
+
+    -- Returns the risk level as a display string.
+    fn risk_label(self) -> String do
+        return match self.risk with
+            RefactorRisk.SAFE => "safe"
+            RefactorRisk.LOW => "low"
+            RefactorRisk.MEDIUM => "medium"
+            RefactorRisk.HIGH => "high"
+        end
+    end
+
+    -- Returns the refactoring kind as a display string.
+    fn kind_label(self) -> String do
+        return match self.kind with
+            RefactorKind.EXTRACT_FUNCTION => "extract-function"
+            RefactorKind.EXTRACT_ENTITY => "extract-entity"
+            RefactorKind.INLINE => "inline"
+            RefactorKind.RENAME => "rename"
+            RefactorKind.MOVE => "move"
+            RefactorKind.SIMPLIFY => "simplify"
+            RefactorKind.INTRODUCE_PARAMETER => "introduce-parameter"
+            RefactorKind.REORDER_PROPERTIES => "reorder-properties"
+        end
+    end
+end
+
+-- Preview of changes for a single file during a refactoring.
+entity ChangePreview
+    property file_path: String = ""
+    property old_lines: List<String> = List<String>.new()
+    property new_lines: List<String> = List<String>.new()
+    property diff_size: Int = 0
+end
+
+-- Result of applying one or more refactoring operations.
+entity RefactorResult
+    property operations_applied: Int = 0
+    property files_modified: List<String> = List<String>.new()
+    property lines_changed: Int = 0
+    property semantic_preserved: Bool = true
+    property warnings: List<String> = List<String>.new()
+
+    -- Adds a warning message to the result.
+    fn add_warning(self, message: String) do
+        self.warnings.append(message)
+    end
+
+    -- Records that a file was modified.
+    fn record_modified(self, file_path: String, line_count: Int) do
+        if not self.files_modified.contains(file_path) then
+            self.files_modified.append(file_path)
+        end
+        self.lines_changed = self.lines_changed + line_count
+    end
+
+    -- Returns a formatted summary of the refactoring result.
+    fn summary(self) -> String do
+        let lines be List<String>.new()
+        lines.append("Refactoring Complete")
+        lines.append("  Operations applied: " + String.from_int(self.operations_applied).to_string())
+        lines.append("  Files modified: " + String.from_int(self.files_modified.length).to_string())
+        lines.append("  Lines changed: " + String.from_int(self.lines_changed).to_string())
+        lines.append("  Semantic preserved: " + String.from_bool(self.semantic_preserved).to_string())
+        if self.warnings.length > 0 then
+            lines.append("  Warnings:")
+            for warning in self.warnings do
+                lines.append("    - " + warning)
+            end
+        end
+        return lines.join("\n")
+    end
+end
+
+-- The main refactoring engine that plans and applies operations.
+entity RefactorEngine
+    property config: Map<String, String> = Map<String, String>.new()
+    property pending_ops: List<RefactorOperation> = List<RefactorOperation>.new()
+    property history: List<RefactorResult> = List<RefactorResult>.new()
+
+    -- Extracts a new function from a block of code within a source file.
+    fn extract_function(self, file_path: String, start_line: Int, end_line: Int, fn_name: String, params: List<String>) -> Result<RefactorOperation> do
+        let raw be File.read(file_path)
+        if raw.is_error then
+            return Result.error("Failed to read file: " + file_path)
+        end
+        let all_lines be raw.value.split_lines()
+        let op be RefactorOperation.new()
+        op.kind = RefactorKind.EXTRACT_FUNCTION
+        op.name = fn_name
+        op.description = "Extract function '" + fn_name + "' from " + file_path
+        op.risk = RefactorRisk.SAFE
+        let extracted be List<String>.new()
+        let param_str be params.join(", ")
+        extracted.append("    fn " + fn_name + "(" + param_str + ") do")
+        let idx be start_line
+        while idx <= end_line and idx < all_lines.length do
+            let line be all_lines.get(idx)
+            extracted.append("        " + line)
+            idx = idx + 1
+        end
+        extracted.append("    end")
+        extracted.append("")
+        let call_args be List<String>.new()
+        for p in params do
+            call_args.append(p)
+        end
+        let call_line be "    " + fn_name + "(" + call_args.join(", ") + ")"
+        let new_lines be List<String>.new()
+        let i be 0
+        while i < start_line do
+            if i < all_lines.length then
+                new_lines.append(all_lines.get(i))
+            end
+            i = i + 1
+        end
+        new_lines.append(call_line)
+        let j be end_line + 1
+        while j < all_lines.length do
+            new_lines.append(all_lines.get(j))
+            j = j + 1
+        end
+        op.add_preview(file_path, all_lines, new_lines)
+        return Result.ok(op)
+    end
+
+    -- Inlines a function call by replacing it with the function body.
+    fn inline_function(self, file_path: String, call_line: Int, fn_name: String) -> Result<RefactorOperation> do
+        let raw be File.read(file_path)
+        if raw.is_error then
+            return Result.error("Failed to read file: " + file_path)
+        end
+        let all_lines be raw.value.split_lines()
+        let fn_body be self.find_function_body(all_lines, fn_name)
+        if fn_body.length == 0 then
+            return Result.error("Function not found: " + fn_name)
+        end
+        let op be RefactorOperation.new()
+        op.kind = RefactorKind.INLINE
+        op.name = fn_name
+        op.description = "Inline function '" + fn_name + "' at line " + String.from_int(call_line).to_string()
+        op.risk = RefactorRisk.LOW
+        let new_lines be List<String>.new()
+        let idx be 0
+        while idx < all_lines.length do
+            if idx == call_line then
+                for body_line in fn_body do
+                    new_lines.append("    " + body_line)
+                end
+            else
+                new_lines.append(all_lines.get(idx))
+            end
+            idx = idx + 1
+        end
+        op.add_preview(file_path, all_lines, new_lines)
+        return Result.ok(op)
+    end
+
+    -- Finds the body lines of a named function in the source.
+    fn find_function_body(self, lines: List<String>, fn_name: String) -> List<String> do
+        let body be List<String>.new()
+        let found be false
+        let depth be 0
+        for line in lines do
+            let trimmed be line.strip()
+            if not found then
+                if trimmed.contains("fn " + fn_name + "(") then
+                    found = true
+                    depth = 1
+                    continue
+                end
+            else
+                if trimmed.contains(" do") then
+                    depth = depth + 1
+                end
+                if trimmed == "end" then
+                    depth = depth - 1
+                    if depth == 0 then
+                        return body
+                    end
+                end
+                body.append(trimmed)
+            end
+        end
+        return body
+    end
+
+    -- Moves an entity definition from one module to another.
+    fn move_entity(self, entity_name: String, source_file: String, target_file: String) -> Result<RefactorOperation> do
+        let src_raw be File.read(source_file)
+        if src_raw.is_error then
+            return Result.error("Failed to read source: " + source_file)
+        end
+        let tgt_raw be File.read(target_file)
+        if tgt_raw.is_error then
+            return Result.error("Failed to read target: " + target_file)
+        end
+        let src_lines be src_raw.value.split_lines()
+        let tgt_lines be tgt_raw.value.split_lines()
+        let op be RefactorOperation.new()
+        op.kind = RefactorKind.MOVE
+        op.name = entity_name
+        op.description = "Move entity '" + entity_name + "' to " + target_file
+        op.risk = RefactorRisk.MEDIUM
+        let entity_block be self.extract_entity_block(src_lines, entity_name)
+        if entity_block.length == 0 then
+            return Result.error("Entity not found in source: " + entity_name)
+        end
+        let new_src_lines be self.remove_entity_block(src_lines, entity_name)
+        let new_tgt_lines be List<String>.new()
+        for line in tgt_lines do
+            new_tgt_lines.append(line)
+        end
+        for block_line in entity_block do
+            new_tgt_lines.append(block_line)
+        end
+        new_tgt_lines.append("")
+        op.add_preview(source_file, src_lines, new_src_lines)
+        op.add_preview(target_file, tgt_lines, new_tgt_lines)
+        return Result.ok(op)
+    end
+
+    -- Extracts the full block of lines for a named entity.
+    fn extract_entity_block(self, lines: List<String>, entity_name: String) -> List<String> do
+        let block be List<String>.new()
+        let found be false
+        let depth be 0
+        for line in lines do
+            let trimmed be line.strip()
+            if not found then
+                if trimmed.starts_with("entity " + entity_name) then
+                    found = true
+                    depth = 1
+                    block.append(line)
+                    continue
+                end
+            else
+                block.append(line)
+                if trimmed.contains(" do") then
+                    depth = depth + 1
+                end
+                if trimmed == "end" then
+                    depth = depth - 1
+                    if depth == 0 then
+                        return block
+                    end
+                end
+            end
+        end
+        return block
+    end
+
+    -- Removes an entity block from a list of source lines.
+    fn remove_entity_block(self, lines: List<String>, entity_name: String) -> List<String> do
+        let result be List<String>.new()
+        let removing be false
+        let depth be 0
+        for line in lines do
+            let trimmed be line.strip()
+            if not removing then
+                if trimmed.starts_with("entity " + entity_name) then
+                    removing = true
+                    depth = 1
+                    continue
+                end
+                result.append(line)
+            else
+                if trimmed.contains(" do") then
+                    depth = depth + 1
+                end
+                if trimmed == "end" then
+                    depth = depth - 1
+                    if depth == 0 then
+                        removing = false
+                    end
+                end
+            end
+        end
+        return result
+    end
+
+    -- Reorders properties within an entity definition.
+    fn reorder_properties(self, file_path: String, entity_name: String, new_order: List<String>) -> Result<RefactorOperation> do
+        let raw be File.read(file_path)
+        if raw.is_error then
+            return Result.error("Failed to read file: " + file_path)
+        end
+        let all_lines be raw.value.split_lines()
+        let props be self.extract_properties(all_lines, entity_name)
+        if props.length == 0 then
+            return Result.error("No properties found for entity: " + entity_name)
+        end
+        let reordered be List<PropertyDef>.new()
+        for name in new_order do
+            for prop in props do
+                if prop.name == name then
+                    reordered.append(prop)
+                end
+            end
+        end
+        let new_lines be self.rebuild_entity_with_props(all_lines, entity_name, reordered)
+        let op be RefactorOperation.new()
+        op.kind = RefactorKind.REORDER_PROPERTIES
+        op.name = entity_name
+        op.description = "Reorder properties in '" + entity_name + "'"
+        op.risk = RefactorRisk.SAFE
+        op.add_preview(file_path, all_lines, new_lines)
+        return Result.ok(op)
+    end
+
+    -- Extracts all property definitions from an entity block.
+    fn extract_properties(self, lines: List<String>, entity_name: String) -> List<PropertyDef> do
+        let props be List<PropertyDef>.new()
+        let in_entity be false
+        let depth be 0
+        for line in lines do
+            let trimmed be line.strip()
+            if not in_entity then
+                if trimmed.starts_with("entity " + entity_name) then
+                    in_entity = true
+                    depth = 1
+                    continue
+                end
+            else
+                if trimmed.starts_with("property ") then
+                    let def be PropertyDef.new()
+                    def.raw_line = line
+                    let parts be trimmed.split(" ")
+                    if parts.length >= 2 then
+                        let name_part be parts.get(1)
+                        let colon_pos be name_part.find(":")
+                        if colon_pos > 0 then
+                            def.name = name_part.substring(0, colon_pos)
+                        else
+                            def.name = name_part
+                        end
+                    end
+                    props.append(def)
+                end
+                if trimmed.contains(" do") then
+                    depth = depth + 1
+                end
+                if trimmed == "end" then
+                    depth = depth - 1
+                    if depth == 0 then
+                        return props
+                    end
+                end
+            end
+        end
+        return props
+    end
+
+    -- Rebuilds the source lines with properties in the given order.
+    fn rebuild_entity_with_props(self, lines: List<String>, entity_name: String, props: List<PropertyDef>) -> List<String> do
+        let new_lines be List<String>.new()
+        let in_entity be false
+        let depth be 0
+        let props_inserted be false
+        for line in lines do
+            let trimmed be line.strip()
+            if not in_entity then
+                new_lines.append(line)
+                if trimmed.starts_with("entity " + entity_name) then
+                    in_entity = true
+                    depth = 1
+                end
+            else
+                if trimmed.starts_with("property ") and not props_inserted then
+                    continue
+                end
+                if trimmed.contains(" do") and not trimmed.starts_with("property") then
+                    depth = depth + 1
+                end
+                if trimmed == "end" then
+                    depth = depth - 1
+                    if depth == 0 then
+                        if not props_inserted then
+                            for prop in props do
+                                new_lines.append(prop.raw_line)
+                            end
+                            props_inserted = true
+                        end
+                        new_lines.append(line)
+                        in_entity = false
+                        continue
+                    end
+                end
+                if not trimmed.starts_with("property") or props_inserted then
+                    new_lines.append(line)
+                end
+                if trimmed.starts_with("fn ") and not props_inserted then
+                    for prop in props do
+                        new_lines.append(prop.raw_line)
+                    end
+                    new_lines.append("")
+                    props_inserted = true
+                end
+            end
+        end
+        return new_lines
+    end
+
+    -- Applies all pending refactoring operations.
+    fn apply_all(self) -> Result<RefactorResult> do
+        let result be RefactorResult.new()
+        for op in self.pending_ops do
+            let apply_result be self.apply_single(op)
+            if apply_result.is_error then
+                result.add_warning("Failed to apply " + op.name + ": " + apply_result.error_message)
+                result.semantic_preserved = false
+            else
+                result.operations_applied = result.operations_applied + 1
+                for preview in op.preview_changes do
+                    result.record_modified(preview.file_path, preview.diff_size.abs())
+                end
+            end
+        end
+        self.history.append(result)
+        self.pending_ops = List<RefactorOperation>.new()
+        return Result.ok(result)
+    end
+
+    -- Applies a single refactoring operation, writing changes to disk.
+    fn apply_single(self, op: RefactorOperation) -> Result<Bool> do
+        for preview in op.preview_changes do
+            let new_content be preview.new_lines.join("\n")
+            let write_ok be File.write(preview.file_path, new_content)
+            if not write_ok then
+                return Result.error("Failed to write: " + preview.file_path)
+            end
+        end
+        let verified be self.verify_semantic_preservation(op)
+        if not verified then
+            return Result.error("Semantic preservation check failed for: " + op.name)
+        end
+        return Result.ok(true)
+    end
+
+    -- Verifies that refactoring preserved program semantics.
+    fn verify_semantic_preservation(self, op: RefactorOperation) -> Bool do
+        for preview in op.preview_changes do
+            let old_exports be self.extract_exports_from_lines(preview.old_lines)
+            let new_exports be self.extract_exports_from_lines(preview.new_lines)
+            if old_exports.length != new_exports.length then
+                return false
+            end
+            for export in old_exports do
+                if not new_exports.contains(export) then
+                    return false
+                end
+            end
+        end
+        return true
+    end
+
+    -- Extracts export names from a list of source lines.
+    fn extract_exports_from_lines(self, lines: List<String>) -> List<String> do
+        let exports be List<String>.new()
+        for line in lines do
+            let trimmed be line.strip()
+            if trimmed.starts_with("export ") then
+                if trimmed.contains("{") and trimmed.contains("}") then
+                    let start be trimmed.find("{") + 1
+                    let finish be trimmed.find("}")
+                    let inner be trimmed.substring(start, finish).strip()
+                    let parts be inner.split(", ")
+                    for part in parts do
+                        exports.append(part.strip())
+                    end
+                end
+            end
+        end
+        return exports
+    end
+
+    -- Adds an operation to the pending queue.
+    fn queue_operation(self, op: RefactorOperation) do
+        self.pending_ops.append(op)
+    end
+
+    -- Returns the number of pending operations.
+    fn pending_count(self) -> Int do
+        return self.pending_ops.length
+    end
+
+    -- Returns the total number of operations applied across all history.
+    fn total_applied(self) -> Int do
+        let total be 0
+        for result in self.history do
+            total = total + result.operations_applied
+        end
+        return total
+    end
+end
+
+-- Describes a single property within an entity for reordering.
+entity PropertyDef
+    property name: String = ""
+    property raw_line: String = ""
+end
+
+export {RefactorKind, RefactorRisk, RefactorOperation, ChangePreview, RefactorResult, RefactorEngine, PropertyDef}

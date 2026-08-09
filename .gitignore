@@ -1,2 +1,9 @@
 skills/
 node_modules/
+.idea/
+*.iws
+*.iml
+*.ipr
+__pycache__/
+*.pyc
+*.pyo

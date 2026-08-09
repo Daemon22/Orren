@@ -1,0 +1,547 @@
+module orren.runtime.vibe
+
+import orren.core.language.foundation::{*}
+import orren.cognitive.engine::{*}
+
+intent "The VIBE cognitive workflow engine: a five-stage generative
+  pipeline that mirrors human creative process. Express produces raw
+  intention. Sketch structures it. Craft refines form. Verify checks
+  integrity. Refine polishes to final quality. Each stage invokes
+  cognitive engine operations, maintaining the Cognitive Genome
+  throughout the creative workflow."
+
+-- =========================================================================
+-- ENUM: VibeStage
+-- =========================================================================
+-- The five stages of the VIBE workflow. Each stage represents a
+-- fundamentally different cognitive mode, from raw expression through
+-- critical verification to final refinement.
+-- =========================================================================
+
+enum VibeStage
+  EXPRESS
+  SKETCH
+  CRAFT
+  VERIFY
+  REFINE
+end
+
+-- =========================================================================
+-- ENTITY: VibeStageResult
+-- =========================================================================
+-- The result of a single VIBE stage execution. Captures the output,
+-- quality metrics, cognitive state after the stage, and any issues
+-- detected. A result is satisfactory if both confidence and quality
+-- exceed the 0.6 threshold.
+-- =========================================================================
+
+entity VibeStageResult
+  -- Which stage produced this result.
+  property stage: VibeStage = EXPRESS
+
+  -- The output text produced by this stage.
+  property output: String = ""
+
+  -- Confidence in the output's correctness, in [0.0, 1.0].
+  property confidence: Float = 0.0
+
+  -- Quality assessment of the output, in [0.0, 1.0].
+  property quality: Float = 0.0
+
+  -- The cognitive state of the engine after this stage.
+  property cognitive_state: CognitiveState = CognitiveState{}
+
+  -- Any issues or concerns detected during this stage.
+  property issues: List<String> = []
+
+  -- A result is satisfactory if confidence and quality are both above 0.6.
+  fn is_satisfactory(self) -> Bool do
+    if self.confidence < 0.6 then return false end
+    if self.quality < 0.6 then return false end
+    return true
+  end
+end
+
+-- =========================================================================
+-- ENTITY: VibeContext
+-- =========================================================================
+-- The persistent context carried through the entire VIBE workflow.
+-- Contains the task description, audience, constraints, cognitive
+-- budget, current stage position, and the history of all stage
+-- results. The context evolves as the workflow progresses.
+-- =========================================================================
+
+entity VibeContext
+  -- The task or prompt being addressed.
+  property task: String = ""
+
+  -- The intended audience for the output.
+  property audience: String = ""
+
+  -- Constraints on the output (format, length, tone, etc.).
+  property constraints: List<String> = []
+
+  -- The cognitive budget: how much cognitive effort to invest.
+  -- Higher budget means deeper reasoning at each stage.
+  property cognitive_budget: Float = 0.8
+
+  -- The current stage in the workflow.
+  property current_stage: VibeStage = EXPRESS
+
+  -- History of all stage results produced so far.
+  property stage_history: List<VibeStageResult> = []
+
+  -- Advance to the next stage in the workflow.
+  -- Cycles through EXPRESS -> SKETCH -> CRAFT -> VERIFY -> REFINE.
+  -- Does not advance past REFINE (the final stage).
+  fn advance_stage(self) do
+    match self.current_stage with
+      EXPRESS => self.current_stage = SKETCH
+      SKETCH => self.current_stage = CRAFT
+      CRAFT => self.current_stage = VERIFY
+      VERIFY => self.current_stage = REFINE
+      REFINE => end  -- Already at final stage, stay.
+      _ => self.current_stage = EXPRESS
+    end
+  end
+
+  -- Return the output from the most recent stage result.
+  -- Returns an empty string if no stages have been executed.
+  fn current_output(self) -> String do
+    let count be self.stage_history.length()
+    if count == 0 then return "" end
+    let last be self.stage_history[count - 1]
+    return last.output
+  end
+end
+
+-- =========================================================================
+-- ENTITY: VibeEngine
+-- =========================================================================
+-- The VIBE workflow engine. Orchestrates the five-stage cognitive
+-- workflow using the cognitive engine for each stage's operations.
+-- The engine maintains a VibeContext throughout the workflow and
+-- produces a final VibeStageResult after all stages complete.
+-- =========================================================================
+
+entity VibeEngine
+  -- The persistent workflow context.
+  property context: VibeContext = VibeContext{}
+
+  -- The cognitive engine used for all cognitive operations.
+  property cognitive_engine: CognitiveEngine = CognitiveEngine{}
+
+  -- Initialize a new VIBE engine with the given task, audience, and constraints.
+  fn init(self, task: String, audience: String, constraints: List<String>) -> VibeEngine do
+    let engine be VibeEngine{}
+    engine.context = VibeContext{}
+    engine.context.task = task
+    engine.context.audience = audience
+    engine.context.constraints = constraints
+    engine.context.current_stage = EXPRESS
+    engine.context.cognitive_budget = 0.8
+    engine.context.stage_history = List<VibeStageResult>{}
+    engine.cognitive_engine = CognitiveEngine{}.init()
+    return engine
+  end
+
+  -- Run the full five-stage VIBE workflow.
+  -- Executes each stage in order and returns the final result.
+  fn run(self) -> VibeStageResult do
+    let express_result be self.express()
+    self.context.stage_history.append(express_result)
+
+    let sketch_result be self.sketch()
+    self.context.stage_history.append(sketch_result)
+
+    let craft_result be self.craft()
+    self.context.stage_history.append(craft_result)
+
+    let verify_result be self.verify()
+    self.context.stage_history.append(verify_result)
+
+    let refine_result be self.refine()
+    self.context.stage_history.append(refine_result)
+
+    return refine_result
+  end
+
+  -- STAGE 1: EXPRESS — Raw expression of the task.
+  -- Perceive the task, form intention to express, produce raw output.
+  -- This stage is about getting something down, not getting it right.
+  fn express(self) -> VibeStageResult do
+    let result be VibeStageResult{}
+    result.stage = EXPRESS
+
+    -- Perceive the task through textual and semantic modalities.
+    let perc_result be self.cognitive_engine.perceive(
+      self.context.task,
+      TEXTUAL
+    )
+    let interpretation be perc_result[0]
+    let perc_conf be perc_result[1]
+
+    -- Form intention to express.
+    let goals be List<String>{}
+    goals.append("Express understanding of: " + self.context.task)
+    let intent_result be self.cognitive_engine.intend(goals, self.context.constraints)
+    let intention be intent_result[0]
+    let intent_conf be intent_result[1]
+
+    -- Produce raw expression.
+    let raw_output be "[EXPRESS] Task: " + self.context.task
+      + "\nAudience: " + self.context.audience
+      + "\nPerception: " + interpretation
+      + "\nIntention: " + intention
+
+    result.output = raw_output
+    result.confidence = (perc_conf + intent_conf) / 2.0
+    result.quality = 0.5  -- Raw expression, quality is moderate.
+
+    -- Update cognitive state.
+    result.cognitive_state = CognitiveState{}
+    result.cognitive_state = result.cognitive_state.update("perceive", perc_conf)
+    result.cognitive_state = result.cognitive_state.update("intend", intent_conf)
+    result.cognitive_state = result.cognitive_state.update("reason", 0.4)
+
+    -- Check for issues.
+    if self.context.task == "" then
+      result.issues.append("Empty task provided to EXPRESS stage")
+    end
+    if self.context.audience == "" then
+      result.issues.append("No audience specified")
+    end
+
+    -- Advance context to next stage.
+    self.context.advance_stage()
+
+    return result
+  end
+
+  -- STAGE 2: SKETCH — Structural planning.
+  -- Reason about structure, plan an outline, sketch the form.
+  -- This stage is about organization, not content.
+  fn sketch(self) -> VibeStageResult do
+    let result be VibeStageResult{}
+    result.stage = SKETCH
+
+    -- Get the current output from the express stage.
+    let current be self.context.current_output()
+
+    -- Reason about structure.
+    let premises be List<String>{}
+    premises.append("Task: " + self.context.task)
+    premises.append("Audience: " + self.context.audience)
+    for c in self.context.constraints do
+      premises.append("Constraint: " + c)
+    end
+    let reasoning be self.cognitive_engine.reason(premises, CHAIN_OF_THOUGHT)
+
+    -- Plan the outline.
+    let steps be List<String>{}
+    steps.append("Identify key components")
+    steps.append("Establish logical flow")
+    steps.append("Map constraints to structure")
+    let plan_result be self.cognitive_engine.plan(
+      "Structured output for: " + self.context.task,
+      steps,
+      self.context.constraints
+    )
+    let plan_steps be plan_result[0]
+    let feasibility be plan_result[1]
+
+    -- Build sketch output.
+    let sketch_output be "[SKETCH] Structure for: " + self.context.task
+      + "\n--- Outline ---"
+    for step in plan_steps do
+      sketch_output = sketch_output + "\n  " + step
+    end
+    sketch_output = sketch_output + "\n--- Reasoning ---"
+      + "\n  Strategy: chain_of_thought"
+      + "\n  Confidence: " + float_to_string(reasoning.confidence)
+      + "\n  Steps: " + int_to_string(reasoning.trace.length())
+
+    result.output = sketch_output
+    result.confidence = reasoning.confidence * feasibility
+    result.quality = 0.6
+
+    -- Update cognitive state.
+    result.cognitive_state = CognitiveState{}
+    result.cognitive_state = result.cognitive_state.update("reason", reasoning.confidence)
+    result.cognitive_state = result.cognitive_state.update("plan", feasibility)
+    result.cognitive_state = result.cognitive_state.update("perceive", 0.5)
+
+    -- Check for issues.
+    if reasoning.confidence < 0.5 then
+      result.issues.append("Low reasoning confidence in SKETCH stage")
+    end
+    if feasibility < 0.5 then
+      result.issues.append("Low plan feasibility in SKETCH stage")
+    end
+
+    self.context.advance_stage()
+    return result
+  end
+
+  -- STAGE 3: CRAFT — Refined construction.
+  -- Evolve the sketch into a refined form, deliberate on choices.
+  -- This stage is about turning structure into substance.
+  fn craft(self) -> VibeStageResult do
+    let result be VibeStageResult{}
+    result.stage = CRAFT
+
+    -- Get the sketch output.
+    let sketch be self.context.current_output()
+
+    -- Evolve the sketch toward the target.
+    let evolve_result be self.cognitive_engine.evolve(
+      sketch,
+      "Polished, audience-appropriate output",
+      self.context.constraints
+    )
+    let evolved be evolve_result[0]
+    let evolve_conf be evolve_result[1]
+
+    -- Deliberate on structural choices.
+    let options be List<Map<String, Float>>{}
+    let opt1 be Map<String, Float>{}
+    opt1.put("clarity", 0.9)
+    opt1.put("completeness", 0.7)
+    opt1.put("audience_fit", 0.8)
+    let opt2 be Map<String, Float>{}
+    opt2.put("clarity", 0.7)
+    opt2.put("completeness", 0.9)
+    opt2.put("audience_fit", 0.7)
+    options.append(opt1)
+    options.append(opt2)
+    let criteria be List<String>{}
+    criteria.append("clarity")
+    criteria.append("completeness")
+    criteria.append("audience_fit")
+    let weights be List<Float>{}
+    weights.append(0.4)
+    weights.append(0.3)
+    weights.append(0.3)
+    let delib_result be self.cognitive_engine.deliberate(
+      options, criteria, weights
+    )
+    let selected be delib_result[0]
+    let delib_conf be delib_result[1]
+    let rationale be delib_result[2]
+
+    -- Build crafted output.
+    let craft_output be "[CRAFT] Refined form for: " + self.context.task
+      + "\n--- Evolved from sketch ---"
+      + "\n  " + evolved
+      + "\n--- Deliberation ---"
+      + "\n  Selected approach: " + int_to_string(selected)
+      + "\n  Confidence: " + float_to_string(delib_conf)
+      + "\n  Rationale: " + rationale
+
+    result.output = craft_output
+    result.confidence = (evolve_conf + delib_conf) / 2.0
+    result.quality = 0.7
+
+    -- Update cognitive state.
+    result.cognitive_state = CognitiveState{}
+    result.cognitive_state = result.cognitive_state.update("evolve", evolve_conf)
+    result.cognitive_state = result.cognitive_state.update("deliberate", delib_conf)
+    result.cognitive_state = result.cognitive_state.update("reason", 0.6)
+
+    self.context.advance_stage()
+    return result
+  end
+
+  -- STAGE 4: VERIFY — Quality validation.
+  -- Reflect on quality, know verification criteria, validate output.
+  -- This stage is about checking that the output meets all requirements.
+  fn verify(self) -> VibeStageResult do
+    let result be VibeStageResult{}
+    result.stage = VERIFY
+
+    -- Get the crafted output.
+    let crafted be self.context.current_output()
+
+    -- Reflect on the output quality.
+    let targets be List<String>{}
+    targets.append("Output quality for: " + self.context.task)
+    targets.append("Audience appropriateness for: " + self.context.audience)
+    let refl_result be self.cognitive_engine.reflect(targets, DEEP)
+    let observations be refl_result[0]
+    let insights be refl_result[1]
+    let adj be refl_result[2]
+
+    -- Know the verification criteria.
+    let fact be "Output meets requirements: task=" + self.context.task
+      + ", audience=" + self.context.audience
+    let know_result be self.cognitive_engine.know(fact, "VIBE.verify", 0.75)
+    let verification be know_result[0]
+    let know_conf be know_result[1]
+
+    -- Check constraints.
+    let constraint_issues be List<String>{}
+    let constraint_score be 1.0
+    for c in self.context.constraints do
+      -- Simulate constraint checking.
+      constraint_score = constraint_score * 0.9
+    end
+    if self.context.constraints.length() > 0 then
+      constraint_score = constraint_score ^ (1.0 / int_to_float(self.context.constraints.length()))
+    end
+
+    -- Build verification output.
+    let verify_output be "[VERIFY] Validation for: " + self.context.task
+      + "\n--- Reflection ---"
+    for obs in observations do
+      verify_output = verify_output + "\n  " + obs
+    end
+    verify_output = verify_output + "\n--- Insights ---"
+    for ins in insights do
+      verify_output = verify_output + "\n  " + ins
+    end
+    verify_output = verify_output + "\n--- Verification ---"
+      + "\n  " + verification
+      + "\n  Constraint satisfaction: " + float_to_string(constraint_score)
+
+    result.output = verify_output
+    result.confidence = (know_conf + constraint_score) / 2.0 + adj
+    if result.confidence < 0.0 then result.confidence = 0.0 end
+    if result.confidence > 1.0 then result.confidence = 1.0 end
+    result.quality = constraint_score
+
+    -- Update cognitive state.
+    result.cognitive_state = CognitiveState{}
+    result.cognitive_state = result.cognitive_state.update("reflect", 0.7 + adj)
+    result.cognitive_state = result.cognitive_state.update("know", know_conf)
+    result.cognitive_state = result.cognitive_state.update("reason", 0.5)
+
+    -- Check for issues.
+    if constraint_score < 0.7 then
+      result.issues.append("Constraint satisfaction below threshold in VERIFY stage")
+    end
+    if result.confidence < 0.5 then
+      result.issues.append("Low verification confidence")
+    end
+
+    self.context.advance_stage()
+    return result
+  end
+
+  -- STAGE 5: REFINE — Final polishing.
+  -- Reason about improvements, evolve the final form to maximum quality.
+  -- This stage is about the last mile of quality.
+  fn refine(self) -> VibeStageResult do
+    let result be VibeStageResult{}
+    result.stage = REFINE
+
+    -- Get the verified output.
+    let verified be self.context.current_output()
+
+    -- Reason about improvements.
+    let premises be List<String>{}
+    premises.append("Improve output for: " + self.context.task)
+    premises.append("Audience: " + self.context.audience)
+    premises.append("Current quality issues detected in VERIFY stage")
+    let improvement_reasoning be self.cognitive_engine.reason(premises, DEDUCTIVE)
+
+    -- Evolve toward final form.
+    let final_evolve be self.cognitive_engine.evolve(
+      verified,
+      "Maximum quality, audience-optimized final form",
+      self.context.constraints
+    )
+    let final_form be final_evolve[0]
+    let final_conf be final_evolve[1]
+
+    -- Build final refined output.
+    let refined_output be "[REFINE] Final output for: " + self.context.task
+      + "\n--- Final Form ---"
+      + "\n  " + final_form
+      + "\n--- Improvement Reasoning ---"
+      + "\n  Strategy: deductive"
+      + "\n  Confidence: " + float_to_string(improvement_reasoning.confidence)
+      + "\n  Valid: " + bool_to_string(improvement_reasoning.is_valid)
+      + "\n  Sound: " + bool_to_string(improvement_reasoning.is_sound)
+      + "\n--- Workflow Complete ---"
+      + "\n  Stages completed: 5/5"
+      + "\n  Final confidence: " + float_to_string((final_conf + improvement_reasoning.confidence) / 2.0)
+
+    result.output = refined_output
+    result.confidence = (final_conf + improvement_reasoning.confidence) / 2.0
+    result.quality = 0.85
+
+    -- Update cognitive state — all dimensions active at refine stage.
+    result.cognitive_state = CognitiveState{}
+    result.cognitive_state = result.cognitive_state.update("reason", improvement_reasoning.confidence)
+    result.cognitive_state = result.cognitive_state.update("evolve", final_conf)
+    result.cognitive_state = result.cognitive_state.update("reflect", 0.6)
+    result.cognitive_state = result.cognitive_state.update("know", 0.7)
+    result.cognitive_state = result.cognitive_state.update("deliberate", 0.6)
+    result.cognitive_state = result.cognitive_state.update("intend", 0.5)
+    result.cognitive_state = result.cognitive_state.update("perceive", 0.5)
+    result.cognitive_state = result.cognitive_state.update("plan", 0.5)
+    result.cognitive_state = result.cognitive_state.update("recall", 0.4)
+    result.cognitive_state = result.cognitive_state.update("believe", 0.5)
+
+    self.context.advance_stage()
+    return result
+  end
+
+  -- Run a specific stage by name.
+  -- Dispatches to the appropriate stage method.
+  fn run_stage(self, stage: VibeStage) -> VibeStageResult do
+    match stage with
+      EXPRESS => return self.express()
+      SKETCH => return self.sketch()
+      CRAFT => return self.craft()
+      VERIFY => return self.verify()
+      REFINE => return self.refine()
+      _ => do
+        let err be VibeStageResult{}
+        err.stage = stage
+        err.output = "Unknown VIBE stage"
+        err.confidence = 0.0
+        err.quality = 0.0
+        err.issues.append("Cannot run unknown stage")
+        return err
+      end
+    end
+  end
+
+  -- Check whether the workflow should continue to the next stage.
+  -- Returns true if the most recent stage result is satisfactory
+  -- or if we haven't completed all five stages yet.
+  fn should_continue(self) -> Bool do
+    let count be self.context.stage_history.length()
+    if count == 0 then return true end
+    if count >= 5 then return false end
+    let last be self.context.stage_history[count - 1]
+    return last.is_satisfactory()
+  end
+
+  -- Return the final result from the most recently completed stage.
+  -- If no stages have been executed, returns an empty result.
+  fn full_result(self) -> VibeStageResult do
+    let count be self.context.stage_history.length()
+    if count == 0 then
+      let empty be VibeStageResult{}
+      empty.issues.append("No stages have been executed")
+      return empty
+    end
+    return self.context.stage_history[count - 1]
+  end
+end
+
+-- =========================================================================
+-- EXPORTS
+-- =========================================================================
+-- The VIBE engine exports all types. This module is the primary
+-- cognitive workflow engine used by the runtime layer.
+-- =========================================================================
+
+export {
+  VibeStage,
+  VibeStageResult,
+  VibeContext,
+  VibeEngine
+}

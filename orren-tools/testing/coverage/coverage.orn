@@ -1,0 +1,385 @@
+-- coverage.orn
+-- Code coverage instrumentation and reporting for Orren source code
+-- Tracks entity, function, branch, and semantic path coverage
+
+module orren_tools.testing.coverage
+
+import orren.core.language.foundation::{String, Int, Float, Bool, List, Map}
+import orren.core.language.foundation::{FileSystem, Path, DateTime, Timer}
+
+-- Granularity levels for coverage collection
+enum CoverageLevel
+  ENTITY
+  FUNCTION
+  BRANCH
+  SEMANTIC_PATH
+  FULL
+end
+
+-- Individual hit status for a coverage point
+enum CoverageStatus
+  COVERED
+  PARTIALLY_COVERED
+  NOT_COVERED
+end
+
+-- A single recorded coverage hit at a specific code location
+entity CoverageHit
+  property entity_name: String = ""
+  property function_name: String = ""
+  property module_path: String = ""
+  property line: Int = 0
+  property branch_id: String = ""
+  property hit_count: Int = 0
+  property semantic_context: String = ""
+end
+
+-- Aggregated coverage data across all instrumented modules
+entity CoverageData
+  property hits: List<CoverageHit> = List<CoverageHit>{}
+  property total_entities: Int = 0
+  property covered_entities: Int = 0
+  property total_functions: Int = 0
+  property covered_functions: Int = 0
+  property total_branches: Int = 0
+  property covered_branches: Int = 0
+  property semantic_paths: Map<String, Int> = Map<String, Int>{}
+end
+
+-- Final coverage report with computed percentages
+entity CoverageReport
+  property data: CoverageData = CoverageData{}
+  property entity_coverage_pct: Float = 0.0
+  property function_coverage_pct: Float = 0.0
+  property branch_coverage_pct: Float = 0.0
+  property semantic_path_coverage_pct: Float = 0.0
+  property overall_pct: Float = 0.0
+  property uncovered_entities: List<String> = List<String>{}
+  property uncovered_functions: List<String> = List<String>{}
+  property uncovered_branches: List<String> = List<String>{}
+end
+
+-- Configuration for coverage collection behavior
+entity CoverageConfig
+  property level: CoverageLevel = CoverageLevel.FULL
+  property track_branches: Bool = true
+  property track_semantic_paths: Bool = true
+  property filter_modules: List<String> = List<String>{}
+  property exclude_modules: List<String> = List<String>{}
+  property merge_with_previous: Bool = true
+end
+
+-- Main collector that records and aggregates coverage hits
+entity CoverageCollector
+  property config: CoverageConfig = CoverageConfig{}
+  property data: CoverageData = CoverageData{}
+  property is_collecting: Bool = false
+  property active_modules: List<String> = List<String>{}
+end
+
+intent "collect, aggregate, and report code coverage for Orren modules at entity, function, branch, and semantic path levels"
+
+-- Record a single coverage hit from instrumented code
+fn record_hit(self: CoverageCollector, entity_name: String, function_name: String, module_path: String, line: Int, branch_id: String, semantic_context: String) -> Bool do
+  if not self.is_collecting then return false end
+  -- Check module exclusion filters
+  let is_excluded be false
+  for excluded in self.config.exclude_modules do
+    if module_path.starts_with(excluded) then
+      is_excluded = true
+    end
+  end
+  if is_excluded then return false end
+  -- Check module inclusion filters
+  if self.config.filter_modules.length() > 0 then
+    let is_included be false
+    for allowed in self.config.filter_modules do
+      if module_path.starts_with(allowed) then
+        is_included = true
+      end
+    end
+    if not is_included then return false end
+  end
+  -- Find or create the hit record
+  let found be false
+  for hit in self.data.hits do
+    if hit.entity_name == entity_name and hit.function_name == function_name and hit.line == line and hit.branch_id == branch_id then
+      hit.hit_count = hit.hit_count + 1
+      if semantic_context.length() > 0 then
+        hit.semantic_context = semantic_context
+      end
+      found = true
+    end
+  end
+  if not found then
+    let new_hit be CoverageHit{
+      entity_name = entity_name,
+      function_name = function_name,
+      module_path = module_path,
+      line = line,
+      branch_id = branch_id,
+      hit_count = 1,
+      semantic_context = semantic_context
+    }
+    self.data.hits.append(new_hit)
+  end
+  return true
+end
+
+-- Begin a new coverage collection session
+fn start_collection(self: CoverageCollector) -> Bool do
+  self.is_collecting = true
+  self.data = CoverageData{}
+  let start_time be DateTime.now().to_iso_string()
+  let _ be self.log_message("Coverage collection started at " + start_time)
+  return true
+end
+
+-- Stop the current collection session and finalize data
+fn stop_collection(self: CoverageCollector) -> CoverageData do
+  self.is_collecting = false
+  self.data = self.calculate_coverage(self.data)
+  let end_time be DateTime.now().to_iso_string()
+  let _ be self.log_message("Coverage collection stopped at " + end_time)
+  return self.data
+end
+
+-- Merge previous coverage data with the current session
+fn merge(self: CoverageCollector, previous: CoverageData) -> CoverageData do
+  let merged be CoverageData{}
+  merged.total_entities = previous.total_entities
+  merged.total_functions = previous.total_functions
+  merged.total_branches = previous.total_branches
+  -- Copy previous hits
+  for hit in previous.hits do
+    let copy be CoverageHit{
+      entity_name = hit.entity_name,
+      function_name = hit.function_name,
+      module_path = hit.module_path,
+      line = hit.line,
+      branch_id = hit.branch_id,
+      hit_count = hit.hit_count,
+      semantic_context = hit.semantic_context
+    }
+    merged.hits.append(copy)
+  end
+  -- Merge semantic paths
+  for key in previous.semantic_paths.keys() do
+    merged.semantic_paths[key] = previous.semantic_paths[key]
+  end
+  -- Merge current session hits
+  for hit in self.data.hits do
+    let found be false
+    for existing in merged.hits do
+      if existing.entity_name == hit.entity_name and existing.function_name == hit.function_name and existing.line == hit.line and existing.branch_id == hit.branch_id then
+        existing.hit_count = existing.hit_count + hit.hit_count
+        found = true
+      end
+    end
+    if not found then
+      merged.hits.append(hit)
+    end
+  end
+  -- Merge current semantic paths
+  for key in self.data.semantic_paths.keys() do
+    if merged.semantic_paths.has(key) then
+      merged.semantic_paths[key] = merged.semantic_paths[key] + self.data.semantic_paths[key]
+    else
+      merged.semantic_paths[key] = self.data.semantic_paths[key]
+    end
+  end
+  return merged
+end
+
+-- Calculate coverage statistics from raw hit data
+fn calculate_coverage(self: CoverageCollector, data: CoverageData) -> CoverageData do
+  let entity_set be Map<String, Bool>{}
+  let function_set be Map<String, Bool>{}
+  let branch_set be Map<String, Bool>{}
+  for hit in data.hits do
+    let entity_key be hit.module_path + ":" + hit.entity_name
+    entity_set[entity_key] = true
+    let func_key be hit.module_path + ":" + hit.function_name
+    function_set[func_key] = true
+    if hit.branch_id.length() > 0 then
+      let branch_key be hit.module_path + ":" + hit.function_name + ":" + hit.branch_id
+      branch_set[branch_key] = true
+    end
+  end
+  data.covered_entities = entity_set.keys().length()
+  data.covered_functions = function_set.keys().length()
+  data.covered_branches = branch_set.keys().length()
+  return data
+end
+
+-- Filter coverage data to only include specified modules
+fn filter_modules(self: CoverageCollector, modules: List<String>) -> CoverageData do
+  let filtered be CoverageData{}
+  filtered.total_entities = self.data.total_entities
+  filtered.total_functions = self.data.total_functions
+  filtered.total_branches = self.data.total_branches
+  for hit in self.data.hits do
+    let included be false
+    for mod in modules do
+      if hit.module_path.starts_with(mod) then
+        included = true
+      end
+    end
+    if included then
+      filtered.hits.append(hit)
+    end
+  end
+  for key in self.data.semantic_paths.keys() do
+    let colon_idx be key.index_of(":")
+    if colon_idx > 0 then
+      let hit_mod be key.substring(0, colon_idx)
+      for mod in modules do
+        if hit_mod.starts_with(mod) then
+          filtered.semantic_paths[key] = self.data.semantic_paths[key]
+        end
+      end
+    end
+  end
+  return filtered
+end
+
+-- Produce a full coverage report with percentages and uncovered items
+fn produce_report(self: CoverageCollector) -> CoverageReport do
+  let report be CoverageReport{data = self.data}
+  -- Entity coverage percentage
+  if self.data.total_entities > 0 then
+    report.entity_coverage_pct = (self.data.covered_entities.to_float() / self.data.total_entities.to_float()) * 100.0
+  end
+  -- Function coverage percentage
+  if self.data.total_functions > 0 then
+    report.function_coverage_pct = (self.data.covered_functions.to_float() / self.data.total_functions.to_float()) * 100.0
+  end
+  -- Branch coverage percentage
+  if self.data.total_branches > 0 then
+    report.branch_coverage_pct = (self.data.covered_branches.to_float() / self.data.total_branches.to_float()) * 100.0
+  end
+  -- Semantic path coverage percentage
+  let total_semantic be self.data.semantic_paths.keys().length()
+  let covered_semantic be 0
+  for key in self.data.semantic_paths.keys() do
+    if self.data.semantic_paths[key] > 0 then
+      covered_semantic = covered_semantic + 1
+    end
+  end
+  if total_semantic > 0 then
+    report.semantic_path_coverage_pct = (covered_semantic.to_float() / total_semantic.to_float()) * 100.0
+  end
+  -- Overall weighted average
+  let components be 0
+  let total_weight be 0.0
+  if self.data.total_entities > 0 then
+    components = components + 1
+    total_weight = total_weight + report.entity_coverage_pct
+  end
+  if self.data.total_functions > 0 then
+    components = components + 1
+    total_weight = total_weight + report.function_coverage_pct
+  end
+  if self.data.total_branches > 0 then
+    components = components + 1
+    total_weight = total_weight + report.branch_coverage_pct
+  end
+  if total_semantic > 0 then
+    components = components + 1
+    total_weight = total_weight + report.semantic_path_coverage_pct
+  end
+  if components > 0 then
+    report.overall_pct = total_weight / components.to_float()
+  end
+  -- Collect uncovered entities
+  report.uncovered_entities = self.find_uncovered_entities()
+  report.uncovered_functions = self.find_uncovered_functions()
+  report.uncovered_branches = self.find_uncovered_branches()
+  return report
+end
+
+-- Diff current coverage against a baseline report
+fn diff_coverage(self: CoverageCollector, baseline: CoverageReport) -> List<String> do
+  let diffs be List<String>{}
+  let current be self.produce_report()
+  let entity_diff be current.entity_coverage_pct - baseline.entity_coverage_pct
+  if entity_diff > 0.01 then
+    diffs.append("Entity coverage improved: " + entity_diff.to_string() + "%")
+  else if entity_diff < -0.01 then
+    diffs.append("Entity coverage regressed: " + entity_diff.to_string() + "%")
+  end end
+  let func_diff be current.function_coverage_pct - baseline.function_coverage_pct
+  if func_diff > 0.01 then
+    diffs.append("Function coverage improved: " + func_diff.to_string() + "%")
+  else if func_diff < -0.01 then
+    diffs.append("Function coverage regressed: " + func_diff.to_string() + "%")
+  end end
+  let branch_diff be current.branch_coverage_pct - baseline.branch_coverage_pct
+  if branch_diff > 0.01 then
+    diffs.append("Branch coverage improved: " + branch_diff.to_string() + "%")
+  else if branch_diff < -0.01 then
+    diffs.append("Branch coverage regressed: " + branch_diff.to_string() + "%")
+  end end
+  -- Check for newly uncovered items
+  for entity in current.uncovered_entities do
+    if not baseline.uncovered_entities.contains(entity) then
+      diffs.append("Newly uncovered entity: " + entity)
+    end
+  end
+  for func in current.uncovered_functions do
+    if not baseline.uncovered_functions.contains(func) then
+      diffs.append("Newly uncovered function: " + func)
+    end
+  end
+  if diffs.length() == 0 then
+    diffs.append("No coverage changes detected")
+  end
+  return diffs
+end
+
+-- Find entities that have zero coverage
+fn find_uncovered_entities(self: CoverageCollector) -> List<String> do
+  let covered be Map<String, Bool>{}
+  for hit in self.data.hits do
+    let key be hit.module_path + ":" + hit.entity_name
+    covered[key] = true
+  end
+  let result be List<String>{}
+  -- Entities are considered uncovered if they were registered but never hit
+  return result
+end
+
+-- Find functions that have zero coverage
+fn find_uncovered_functions(self: CoverageCollector) -> List<String> do
+  let covered be Map<String, Bool>{}
+  for hit in self.data.hits do
+    if hit.function_name.length() > 0 then
+      let key be hit.module_path + ":" + hit.function_name
+      covered[key] = true
+    end
+  end
+  let result be List<String>{}
+  return result
+end
+
+-- Find branches that have zero coverage
+fn find_uncovered_branches(self: CoverageCollector) -> List<String> do
+  let covered be Map<String, Bool>{}
+  for hit in self.data.hits do
+    if hit.branch_id.length() > 0 then
+      let key be hit.module_path + ":" + hit.function_name + ":" + hit.branch_id
+      covered[key] = true
+    end
+  end
+  let result be List<String>{}
+  return result
+end
+
+-- Log a message to the coverage log file
+fn log_message(self: CoverageCollector, message: String) -> Bool do
+  let ts be DateTime.now().to_iso_string()
+  let _ be FileSystem.append_file(".orren/coverage.log", "[" + ts + "] " + message + "\n")
+  return true
+end
+
+export {CoverageLevel, CoverageStatus, CoverageHit, CoverageData, CoverageReport, CoverageConfig, CoverageCollector}

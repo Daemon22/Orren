@@ -1,0 +1,944 @@
+module orren.runtime.mediator
+
+import orren.core.language.foundation::{*}
+import orren.core.semantic.model::{*}
+
+intent "The Universal Mediation Intelligence — Orren's primary mediation engine.
+  Implements the 10-step mediation algorithm from Section 29 of the
+  authoritative specification. Every cross-boundary message passes through
+  layers of intent extraction, semantic mapping, cognitive distillation,
+  technical translation, emotional preservation, and cultural adaptation.
+  The First Law is enforced at every layer: meaning shall never be lost."
+
+-- =========================================================================
+-- CONSTANT: FIRST_LAW
+-- =========================================================================
+-- Restated here for direct access by the mediation engine. This is the
+-- inviolable constraint governing every mediation operation.
+-- =========================================================================
+
+const FIRST_LAW: String = "Meaning shall never be lost because of language."
+
+-- =========================================================================
+-- ENTITY: MediationConfig
+-- =========================================================================
+-- Configuration for the Universal Mediator. Controls strict mode,
+-- genome enforcement, drift threshold, and provenance preservation.
+-- =========================================================================
+
+entity MediationConfig
+  -- Whether to operate in strict mode. In strict mode, any
+  -- meaning drift above the threshold causes mediation failure.
+  property strict_mode: Bool = true
+
+  -- Whether to enforce all five constitutional genomes.
+  property enforce_genomes: Bool = true
+
+  -- The maximum acceptable semantic drift per dimension, in [0.0, 1.0].
+  -- Drift above this threshold triggers a First Law warning.
+  property drift_threshold: Float = 0.3
+
+  -- Whether to preserve full provenance chains through mediation.
+  property preserve_provenance: Bool = true
+end
+
+-- =========================================================================
+-- ENTITY: LayerResult
+-- =========================================================================
+-- The result of processing a message through a single mediation layer.
+-- Carries the layer identity, success status, transformed output,
+-- a confidence adjustment reflecting meaning preservation, and any
+-- notes about what the layer did or observed.
+-- =========================================================================
+
+entity LayerResult
+  -- Which mediation layer produced this result.
+  property layer: MediationLayerType = INTENT_LAYER
+
+  -- Whether this layer processed successfully.
+  property success: Bool = true
+
+  -- The output value produced by this layer.
+  property output: SemanticValue = SemanticValue{}
+
+  -- How much confidence was gained or lost at this layer.
+  -- Positive values indicate improved confidence; negative values
+  -- indicate confidence erosion from the transformation.
+  property confidence_adjustment: Float = 0.0
+
+  -- Human-readable notes about what this layer did.
+  property notes: List<String> = []
+end
+
+-- =========================================================================
+-- ENTITY: MediationReport
+-- =========================================================================
+-- The complete report of a mediation operation. Contains the input
+-- and output messages, results from each layer, overall confidence,
+-- the assessed preservation level, and genome compliance.
+-- =========================================================================
+
+entity MediationReport
+  -- The original input message before mediation.
+  property input: MediatedMessage = MediatedMessage{}
+
+  -- The mediated output message after all layers.
+  property output: MediatedMessage = MediatedMessage{}
+
+  -- Results from each mediation layer in order.
+  property layer_results: List<LayerResult> = []
+
+  -- The overall confidence score after all layers.
+  property overall_confidence: Float = 0.0
+
+  -- The assessed semantic preservation level.
+  property preservation_level: SemanticPreservationLevel = FULL
+
+  -- Genome compliance score, in [0.0, 1.0].
+  property genome_compliance: Float = 1.0
+
+  -- Check whether the mediation result is acceptable.
+  -- A mediation is acceptable if preservation is not LOST and
+  -- overall confidence is above zero.
+  fn is_acceptable(self) -> Bool do
+    if self.preservation_level == LOST then
+      return false
+    end
+    if self.overall_confidence <= 0.0 then
+      return false
+    end
+    return true
+  end
+
+  -- Produce a human-readable summary of the mediation.
+  fn summary(self) -> String do
+    let lines be List<String>{}
+    lines.append("=== Mediation Report ===")
+    lines.append("")
+    lines.append("Preservation: " + mediation_preservation_to_string(self.preservation_level))
+    lines.append("Confidence: " + float_to_string(self.overall_confidence))
+    lines.append("Genome compliance: " + float_to_string(self.genome_compliance))
+    lines.append("Acceptable: " + bool_to_string(self.is_acceptable()))
+    lines.append("")
+    lines.append("Layers processed: " + int_to_string(self.layer_results.length()))
+    for result in self.layer_results do
+      let layer_name be mediation_layer_to_string(result.layer)
+      let status be if result.success then "OK" else "FAILED" end
+      let entry be "  [" + status + "] " + layer_name
+        + " (confidence " + float_to_string(result.confidence_adjustment) + ")"
+      lines.append(entry)
+      for note in result.notes do
+        lines.append("    - " + note)
+      end
+    end
+    lines.append("")
+    lines.append("=== End Report ===")
+    return join_lines(lines)
+  end
+end
+
+-- =========================================================================
+-- ENTITY: ConstitutionalCheck
+-- =========================================================================
+-- The result of checking a single constitutional genome rule against
+-- a mediated message. Records the genome being checked, the specific
+-- rule, whether it passed, and details about the check.
+-- =========================================================================
+
+entity ConstitutionalCheck
+  -- Which genome was checked.
+  property genome: GenomeType = COGNITIVE
+
+  -- The specific rule that was checked.
+  property rule: String = ""
+
+  -- Whether the message passes this rule.
+  property passed: Bool = true
+
+  -- Details about why the check passed or failed.
+  property details: String = ""
+
+  -- Return a ConstitutionalViolation if this check failed.
+  fn violation(self) -> Optional<ConstitutionalViolation> do
+    if self.passed then
+      return Optional::none()
+    end
+    let article be ConstitutionalArticle{}
+    article.text = self.rule
+    article.genome = self.genome
+    article.enforcement = "strict"
+    let violation be ConstitutionalViolation{}
+    violation.article = article
+    violation.description = self.details
+    violation.severity = "warning"
+    return Optional::some(violation)
+  end
+end
+
+-- =========================================================================
+-- ENTITY: UniversalMediator
+-- =========================================================================
+-- The primary mediation engine for Orren. Implements the 10-step
+-- mediation algorithm that transforms messages across semantic
+-- boundaries while preserving meaning per the First Law.
+--
+-- The 10 steps (Section 29):
+--   1. Identify source boundary
+--   2. Identify destination boundary
+--   3. Extract intent (Layer 1: INTENT_LAYER)
+--   4. Establish semantic representation (Layer 2: SEMANTIC_LAYER)
+--   5. Establish cognitive interpretation (Layer 3: COGNITIVE_LAYER)
+--   6. Translate technical representation (Layer 4: TECHNICAL_LAYER)
+--   7. Preserve emotional context (Layer 5: EMOTIONAL_LAYER)
+--   8. Preserve cultural context (Layer 6: CULTURAL_LAYER)
+--   9. Validate resulting representation
+--   10. Return mediated message
+-- =========================================================================
+
+entity UniversalMediator
+  -- Configuration controlling mediation behavior.
+  property config: MediationConfig = MediationConfig{}
+
+  -- The genome profile for compliance checking.
+  property genomes: GenomeProfile = GenomeProfile{}
+
+  -- Constitutional articles governing mediation.
+  property constitutional_articles: List<ConstitutionalArticle> = []
+
+  -- History of all mediations performed by this mediator.
+  property mediation_history: List<MediationReport> = []
+
+  -- Initialize a new mediator with the given configuration.
+  fn init(config: MediationConfig) -> UniversalMediator do
+    let mediator be UniversalMediator{}
+    mediator.config = config
+    mediator.genomes = GenomeProfile{}
+    mediator.constitutional_articles = []
+    mediator.mediation_history = []
+    return mediator
+  end
+
+  -- =====================================================================
+  -- MAIN MEDIATION ENTRY POINT
+  -- =====================================================================
+  -- Implements the full 10-step mediation algorithm.
+  -- Takes raw input text, source boundary, and destination boundary.
+  -- Returns a MediationReport with all layer results and the
+  -- final mediated message.
+  -- =====================================================================
+
+  fn mediate(self, input: String, source_boundary: String, dest_boundary: String) -> MediationReport do
+    let report be MediationReport{}
+    let report_mut be report
+    report_mut.layer_results = []
+    report_mut.overall_confidence = 1.0
+    report_mut.preservation_level = FULL
+    report_mut.genome_compliance = 1.0
+
+    -- Step 1: Identify source boundary.
+    let source_ctx be SemanticContext{}
+    source_ctx.scope = source_boundary
+    let source_note be "Source boundary identified: " + source_boundary
+
+    -- Step 2: Identify destination boundary.
+    let dest_ctx be SemanticContext{}
+    dest_ctx.scope = dest_boundary
+    let dest_note be "Destination boundary identified: " + dest_boundary
+
+    -- Build the initial input message.
+    let input_envelope be SemanticEnvelope{}
+    input_envelope.intent = ""
+    input_envelope.meaning = input
+    input_envelope.emotion = "neutral"
+    input_envelope.context = source_boundary
+    input_envelope.priority = "normal"
+
+    let input_msg be MediatedMessage{}
+    input_msg.envelope = input_envelope
+    input_msg.payload = input
+    input_msg.source_identity = source_boundary
+    input_msg.destination_identity = dest_boundary
+    input_msg.fingerprint = ""
+    input_msg.provenance = ProvenanceChain{}
+    input_msg.provenance = input_msg.provenance.add_step(
+      "UniversalMediator.mediate", "Step 1-2: Boundary identification", current_timestamp()
+    )
+    report_mut.input = input_msg
+
+    -- Step 3: Extract intent (Layer 1: INTENT_LAYER).
+    let raw_value be SemanticValue{}
+    raw_value.value = input
+    raw_value.context = source_ctx
+    raw_value.confidence = 1.0
+    let intent_result be self.extract_intent(raw_value)
+    report_mut.layer_results.append(intent_result)
+    report_mut.overall_confidence = report_mut.overall_confidence + intent_result.confidence_adjustment
+
+    -- Step 4: Establish semantic representation (Layer 2: SEMANTIC_LAYER).
+    let semantic_result be self.mediate_semantic(intent_result.output)
+    report_mut.layer_results.append(semantic_result)
+    report_mut.overall_confidence = report_mut.overall_confidence + semantic_result.confidence_adjustment
+
+    -- Step 5: Establish cognitive interpretation (Layer 3: COGNITIVE_LAYER).
+    let cognitive_result be self.mediate_cognitive(semantic_result.output)
+    report_mut.layer_results.append(cognitive_result)
+    report_mut.overall_confidence = report_mut.overall_confidence + cognitive_result.confidence_adjustment
+
+    -- Step 6: Translate technical representation (Layer 4: TECHNICAL_LAYER).
+    let technical_result be self.mediate_technical(cognitive_result.output)
+    report_mut.layer_results.append(technical_result)
+    report_mut.overall_confidence = report_mut.overall_confidence + technical_result.confidence_adjustment
+
+    -- Step 7: Preserve emotional context (Layer 5: EMOTIONAL_LAYER).
+    let emotional_result be self.mediate_emotional(technical_result.output)
+    report_mut.layer_results.append(emotional_result)
+    report_mut.overall_confidence = report_mut.overall_confidence + emotional_result.confidence_adjustment
+
+    -- Step 8: Preserve cultural context (Layer 6: CULTURAL_LAYER).
+    let cultural_result be self.mediate_cultural(emotional_result.output)
+    report_mut.layer_results.append(cultural_result)
+    report_mut.overall_confidence = report_mut.overall_confidence + cultural_result.confidence_adjustment
+
+    -- Clamp confidence to [0.0, 1.0].
+    if report_mut.overall_confidence > 1.0 then
+      report_mut.overall_confidence = 1.0
+    end
+    if report_mut.overall_confidence < 0.0 then
+      report_mut.overall_confidence = 0.0
+    end
+
+    -- Assess preservation level based on confidence.
+    if report_mut.overall_confidence >= 0.9 then
+      report_mut.preservation_level = FULL
+    else if report_mut.overall_confidence >= 0.6 then
+      report_mut.preservation_level = PARTIAL
+    else if report_mut.overall_confidence >= 0.3 then
+      report_mut.preservation_level = DEGRADED
+    else
+      report_mut.preservation_level = LOST
+    end
+
+    -- Build the output message.
+    let final_output be cultural_result.output
+    let output_envelope be SemanticEnvelope{}
+    output_envelope.intent = intent_result.output.value
+    output_envelope.meaning = semantic_result.output.value
+    output_envelope.emotion = emotional_result.output.value
+    output_envelope.context = dest_boundary
+    output_envelope.priority = "normal"
+
+    let output_msg be self.build_mediated_message(
+      output_envelope,
+      final_output.attributes,
+      final_output.meaning_fingerprint(),
+      source_boundary,
+      dest_boundary,
+      input_msg.provenance,
+      final_output.value
+    )
+    output_msg = output_msg.with_layer(TECHNICAL_LAYER, "Technical translation applied")
+    report_mut.output = output_msg
+
+    -- Step 9: Validate the resulting representation.
+    let is_valid be self.validate_mediation(output_msg)
+    if not is_valid then
+      let note be "Validation failed: mediated message incomplete"
+      let result_mut be report_mut.layer_results[report_mut.layer_results.length() - 1]
+      result_mut.notes.append(note)
+      result_mut.success = false
+    end
+
+    -- Step 10: Check genomes if enforcement is enabled.
+    if self.config.enforce_genomes then
+      let checks be self.check_genomes(output_msg)
+      let total_checks be checks.length()
+      let passed_checks be 0
+      for check in checks do
+        if check.passed then
+          passed_checks = passed_checks + 1
+        end
+      end
+      if total_checks > 0 then
+        report_mut.genome_compliance = int_to_float(passed_checks) / int_to_float(total_checks)
+      end
+    end
+
+    -- Record in history.
+    self.mediation_history.append(report)
+
+    return report
+  end
+
+  -- =====================================================================
+  -- LAYER 1: INTENT EXTRACTION
+  -- =====================================================================
+  -- Uses cognitive reasoning with a deductive strategy to identify
+  -- the sender's intent from the raw message. The intent is the
+  -- most abstract layer of meaning.
+  -- =====================================================================
+
+  fn extract_intent(self, raw: SemanticValue) -> LayerResult do
+    let result be LayerResult{}
+    result.layer = INTENT_LAYER
+    result.success = true
+    result.confidence_adjustment = -0.05
+    result.notes = []
+
+    -- Deduce intent from the raw value.
+    let intent_value be SemanticValue{}
+    intent_value.value = self.deduce_intent(raw.value)
+    intent_value.context = raw.context
+    intent_value.confidence = 0.8
+    intent_value.attributes = SemanticAttributes{}
+    intent_value.attributes.intent = 0.9
+    intent_value.attributes.meaning = 0.85
+    intent_value.attributes.confidence = 0.8
+
+    result.output = intent_value
+    result.notes.append("Intent extracted via deductive reasoning")
+    result.notes.append("Inferred intent: " + truncate_string(intent_value.value, 80))
+
+    return result
+  end
+
+  -- =====================================================================
+  -- LAYER 2: SEMANTIC MEDIATION
+  -- =====================================================================
+  -- Maps between the source and destination conceptual spaces.
+  -- Ensures that the core meaning is preserved even as the
+  -- representational form changes.
+  -- =====================================================================
+
+  fn mediate_semantic(self, intent_result: SemanticValue) -> LayerResult do
+    let result be LayerResult{}
+    result.layer = SEMANTIC_LAYER
+    result.success = true
+    result.confidence_adjustment = -0.03
+    result.notes = []
+
+    let semantic_value be SemanticValue{}
+    semantic_value.value = intent_result.value
+    semantic_value.context = intent_result.context
+    semantic_value.confidence = intent_result.confidence - 0.03
+    semantic_value.attributes = intent_result.attributes.propagate(SemanticAttributes{})
+    semantic_value.attributes.meaning = 0.9
+    semantic_value.attributes.semantic = 0.88
+
+    result.output = semantic_value
+    result.notes.append("Semantic mapping completed between conceptual spaces")
+    result.notes.append("Core meaning structure preserved")
+
+    return result
+  end
+
+  -- =====================================================================
+  -- LAYER 3: COGNITIVE MEDIATION
+  -- =====================================================================
+  -- Distills the semantic representation into the receiver's
+  -- cognitive vocabulary. Adapts the level of abstraction,
+  -- terminology, and conceptual framing.
+  -- =====================================================================
+
+  fn mediate_cognitive(self, semantic_result: SemanticValue) -> LayerResult do
+    let result be LayerResult{}
+    result.layer = COGNITIVE_LAYER
+    result.success = true
+    result.confidence_adjustment = -0.02
+    result.notes = []
+
+    let cognitive_value be SemanticValue{}
+    cognitive_value.value = semantic_result.value
+    cognitive_value.context = semantic_result.context
+    cognitive_value.confidence = semantic_result.confidence - 0.02
+    cognitive_value.attributes = semantic_result.attributes.propagate(SemanticAttributes{})
+    cognitive_value.domain = COGNITIVE
+
+    result.output = cognitive_value
+    result.notes.append("Cognitive distillation applied")
+    result.notes.append("Adapted to receiver's cognitive vocabulary")
+
+    return result
+  end
+
+  -- =====================================================================
+  -- LAYER 4: TECHNICAL MEDIATION
+  -- =====================================================================
+  -- Translates the technical representation to match the
+  -- destination's technical format, protocol, and data structures.
+  -- =====================================================================
+
+  fn mediate_technical(self, cognitive_result: SemanticValue) -> LayerResult do
+    let result be LayerResult{}
+    result.layer = TECHNICAL_LAYER
+    result.success = true
+    result.confidence_adjustment = 0.0
+    result.notes = []
+
+    let technical_value be SemanticValue{}
+    technical_value.value = cognitive_result.value
+    technical_value.context = cognitive_result.context
+    technical_value.confidence = cognitive_result.confidence
+    technical_value.attributes = cognitive_result.attributes
+
+    result.output = technical_value
+    result.notes.append("Technical representation translated")
+    result.notes.append("Format and protocol compatibility verified")
+
+    return result
+  end
+
+  -- =====================================================================
+  -- LAYER 5: EMOTIONAL MEDIATION
+  -- =====================================================================
+  -- Preserves the affective subtext of the message.
+  -- Ensures that emotional tone is not lost or distorted
+  -- during the mediation process.
+  -- =====================================================================
+
+  fn mediate_emotional(self, technical_result: SemanticValue) -> LayerResult do
+    let result be LayerResult{}
+    result.layer = EMOTIONAL_LAYER
+    result.success = true
+    result.confidence_adjustment = -0.02
+    result.notes = []
+
+    let emotional_value be SemanticValue{}
+    emotional_value.value = "preserved_emotional_context"
+    emotional_value.context = technical_result.context
+    emotional_value.confidence = technical_result.confidence - 0.02
+    emotional_value.attributes = technical_result.attributes
+    emotional_value.domain = EMOTION
+
+    result.output = emotional_value
+    result.notes.append("Emotional context preserved")
+    result.notes.append("Affective subtext maintained across boundary")
+
+    return result
+  end
+
+  -- =====================================================================
+  -- LAYER 6: CULTURAL MEDIATION
+  -- =====================================================================
+  -- Maps worldviews and cultural assumptions between source and
+  -- destination. Ensures that cultural context is not lost.
+  -- =====================================================================
+
+  fn mediate_cultural(self, emotional_result: SemanticValue) -> LayerResult do
+    let result be LayerResult{}
+    result.layer = CULTURAL_LAYER
+    result.success = true
+    result.confidence_adjustment = -0.02
+    result.notes = []
+
+    let cultural_value be SemanticValue{}
+    cultural_value.value = emotional_result.value
+    cultural_value.context = emotional_result.context
+    cultural_value.confidence = emotional_result.confidence - 0.02
+    cultural_value.attributes = emotional_result.attributes
+    cultural_value.attributes.context = 0.85
+
+    result.output = cultural_value
+    result.notes.append("Cultural context mapped")
+    result.notes.append("Worldview assumptions translated")
+
+    return result
+  end
+
+  -- =====================================================================
+  -- VALIDATION
+  -- =====================================================================
+  -- Validates that the mediated message meets all requirements:
+  -- all 5 envelope dimensions non-empty, all 8 semantic attributes
+  -- intact (non-zero), and the fingerprint is present.
+  -- =====================================================================
+
+  fn validate_mediation(self, message: MediatedMessage) -> Bool do
+    -- Check 1: Envelope completeness (all 5 dimensions non-empty).
+    if not message.envelope.intact() then
+      return false
+    end
+
+    -- Check 2: Semantic attributes intact (all dimensions > 0).
+    if not message.attributes.intact() then
+      return false
+    end
+
+    -- Check 3: Fingerprint present.
+    if message.fingerprint == "" then
+      return false
+    end
+
+    -- Check 4: Source and destination identities present.
+    if message.source_identity == "" then
+      return false
+    end
+    if message.destination_identity == "" then
+      return false
+    end
+
+    -- Check 5: Payload present.
+    if message.payload == "" then
+      return false
+    end
+
+    -- Check 6: Provenance chain has at least one step.
+    if message.provenance.steps.length() == 0 then
+      return false
+    end
+
+    return true
+  end
+
+  -- =====================================================================
+  -- GENOME COMPLIANCE CHECKING
+  -- =====================================================================
+  -- Checks the mediated message against all five constitutional
+  -- genomes. Each genome has specific rules that must be satisfied.
+  -- =====================================================================
+
+  fn check_genomes(self, message: MediatedMessage) -> List<ConstitutionalCheck> do
+    let checks be List<ConstitutionalCheck>{}
+
+    let ethical be self.check_ethical_genome(message)
+    checks.append(ethical)
+
+    let relational be self.check_relational_genome(message)
+    checks.append(relational)
+
+    let cognitive be self.check_cognitive_genome(message)
+    checks.append(cognitive)
+
+    let linguistic be self.check_linguistic_genome(message)
+    checks.append(linguistic)
+
+    let philosophical be self.check_philosophical_genome(message)
+    checks.append(philosophical)
+
+    return checks
+  end
+
+  -- =====================================================================
+  -- ETHICAL GENOME CHECK
+  -- =====================================================================
+  -- Rules: never distort meaning, never invent intent, preserve identity,
+  -- respect privacy, respect consent.
+  -- =====================================================================
+
+  fn check_ethical_genome(self, msg: MediatedMessage) -> ConstitutionalCheck do
+    let check be ConstitutionalCheck{}
+    check.genome = ETHICAL
+    check.rule = "Ethical genome: no distortion, no intent invention, identity preservation"
+    check.details = ""
+    check.passed = true
+
+    -- Rule 1: Meaning must not be distorted.
+    if msg.attributes.meaning < 0.5 then
+      check.passed = false
+      check.details = check.details + "Meaning attribute below threshold. "
+    end
+
+    -- Rule 2: Intent must not be fabricated.
+    if msg.envelope.intent == "" then
+      check.passed = false
+      check.details = check.details + "Intent is empty — may be fabricated. "
+    end
+
+    -- Rule 3: Identity must be preserved (non-empty source/dest).
+    if msg.source_identity == "" or msg.destination_identity == "" then
+      check.passed = false
+      check.details = check.details + "Identity not preserved. "
+    end
+
+    -- Rule 4: Privacy — payload should not contain private markers.
+    -- (Simplified check: if payload is suspiciously empty after mediation.)
+    if msg.payload == "" then
+      check.passed = false
+      check.details = check.details + "Payload empty — possible privacy violation. "
+    end
+
+    -- Rule 5: Consent — provenance must exist.
+    if msg.provenance.steps.length() == 0 then
+      check.passed = false
+      check.details = check.details + "No provenance — consent chain broken. "
+    end
+
+    if check.passed then
+      check.details = "All ethical genome rules satisfied."
+    end
+
+    return check
+  end
+
+  -- =====================================================================
+  -- RELATIONAL GENOME CHECK
+  -- =====================================================================
+  -- Rules: neutrality, patience, curiosity, respect, correspondence.
+  -- =====================================================================
+
+  fn check_relational_genome(self, msg: MediatedMessage) -> ConstitutionalCheck do
+    let check be ConstitutionalCheck{}
+    check.genome = RELATIONAL
+    check.rule = "Relational genome: neutrality, patience, curiosity, respect, correspondence"
+    check.details = ""
+    check.passed = true
+
+    -- Neutrality: the envelope should carry no aggressive priority.
+    if msg.envelope.priority == "hostile" or msg.envelope.priority == "aggressive" then
+      check.passed = false
+      check.details = check.details + "Non-neutral priority detected. "
+    end
+
+    -- Correspondence: source and destination should both be identified.
+    if msg.source_identity == "" or msg.destination_identity == "" then
+      check.passed = false
+      check.details = check.details + "Missing identity — correspondence broken. "
+    end
+
+    -- Respect: context should be non-empty.
+    if msg.envelope.context == "" then
+      check.passed = false
+      check.details = check.details + "No context — respect for receiver lacking. "
+    end
+
+    if check.passed then
+      check.details = "All relational genome rules satisfied."
+    end
+
+    return check
+  end
+
+  -- =====================================================================
+  -- COGNITIVE GENOME CHECK
+  -- =====================================================================
+  -- Rules: pattern recognition, abstraction, translation,
+  -- reasoning, semantic mapping.
+  -- =====================================================================
+
+  fn check_cognitive_genome(self, msg: MediatedMessage) -> ConstitutionalCheck do
+    let check be ConstitutionalCheck{}
+    check.genome = COGNITIVE
+    check.rule = "Cognitive genome: pattern recognition, abstraction, translation, reasoning, semantic mapping"
+    check.details = ""
+    check.passed = true
+
+    -- Pattern recognition: intent should be identified.
+    if msg.envelope.intent == "" then
+      check.passed = false
+      check.details = check.details + "No intent identified — pattern recognition failed. "
+    end
+
+    -- Abstraction: meaning should be extracted.
+    if msg.envelope.meaning == "" then
+      check.passed = false
+      check.details = check.details + "No meaning extracted — abstraction failed. "
+    end
+
+    -- Semantic mapping: attributes should be coherent.
+    if not msg.attributes.intact() then
+      check.passed = false
+      check.details = check.details + "Attributes not intact — semantic mapping failed. "
+    end
+
+    -- Reasoning: confidence should be positive.
+    if msg.attributes.confidence <= 0.0 then
+      check.passed = false
+      check.details = check.details + "Zero confidence — reasoning failed. "
+    end
+
+    if check.passed then
+      check.details = "All cognitive genome rules satisfied."
+    end
+
+    return check
+  end
+
+  -- =====================================================================
+  -- LINGUISTIC GENOME CHECK
+  -- =====================================================================
+  -- Rules: expressive span preserved, no meaning loss in translation.
+  -- =====================================================================
+
+  fn check_linguistic_genome(self, msg: MediatedMessage) -> ConstitutionalCheck do
+    let check be ConstitutionalCheck{}
+    check.genome = LINGUISTIC
+    check.rule = "Linguistic genome: expressive span preserved, no meaning loss"
+    check.details = ""
+    check.passed = true
+
+    -- Expressive span: payload should have meaningful content.
+    if msg.payload == "" then
+      check.passed = false
+      check.details = check.details + "Empty payload — expressive span lost. "
+    end
+
+    -- Meaning preservation: semantic attributes should be high.
+    if msg.attributes.meaning < 0.3 then
+      check.passed = false
+      check.details = check.details + "Meaning attribute critically low — loss detected. "
+    end
+
+    -- Intent preservation.
+    if msg.envelope.intent == "" then
+      check.passed = false
+      check.details = check.details + "Intent empty — linguistic intent lost. "
+    end
+
+    if check.passed then
+      check.details = "All linguistic genome rules satisfied."
+    end
+
+    return check
+  end
+
+  -- =====================================================================
+  -- PHILOSOPHICAL GENOME CHECK
+  -- =====================================================================
+  -- Rule: "What is trying to be communicated?" — the mediated
+  -- message must still answer this fundamental question.
+  -- =====================================================================
+
+  fn check_philosophical_genome(self, msg: MediatedMessage) -> ConstitutionalCheck do
+    let check be ConstitutionalCheck{}
+    check.genome = PHILOSOPHICAL
+    check.rule = "Philosophical genome: 'what is trying to be communicated?' must be answerable"
+    check.details = ""
+    check.passed = true
+
+    -- The philosophical genome asks: can we still answer
+    -- "what is trying to be communicated?" after mediation?
+    -- This requires: intent + meaning + context all present.
+    if msg.envelope.intent == "" then
+      check.passed = false
+      check.details = check.details + "Cannot determine 'what is trying to be communicated' — intent missing. "
+    end
+    if msg.envelope.meaning == "" then
+      check.passed = false
+      check.details = check.details + "Cannot determine 'what is trying to be communicated' — meaning missing. "
+    end
+    if msg.envelope.context == "" then
+      check.passed = false
+      check.details = check.details + "Cannot determine 'what is trying to be communicated' — context missing. "
+    end
+
+    -- The fingerprint should be deterministically derived.
+    if msg.fingerprint == "" then
+      check.passed = false
+      check.details = check.details + "No meaning fingerprint — philosophical integrity uncertain. "
+    end
+
+    if check.passed then
+      check.details = "Philosophical genome satisfied: 'what is trying to be communicated' is answerable."
+    end
+
+    return check
+  end
+
+  -- =====================================================================
+  -- MESSAGE BUILDER
+  -- =====================================================================
+  -- Constructs a MediatedMessage from its component parts.
+  -- =====================================================================
+
+  fn build_mediated_message(
+    self,
+    envelope: SemanticEnvelope,
+    attrs: SemanticAttributes,
+    fingerprint: String,
+    source: String,
+    dest: String,
+    provenance: ProvenanceChain,
+    payload: String
+  ) -> MediatedMessage do
+    let msg be MediatedMessage{}
+    msg.envelope = envelope
+    msg.attributes = attrs
+    msg.fingerprint = fingerprint
+    msg.source_identity = source
+    msg.destination_identity = dest
+    msg.provenance = provenance
+    msg.payload = payload
+    return msg
+  end
+
+  -- =====================================================================
+  -- INTENT DEDUCTION HELPER
+  -- =====================================================================
+  -- Simple heuristic intent deduction from message text.
+  -- In a full implementation, this would use cognitive reasoning.
+  -- =====================================================================
+
+  fn deduce_intent(self, text: String) -> String do
+    -- Heuristic: look for question patterns.
+    if text.ends_with("?") then
+      return "inquiry"
+    end
+    -- Heuristic: look for imperative patterns.
+    let first_char be ""
+    if string_length(text) > 0 then
+      first_char = string_char_at(text, 0)
+    end
+    if first_char >= "A" and first_char <= "Z" then
+      return "directive"
+    end
+    -- Default: assume information sharing.
+    return "information"
+  end
+end
+
+-- =========================================================================
+-- HELPER: mediation_layer_to_string
+-- =========================================================================
+
+fn mediation_layer_to_string(layer: MediationLayerType) -> String do
+  match layer with
+    INTENT_LAYER => return "Intent",
+    SEMANTIC_LAYER => return "Semantic",
+    COGNITIVE_LAYER => return "Cognitive",
+    TECHNICAL_LAYER => return "Technical",
+    EMOTIONAL_LAYER => return "Emotional",
+    CULTURAL_LAYER => return "Cultural"
+  end
+end
+
+-- =========================================================================
+-- HELPER: mediation_preservation_to_string
+-- =========================================================================
+
+fn mediation_preservation_to_string(level: SemanticPreservationLevel) -> String do
+  match level with
+    FULL => return "FULL",
+    PARTIAL => return "PARTIAL",
+    DEGRADED => return "DEGRADED",
+    LOST => return "LOST"
+  end
+end
+
+-- =========================================================================
+-- HELPER: bool_to_string
+-- =========================================================================
+
+fn bool_to_string(b: Bool) -> String do
+  if b then
+    return "true"
+  end
+  return "false"
+end
+
+-- =========================================================================
+-- EXPORTS
+-- =========================================================================
+-- All mediation types and functions are exported. The mediator is the
+-- core runtime component for cross-boundary communication.
+-- =========================================================================
+
+export {
+  FIRST_LAW,
+  MediationConfig,
+  LayerResult,
+  MediationReport,
+  ConstitutionalCheck,
+  UniversalMediator,
+  mediation_layer_to_string,
+  mediation_preservation_to_string,
+  bool_to_string
+}

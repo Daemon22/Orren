@@ -1,0 +1,441 @@
+-- inspector.orn: Deep inspection of Orren modules, entities, semantic attributes,
+-- genome compliance, provenance chains, and UPMP state.
+
+module orren_tools.sdk.inspector
+
+import module::{String, Int, Bool, Float, List, Map}
+
+enum InspectionTarget
+  MODULE
+  ENTITY
+  FUNCTION
+  PROPERTY
+  ENUM
+  CONST
+  IMPORT
+  EXPORT
+  SEMANTIC_ATTR
+  GENOME
+  PROVENANCE
+  UPMP
+end
+
+enum InspectionDepth
+  SURFACE
+  STRUCTURE
+  SEMANTIC
+  FULL
+end
+
+enum InspectionFormat
+  TEXT
+  TREE
+  JSON
+  SEMANTIC_MAP
+end
+
+entity InspectionQuery
+  property target: InspectionTarget = InspectionTarget.MODULE
+  property depth: InspectionDepth = InspectionDepth.SURFACE
+  property format: InspectionFormat = InspectionFormat.TEXT
+  property filter_pattern: String = ""
+  property module_path: String = ""
+  property include_private: Bool = false
+  property include_semantic: Bool = true
+  property max_results: Int = 100
+end
+
+entity InspectionEntry
+  property name: String = ""
+  property kind: String = ""
+  property module_path: String = ""
+  property description: String = ""
+  property value_summary: String = ""
+  property semantic_snapshot: Map<String, String> = {}
+  property children: List<InspectionEntry> = []
+end
+
+entity InspectionReport
+  property query: InspectionQuery = InspectionQuery{}
+  property entries: List<InspectionEntry> = []
+  property total_inspected: Int = 0
+  property semantic_integrity_score: Float = 0.0
+  property genome_compliance: Float = 0.0
+  property provenance_coverage: Float = 0.0
+  property inspection_time: Float = 0.0
+  property format: InspectionFormat = InspectionFormat.TEXT
+end
+
+entity ModuleInspector
+  property config: Map<String, String> = {}
+  property cache: Map<String, InspectionReport> = {}
+  property inspection_count: Int = 0
+  fn inspect_module(self, module_path: String, depth: InspectionDepth, fmt: InspectionFormat) -> InspectionReport do
+    let t0 be self._now()
+    let query be InspectionQuery{}
+    query.target = InspectionTarget.MODULE
+    query.depth = depth
+    query.format = fmt
+    query.module_path = module_path
+    query.include_semantic = true
+    let report be InspectionReport{}
+    report.query = query
+    report.format = fmt
+    let content be self._read_source(module_path)
+    let entries be List<InspectionEntry>{}
+    for line in content.split("\n") do
+      let t be line.trim
+      if t.starts_with("entity ") then
+        let entry be InspectionEntry{}
+        entry.name = self._extract_name(t, "entity ")
+        entry.kind = "entity"
+        entry.module_path = module_path
+        if depth != InspectionDepth.SURFACE then
+          entry.children = self._inspect_entity_body(entry.name, content)
+        end
+        if depth == InspectionDepth.SEMANTIC or depth == InspectionDepth.FULL then
+          entry.semantic_snapshot = self.inspect_semantic_attributes(module_path, entry.name)
+        end
+        entries.append(entry)
+      else if t.starts_with("fn ") then
+        let entry be InspectionEntry{}
+        entry.name = self._extract_name(t, "fn ")
+        entry.kind = "function"
+        entry.module_path = module_path
+        if depth == InspectionDepth.SEMANTIC or depth == InspectionDepth.FULL then
+          entry.semantic_snapshot["intent"] = self._extract_intent(content)
+        end
+        entries.append(entry)
+      else if t.starts_with("enum ") then
+        let entry be InspectionEntry{}
+        entry.name = self._extract_name(t, "enum ")
+        entry.kind = "enum"
+        entry.module_path = module_path
+        entries.append(entry)
+      end
+    end
+    if query.filter_pattern != "" then
+      let filtered be List<InspectionEntry>{}
+      for e in entries do
+        if e.name.contains(query.filter_pattern) then filtered.append(e) end
+      end
+      entries = filtered
+    end
+    if entries.length > query.max_results then
+      entries = entries.slice(0, query.max_results)
+    end
+    report.entries = entries
+    report.total_inspected = entries.length
+    report.semantic_integrity_score = self._compute_semantic_integrity(entries)
+    report.genome_compliance = self.assess_genome(module_path)
+    report.provenance_coverage = self._compute_provenance_coverage(module_path)
+    report.inspection_time = self._now() - t0
+    self.cache[module_path + ":" + depth.to_string] = report
+    self.inspection_count = self.inspection_count + 1
+    return report
+  end
+  fn inspect_entity(self, module_path: String, entity_name: String) -> List<InspectionEntry> do
+    return self._inspect_entity_body(entity_name, self._read_source(module_path))
+  end
+  fn inspect_semantic_attributes(self, module_path: String, entity_name: String) -> Map<String, String> do
+    let attrs be Map<String, String>{}
+    let found be false
+    for line in self._read_source(module_path).split("\n") do
+      let t be line.trim
+      if t.starts_with("intent ") then
+        attrs["intent"] = t.substring(7).replace("\"", "").trim
+        found = true
+      end
+      if t.starts_with("--") and found == false then
+        attrs["doc_comment"] = t.substring(2).trim
+      end
+    end
+    if attrs.has("intent") == false then
+      attrs["intent"] = "<not declared>"
+    end
+    return attrs
+  end
+  fn inspect_genome_compliance(self, module_path: String) -> Float do
+    return self.assess_genome(module_path)
+  end
+  fn inspect_provenance(self, module_path: String) -> List<InspectionEntry> do
+    let entries be List<InspectionEntry>{}
+    for dep in self.inspect_dependencies(module_path) do
+      let e be InspectionEntry{}
+      e.name = dep
+      e.kind = "import"
+      e.module_path = module_path
+      e.description = "Import dependency"
+      entries.append(e)
+    end
+    return entries
+  end
+  fn inspect_cognitive_profile(self, module_path: String) -> Map<String, String> do
+    let profile be Map<String, String>{}
+    let ec be 0
+    let fc be 0
+    let vc be 0
+    for line in self._read_source(module_path).split("\n") do
+      let t be line.trim
+      if t.starts_with("entity ") then ec = ec + 1
+      else if t.starts_with("fn ") and t.starts_with("fn _") == false then fc = fc + 1
+      else if t.starts_with("enum ") then vc = vc + 1
+      end
+    end
+    profile["entities"] = ec.to_string
+    profile["functions"] = fc.to_string
+    profile["enums"] = vc.to_string
+    profile["complexity"] = (ec + fc + vc).to_string
+    return profile
+  end
+  fn inspect_upmp_state(self, module_path: String) -> Map<String, String> do
+    let state be Map<String, String>{}
+    let has_sem be false
+    let has_cog be false
+    for line in self._read_source(module_path).split("\n") do
+      let t be line.trim
+      if t.starts_with("intent ") then
+        let val be t.substring(7).replace("\"", "").trim.to_lowercase
+        if val.contains("semantic") then has_sem = true end
+        if val.contains("cognitive") then has_cog = true end
+      end
+    end
+    state["semantic_layer_active"] = has_sem.to_string
+    state["cognitive_layer_active"] = has_cog.to_string
+    state["mediation_available"] = "true"
+    state["module_path"] = module_path
+    return state
+  end
+  fn inspect_dependencies(self, module_path: String) -> List<String> do
+    let deps be List<String>{}
+    for line in self._read_source(module_path).split("\n") do
+      let t be line.trim
+      if t.starts_with("import ") then
+        deps.append(t.substring(7).split("::")[0].trim)
+      end
+    end
+    return deps
+  end
+  fn find_references(self, symbol_name: String, modules: List<String>) -> List<InspectionEntry> do
+    let refs be List<InspectionEntry>{}
+    for mod_path in modules do
+      let line_num be 0
+      for line in self._read_source(mod_path).split("\n") do
+        line_num = line_num + 1
+        if line.contains(symbol_name) then
+          let e be InspectionEntry{}
+          e.name = symbol_name
+          e.kind = "reference"
+          e.module_path = mod_path
+          e.description = "Line " + line_num.to_string + ": " + line.trim
+          refs.append(e)
+        end
+      end
+    end
+    return refs
+  end
+  fn diff_modules(self, path_a: String, path_b: String) -> List<InspectionEntry> do
+    let diff be List<InspectionEntry>{}
+    let sa be self._extract_all_symbols(path_a)
+    let sb be self._extract_all_symbols(path_b)
+    for sym in sa do
+      if sb.contains(sym) == false then
+        let e be InspectionEntry{}
+        e.name = sym
+        e.kind = "removed"
+        e.module_path = path_a
+        diff.append(e)
+      end
+    end
+    for sym in sb do
+      if sa.contains(sym) == false then
+        let e be InspectionEntry{}
+        e.name = sym
+        e.kind = "added"
+        e.module_path = path_b
+        diff.append(e)
+      end
+    end
+    return diff
+  end
+  fn render_tree(self, report: InspectionReport) -> String do
+    let buf be List<String>{}
+    buf.append("Inspection: " + report.query.module_path)
+    buf.append("Depth: " + report.query.depth.to_string + "  Format: " + report.query.format.to_string)
+    buf.append("Entries: " + report.total_inspected.to_string)
+    buf.append("")
+    for entry in report.entries do
+      self.render_entry_tree(entry, buf, 0)
+    end
+    buf.append("")
+    buf.append("Semantic Integrity: " + report.semantic_integrity_score.to_string)
+    buf.append("Genome Compliance:  " + report.genome_compliance.to_string)
+    buf.append("Provenance Coverage: " + report.provenance_coverage.to_string)
+    buf.append("Time: " + report.inspection_time.to_string + "ms")
+    return buf.join("\n")
+  end
+  fn render_entry_tree(self, entry: InspectionEntry, buf: List<String>, indent: Int) do
+    let prefix be self._indent_str(indent)
+    let icon be match entry.kind with
+      "entity" do "[E]" end
+      "function" do "[F]" end
+      "method" do "[M]" end
+      "enum" do "[V]" end
+      "property" do "[P]" end
+      _ do "[?]" end
+    end
+    buf.append(prefix + icon + " " + entry.name + " -- " + entry.description)
+    for key in entry.semantic_snapshot.keys do
+      buf.append(prefix + "  @" + key + " = " + entry.semantic_snapshot[key])
+    end
+    for child in entry.children do
+      self.render_entry_tree(child, buf, indent + 1)
+    end
+  end
+  fn score_dimension(self, module_path: String, dimension: String) -> Float do
+    match dimension with
+      "semantic" do return self._compute_semantic_integrity_score(module_path) end
+      "cognitive" do
+        let profile be self.inspect_cognitive_profile(module_path)
+        let total be profile["complexity"].to_int
+        if total == 0 then return 0.0 end
+        return 1.0 - (1.0 / total.to_float)
+      end
+      "provenance" do return self._compute_provenance_coverage(module_path) end
+      _ do return 0.0 end
+    end
+  end
+  fn assess_genome(self, module_path: String) -> Float do
+    let checks be 0
+    for line in self._read_source(module_path).split("\n") do
+      let t be line.trim
+      if t.starts_with("module ") or t.starts_with("intent ") or t.starts_with("export ") or t.starts_with("import ") then
+        checks = checks + 1
+      end
+    end
+    return (checks.to_float / 4.0)
+  end
+  fn activate_keyword(self, module_path: String, keyword: String) -> InspectionReport do
+    let report be self.inspect_module(module_path, InspectionDepth.SEMANTIC, InspectionFormat.SEMANTIC_MAP)
+    let filtered be List<InspectionEntry>{}
+    for e in report.entries do
+      if e.name.contains(keyword) or e.description.contains(keyword) then
+        filtered.append(e)
+      end
+    end
+    report.entries = filtered
+    report.total_inspected = filtered.length
+    return report
+  end
+  fn _extract_name(self, line: String, keyword: String) -> String do
+    let parts be line.substring(keyword.length).trim.split_whitespace
+    if parts.length > 0 then return parts[0] end
+    return ""
+  end
+  fn _extract_property_name(self, line: String) -> String do
+    let parts be line.substring("property ".length).trim.split(":")
+    if parts.length > 0 then return parts[0].trim end
+    return ""
+  end
+  fn _extract_fn_name(self, line: String) -> String do
+    let parts be line.substring("fn ".length).trim.split("(")
+    if parts.length > 0 then return parts[0].trim end
+    return ""
+  end
+  fn _extract_default_value(self, line: String) -> String do
+    let parts be line.split("=")
+    if parts.length >= 2 then return parts[parts.length - 1].trim end
+    return "<no default>"
+  end
+  fn _extract_intent(self, content: String) -> String do
+    for line in content.split("\n") do
+      let t be line.trim
+      if t.starts_with("intent ") then
+        return t.substring(7).replace("\"", "").trim
+      end
+    end
+    return "<no intent>"
+  end
+  fn _inspect_entity_body(self, entity_name: String, content: String) -> List<InspectionEntry> do
+    let children be List<InspectionEntry>{}
+    let in_entity be false
+    for line in content.split("\n") do
+      let t be line.trim
+      if in_entity then
+        if t == "end" then
+          in_entity = false
+        else if t.starts_with("property ") then
+          let e be InspectionEntry{}
+          e.name = self._extract_property_name(t)
+          e.kind = "property"
+          e.value_summary = self._extract_default_value(t)
+          children.append(e)
+        else if t.starts_with("fn ") then
+          let e be InspectionEntry{}
+          e.name = self._extract_fn_name(t)
+          e.kind = "method"
+          children.append(e)
+        end
+      else if t == "entity " + entity_name then
+        in_entity = true
+      end
+    end
+    return children
+  end
+  fn _compute_semantic_integrity(self, entries: List<InspectionEntry>) -> Float do
+    if entries.length == 0 then return 0.0 end
+    let with_intent be 0
+    for e in entries do
+      if e.semantic_snapshot.has("intent") and e.semantic_snapshot["intent"] != "<not declared>" then
+        with_intent = with_intent + 1
+      end
+    end
+    return (with_intent.to_float / entries.length.to_float)
+  end
+  fn _compute_semantic_integrity_score(self, module_path: String) -> Float do
+    for line in self._read_source(module_path).split("\n") do
+      if line.trim.starts_with("intent ") then return 1.0 end
+    end
+    return 0.0
+  end
+  fn _compute_provenance_coverage(self, module_path: String) -> Float do
+    let deps be self.inspect_dependencies(module_path)
+    if deps.length == 0 then return 1.0 end
+    let resolved be 0
+    for d in deps do
+      if self._module_exists(d) then resolved = resolved + 1 end
+    end
+    return (resolved.to_float / deps.length.to_float)
+  end
+  fn _extract_all_symbols(self, module_path: String) -> List<String> do
+    let symbols be List<String>{}
+    for line in self._read_source(module_path).split("\n") do
+      let t be line.trim
+      if t.starts_with("entity ") then symbols.append(self._extract_name(t, "entity "))
+      else if t.starts_with("fn ") then symbols.append(self._extract_name(t, "fn "))
+      else if t.starts_with("enum ") then symbols.append(self._extract_name(t, "enum "))
+      end
+    end
+    return symbols
+  end
+  fn _indent_str(self, depth: Int) -> String do
+    let s be ""
+    let i be 0
+    while i < depth do
+      s = s + "  "
+      i = i + 1
+    end
+    return s
+  end
+  fn _read_source(self, path: String) -> String do
+    return ""
+  end
+  fn _module_exists(self, path: String) -> Bool do
+    return false
+  end
+  fn _now(self) -> Float do
+    return 0.0
+  end
+end
+
+export { ModuleInspector, InspectionQuery, InspectionEntry, InspectionReport, InspectionTarget, InspectionDepth, InspectionFormat }

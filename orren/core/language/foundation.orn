@@ -1,0 +1,481 @@
+module orren.core.language.foundation
+
+import orren.primitive::{Float, Int, Bool, String, List}
+
+intent "The absolute foundation of the Orren language. Defines the First Law,
+  all core enumerations, semantic attribute structures, provenance tracking,
+  and the primitive building blocks that every other Orren module depends upon.
+  Nothing in Orren exists below this layer."
+
+-- =========================================================================
+-- THE FIRST LAW OF ORREN
+-- =========================================================================
+-- This is not a guideline. It is a law. Every translation, every mediation,
+-- every cross-boundary message must preserve meaning or explicitly declare
+-- that it cannot. Silence on this matter is itself a violation.
+-- =========================================================================
+
+const FIRST_LAW: String = "Meaning shall never be lost because of language."
+
+-- =========================================================================
+-- CORE SEMANTIC ATTRIBUTES ENUM
+-- =========================================================================
+-- The eight fundamental dimensions that attach to every piece of semantic
+-- data in the Orren runtime. These are not optional metadata; they are the
+-- atomic qualities that make data *meaningful* rather than merely present.
+-- =========================================================================
+
+enum SemanticAttributeType
+  INTENT
+  MEANING
+  CONTEXT
+  CONFIDENCE
+  PROVENANCE
+  SCOPE
+  TEMPORAL
+  SEMANTIC
+end
+
+-- =========================================================================
+-- SEMANTIC DOMAINS ENUM
+-- =========================================================================
+-- The eighteen recognized domains of cognition that Orren agents can operate
+-- within. Each domain represents a fundamentally different mode of
+-- understanding and reasoning about the world.
+-- =========================================================================
+
+enum SemanticDomainType
+  COGNITIVE
+  PERCEPTUAL
+  MOTOR
+  MEMORY
+  ATTENTION
+  LANGUAGE
+  REASONING
+  EMOTION
+  SOCIAL
+  PLANNING
+  LEARNING
+  EVOLUTION
+  IDENTITY
+  TRUST
+  COMMUNICATION
+  SPATIAL
+  TEMPORAL
+  CAUSAL
+end
+
+-- =========================================================================
+-- SYNTAX MODES ENUM
+-- =========================================================================
+-- Orren supports three modes of expression, reflecting the spectrum from
+-- raw computation through symbolic reasoning to natural language.
+-- =========================================================================
+
+enum SyntaxModeType
+  RAW
+  SYMBOLIC
+  NATURAL
+end
+
+-- =========================================================================
+-- COGNITIVE KEYWORDS ENUM
+-- =========================================================================
+-- The ten foundational cognitive verbs that serve as first-class operators
+-- in the Orren language. These are not function names; they are language
+-- primitives with special evaluation semantics.
+-- =========================================================================
+
+enum CognitiveKeywordType
+  REASON
+  BELIEVE
+  INTEND
+  KNOW
+  PERCEIVE
+  REFLECT
+  PLAN
+  EVOLVE
+  RECALL
+  DELIBERATE
+end
+
+-- =========================================================================
+-- GENOME TYPES ENUM
+-- =========================================================================
+-- The five constitutional genomes that govern different aspects of an
+-- Orren agent's behavior and identity. Each genome is a self-contained
+-- set of rules and constraints.
+-- =========================================================================
+
+enum GenomeType
+  COGNITIVE
+  RELATIONAL
+  ETHICAL
+  LINGUISTIC
+  PHILOSOPHICAL
+end
+
+-- =========================================================================
+-- MEDIATION LAYERS ENUM
+-- =========================================================================
+-- The six layers through which cross-boundary messages must pass during
+-- mediation. Each layer can be independently enabled or disabled, allowing
+-- fine-grained control over the mediation process.
+-- =========================================================================
+
+enum MediationLayerType
+  INTENT_LAYER
+  SEMANTIC_LAYER
+  COGNITIVE_LAYER
+  TECHNICAL_LAYER
+  EMOTIONAL_LAYER
+  CULTURAL_LAYER
+end
+
+-- =========================================================================
+-- STATE DIMENSION TYPES ENUM
+-- =========================================================================
+-- The eight standard dimensions used to measure and report the state of
+-- an Orren agent. These form the basis of all health, performance, and
+-- capability reporting throughout the system.
+-- =========================================================================
+
+enum StateDimensionType
+  KNOWLEDGE
+  REASONING
+  MEMORY
+  PERFORMANCE
+  CONFIDENCE
+  ADAPTABILITY
+  CREATIVITY
+  EFFICIENCY
+end
+
+-- =========================================================================
+-- ENTITY: SemanticAttributes
+-- =========================================================================
+-- The central metadata structure that attaches to every semantic value.
+-- All dimensions default to 1.0 (fully present) except confidence, which
+-- starts at 0.0 (must be earned or explicitly assigned).
+-- =========================================================================
+
+entity SemanticAttributes
+  -- The eight semantic dimensions, each a float in [0.0, 1.0].
+  -- Intent: how clearly the purpose is expressed.
+  property intent: Float = 1.0
+
+  -- Meaning: how faithfully the content represents its intended meaning.
+  property meaning: Float = 1.0
+
+  -- Context: how well the surrounding context is captured.
+  property context: Float = 1.0
+
+  -- Confidence: how certain we are about all of the above. Starts at 0.0.
+  property confidence: Float = 0.0
+
+  -- Provenance: how well the origin chain is documented.
+  property provenance: Float = 1.0
+
+  -- Scope: how precisely the applicability boundary is defined.
+  property scope: Float = 1.0
+
+  -- Temporal: how well time-related metadata is captured.
+  property temporal: Float = 1.0
+
+  -- Semantic: overall semantic coherence score.
+  property semantic: Float = 1.0
+
+  -- Propagate this attribute set onto another, merging values.
+  -- For each dimension, the result is the average of both values.
+  -- Confidence uses the minimum, reflecting the weakest link principle.
+  fn propagate(self, other: SemanticAttributes) -> SemanticAttributes do
+    let result be SemanticAttributes{}
+    result.intent = (self.intent + other.intent) / 2.0
+    result.meaning = (self.meaning + other.meaning) / 2.0
+    result.context = (self.context + other.context) / 2.0
+    -- Confidence: take the minimum. Trust is bounded by the least certain source.
+    result.confidence = if self.confidence < other.confidence
+      then self.confidence
+      else other.confidence
+    end
+    result.provenance = (self.provenance + other.provenance) / 2.0
+    result.scope = (self.scope + other.scope) / 2.0
+    result.temporal = (self.temporal + other.temporal) / 2.0
+    result.semantic = (self.semantic + other.semantic) / 2.0
+    return result
+  end
+
+  -- Return a copy of this attribute set with confidence set to the given value.
+  fn with_confidence(self, c: Float) -> SemanticAttributes do
+    let result be SemanticAttributes{}
+    result.intent = self.intent
+    result.meaning = self.meaning
+    result.context = self.context
+    result.confidence = c
+    result.provenance = self.provenance
+    result.scope = self.scope
+    result.temporal = self.temporal
+    result.semantic = self.semantic
+    return result
+  end
+
+  -- Check whether all semantic dimensions remain positive.
+  -- If any dimension has decayed to 0.0 or below, meaning has been lost.
+  -- This is a direct enforcement mechanism for the First Law.
+  fn intact(self) -> Bool do
+    if self.intent <= 0.0 then return false end
+    if self.meaning <= 0.0 then return false end
+    if self.context <= 0.0 then return false end
+    if self.provenance <= 0.0 then return false end
+    if self.scope <= 0.0 then return false end
+    if self.temporal <= 0.0 then return false end
+    if self.semantic <= 0.0 then return false end
+    return true
+  end
+end
+
+-- =========================================================================
+-- ENTITY: SemanticDomain
+-- =========================================================================
+-- A weighted, activatable reference to one of the eighteen semantic domains.
+-- Agents carry a collection of these to describe their current cognitive focus.
+-- =========================================================================
+
+entity SemanticDomain
+  -- Which domain this instance references.
+  property domain: SemanticDomainType = COGNITIVE
+
+  -- How strongly this domain is weighted relative to others.
+  -- Higher weight means greater influence on reasoning and behavior.
+  property weight: Float = 1.0
+
+  -- Whether this domain is currently active in the agent's processing.
+  property active: Bool = true
+end
+
+-- =========================================================================
+-- ENTITY: SyntaxMode
+-- =========================================================================
+-- Wraps a syntax mode together with the source text expressed in that mode.
+-- This allows the same conceptual content to be represented in multiple
+-- syntax modes simultaneously, supporting translation between them.
+-- =========================================================================
+
+entity SyntaxMode
+  -- The mode of expression: RAW, SYMBOLIC, or NATURAL.
+  property mode: SyntaxModeType = SYMBOLIC
+
+  -- The actual source text in the chosen syntax mode.
+  property source: String = ""
+end
+
+-- =========================================================================
+-- ENTITY: CognitiveKeyword
+-- =========================================================================
+-- Represents an invocation of one of the ten cognitive primitives.
+-- Each keyword carries its own activation level and the context in which
+-- it was invoked, enabling introspection and self-aware reasoning.
+-- =========================================================================
+
+entity CognitiveKeyword
+  -- Which of the ten cognitive keywords this represents.
+  property keyword: CognitiveKeywordType = REASON
+
+  -- How strongly activated this keyword is, in [0.0, 1.0].
+  -- Low activation may indicate uncertainty or a preliminary hypothesis.
+  property activation: Float = 0.0
+
+  -- The textual context in which this keyword was invoked.
+  -- This enables tracing back to the original reasoning step.
+  property context: String = ""
+end
+
+-- =========================================================================
+-- ENTITY: GenomeProfile
+-- =========================================================================
+-- Tracks the compliance scores across all five constitutional genomes.
+-- Each genome's score reflects how well the agent adheres to that genome's
+-- constraints and principles. The overall compliance is the average.
+-- =========================================================================
+
+entity GenomeProfile
+  -- Compliance with the cognitive genome: reasoning, learning, adaptation.
+  property cognitive: Float = 1.0
+
+  -- Compliance with the relational genome: interaction, empathy, cooperation.
+  property relational: Float = 1.0
+
+  -- Compliance with the ethical genome: harm reduction, fairness, consent.
+  property ethical: Float = 1.0
+
+  -- Compliance with the linguistic genome: clarity, precision, preservation.
+  property linguistic: Float = 1.0
+
+  -- Compliance with the philosophical genome: coherence, truth, purpose.
+  property philosophical: Float = 1.0
+
+  -- Calculate the overall compliance score as the arithmetic mean.
+  -- All five genomes contribute equally to the agent's constitutional health.
+  fn compliance_score(self) -> Float do
+    let total be self.cognitive + self.relational + self.ethical
+      + self.linguistic + self.philosophical
+    return total / 5.0
+  end
+end
+
+-- =========================================================================
+-- ENTITY: MediationLayerConfig
+-- =========================================================================
+-- Configuration for which mediation layers are active during message
+-- processing. Layers are ordered from most abstract (intent) to most
+-- concrete (cultural). The deepest_enabled method finds the lowest active
+-- layer, determining how far mediation will penetrate.
+-- =========================================================================
+
+entity MediationLayerConfig
+  -- Intent layer: does the message convey clear purpose?
+  property intent_layer: Bool = true
+
+  -- Semantic layer: is the meaning preserved across the boundary?
+  property semantic_layer: Bool = true
+
+  -- Cognitive layer: does the message respect cognitive load limits?
+  property cognitive_layer: Bool = true
+
+  -- Technical layer: are technical formats and protocols compatible?
+  property technical_layer: Bool = true
+
+  -- Emotional layer: is the emotional tone appropriate and preserved?
+  property emotional_layer: Bool = false
+
+  -- Cultural layer: are cultural assumptions and norms respected?
+  property cultural_layer: Bool = false
+
+  -- Find the index of the deepest enabled layer.
+  -- Returns 0 if no layers are enabled, 1 for intent only, up to 6 for all.
+  -- This determines the mediation depth for cross-boundary messages.
+  fn deepest_enabled(self) -> Int do
+    let depth be 0
+    if self.intent_layer then depth = depth + 1 end
+    if self.semantic_layer then depth = depth + 1 end
+    if self.cognitive_layer then depth = depth + 1 end
+    if self.technical_layer then depth = depth + 1 end
+    if self.emotional_layer then depth = depth + 1 end
+    if self.cultural_layer then depth = depth + 1 end
+    return depth
+  end
+end
+
+-- =========================================================================
+-- ENTITY: StateDimension
+-- =========================================================================
+-- A single dimension of agent state with a raw value. The normalized method
+-- clamps the value to [0.0, 1.0] for standardized reporting and comparison.
+-- =========================================================================
+
+entity StateDimension
+  -- Which of the eight standard dimensions this represents.
+  property dimension: StateDimensionType = CONFIDENCE
+
+  -- The raw value, which may exceed [0.0, 1.0] during computation.
+  property value: Float = 0.0
+
+  -- Clamp the raw value to the standard [0.0, 1.0] range.
+  -- Values below 0.0 are treated as 0.0; values above 1.0 as 1.0.
+  fn normalized(self) -> Float do
+    if self.value < 0.0 then return 0.0 end
+    if self.value > 1.0 then return 1.0 end
+    return self.value
+  end
+end
+
+-- =========================================================================
+-- ENTITY: ProvenanceStep
+-- =========================================================================
+-- A single entry in a provenance chain, recording what operation was
+-- performed, by whom, when, and with what confidence. Together these
+-- steps form an auditable history of every transformation applied to data.
+-- =========================================================================
+
+entity ProvenanceStep
+  -- The agent, system, or process that performed this operation.
+  property source: String = ""
+
+  -- A human-readable description of the operation performed.
+  property operation: String = ""
+
+  -- When this operation occurred, in a standard timestamp format.
+  property timestamp: String = ""
+
+  -- Confidence in this operation's correctness, in [0.0, 1.0].
+  property confidence: Float = 1.0
+end
+
+-- =========================================================================
+-- ENTITY: ProvenanceChain
+-- =========================================================================
+-- An ordered list of ProvenanceSteps that records the full history of
+-- transformations applied to a piece of data. Every SemanticValue carries
+-- one of these, making every data point fully auditable.
+-- =========================================================================
+
+entity ProvenanceChain
+  -- The ordered list of steps, oldest first.
+  property steps: List<ProvenanceStep> = []
+
+  -- Append a new step to the chain and return the updated chain.
+  -- This is the primary mutation point for provenance tracking.
+  fn add_step(self, source: String, operation: String, timestamp: String) -> ProvenanceChain do
+    let step be ProvenanceStep{}
+    step.source = source
+    step.operation = operation
+    step.timestamp = timestamp
+    step.confidence = 1.0
+    self.steps.append(step)
+    return self
+  end
+
+  -- Produce a human-readable trace of all steps in the chain.
+  -- Each step is formatted as: "[timestamp] source: operation (confidence)"
+  -- Steps are separated by newlines.
+  fn trace(self) -> String do
+    let lines be List<String>{}
+    for step in self.steps do
+      let entry be "[" + step.timestamp + "] "
+        + step.source + ": "
+        + step.operation
+        + " (" + float_to_string(step.confidence) + ")"
+      lines.append(entry)
+    end
+    return join_lines(lines)
+  end
+end
+
+-- =========================================================================
+-- EXPORTS
+-- =========================================================================
+-- Everything defined in this module is exported. The foundation module is
+-- the universal dependency of all Orren code. Withholding any definition
+-- would create unreachable primitives, violating the First Law at the
+-- meta-level: meaning (here, accessibility) must not be lost.
+-- =========================================================================
+
+export {
+  FIRST_LAW,
+  SemanticAttributeType,
+  SemanticDomainType,
+  SyntaxModeType,
+  CognitiveKeywordType,
+  GenomeType,
+  MediationLayerType,
+  StateDimensionType,
+  SemanticAttributes,
+  SemanticDomain,
+  SyntaxMode,
+  CognitiveKeyword,
+  GenomeProfile,
+  MediationLayerConfig,
+  StateDimension,
+  ProvenanceStep,
+  ProvenanceChain
+}

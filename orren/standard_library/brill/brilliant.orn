@@ -1,0 +1,937 @@
+module orren.brill
+
+import from orren.core.language.foundation::{*}
+
+intent "Provide the creative/design runtime for design spaces, blueprints, and patterns"
+intent "Enable blueprint composition, aesthetic scoring, and evolutionary design"
+intent "Implement the VIBE design cycle integrated with evolutionary optimization"
+intent "Support design templates, pattern matching, and multi-dimensional evaluation"
+
+const BRILL_VERSION = "1.0.0"
+const DIMENSION_COUNT = 8
+const DEFAULT_FITNESS_TARGET = 0.85
+const DEFAULT_POPULATION_SIZE = 20
+const MAX_GENERATIONS = 100
+const TOURNAMENT_SIZE = 3
+const MUTATION_RATE = 0.15
+const CROSSOVER_RATE = 0.7
+const MIN_DIMENSION_SCORE = 0.0
+const MAX_DIMENSION_SCORE = 1.0
+const HARMONY_BASELINE = 0.5
+const NOVELTY_WEIGHT = 0.3
+const HARMONY_WEIGHT = 0.25
+const FITNESS_WEIGHT = 0.25
+const BALANCE_WEIGHT = 0.2
+
+enum DesignDimension
+    FORM
+    FUNCTION
+    AESTHETICS
+    ERGONOMICS
+    SEMANTICS
+    CULTURAL
+    ECONOMIC
+    SUSTAINABILITY
+end
+
+entity DesignSpace
+    property space_id : String = ""
+    property name : String = ""
+    property dimensions : Map<String, DesignDimension> = {}
+    property constraints : List<String> = []
+
+    fn new(space_id : String, name : String) -> DesignSpace
+        let ds : DesignSpace = DesignSpace()
+        ds.space_id = space_id
+        ds.name = name
+        ds.dimensions = {}
+        ds.constraints = []
+        return ds
+    end
+
+    fn add_dimension(name : String, dim : DesignDimension) -> DesignSpace
+        let updated : DesignSpace = self
+        updated.dimensions[name] = dim
+        return updated
+    end
+
+    fn add_constraint(constraint : String) -> DesignSpace
+        let updated : DesignSpace = self
+        updated.constraints = ListOps.append(updated.constraints, constraint)
+        return updated
+    end
+
+    fn explore() -> List<Map<String, String>>
+        intent "Generate exploration points across all registered dimensions"
+        let results : List<Map<String, String>> = []
+        for dim_name in self.dimensions do
+            let point : Map<String, String> = {}
+            point["space_id"] = self.space_id
+            point["dimension_name"] = dim_name
+            point["constraint_count"] = "" + ListOps.length(self.constraints)
+            let dim : DesignDimension = self.dimensions[dim_name]
+            let dim_str : String = ""
+            match dim with
+                DesignDimension.FORM then
+                    dim_str = "FORM"
+                DesignDimension.FUNCTION then
+                    dim_str = "FUNCTION"
+                DesignDimension.AESTHETICS then
+                    dim_str = "AESTHETICS"
+                DesignDimension.ERGONOMICS then
+                    dim_str = "ERGONOMICS"
+                DesignDimension.SEMANTICS then
+                    dim_str = "SEMANTICS"
+                DesignDimension.CULTURAL then
+                    dim_str = "CULTURAL"
+                DesignDimension.ECONOMIC then
+                    dim_str = "ECONOMIC"
+                DesignDimension.SUSTAINABILITY then
+                    dim_str = "SUSTAINABILITY"
+            end
+            point["dimension_type"] = dim_str
+            point["exploration_status"] = "unexplored"
+            results = ListOps.append(results, point)
+        end
+        return results
+    end
+
+    fn dimension_names() -> List<String>
+        let names : List<String> = []
+        for name in self.dimensions do
+            names = ListOps.append(names, name)
+        end
+        return names
+    end
+
+    fn dimension_count() -> Int
+        return ListOps.length(self.dimension_names())
+    end
+
+    fn to_string() -> String
+        let dc : Int = self.dimension_count()
+        let cc : Int = ListOps.length(self.constraints)
+        return "DesignSpace(" + self.space_id + ", name=" + self.name + ", dims=" + dc + ", constraints=" + cc + ")"
+    end
+end
+
+entity Blueprint
+    property blueprint_id : String = ""
+    property name : String = ""
+    property description : String = ""
+    property components : List<Map<String, String>> = []
+    property relations : List<Map<String, String>> = []
+    property dimensions : Map<String, Float> = {}
+
+    fn new(blueprint_id : String, name : String, description : String) -> Blueprint
+        let bp : Blueprint = Blueprint()
+        bp.blueprint_id = blueprint_id
+        bp.name = name
+        bp.description = description
+        bp.components = []
+        bp.relations = []
+        bp.dimensions = {}
+        return bp
+    end
+
+    fn add_component(name : String, type : String, description : String) -> Blueprint
+        let updated : Blueprint = self
+        let comp : Map<String, String> = {}
+        comp["name"] = name
+        comp["type"] = type
+        comp["description"] = description
+        updated.components = ListOps.append(updated.components, comp)
+        return updated
+    end
+
+    fn add_relation(source : String, target : String, relation_type : String) -> Blueprint
+        let updated : Blueprint = self
+        let rel : Map<String, String> = {}
+        rel["source"] = source
+        rel["target"] = target
+        rel["relation_type"] = relation_type
+        updated.relations = ListOps.append(updated.relations, rel)
+        return updated
+    end
+
+    fn set_dimension(dimension : String, score : Float) -> Blueprint
+        let updated : Blueprint = self
+        updated.dimensions[dimension] = score
+        return updated
+    end
+
+    fn dimension_score(dim : String) -> Float
+        let score : Float = self.dimensions[dim]
+        return score
+    end
+
+    fn overall_score() -> Float
+        let total : Float = 0.0
+        let count : Int = 0
+        for dim in self.dimensions do
+            let score : Float = self.dimensions[dim]
+            total = total + score
+            count = count + 1
+        end
+        if count == 0
+            return 0.0
+        end
+        return total / count
+    end
+
+    fn component_count() -> Int
+        return ListOps.length(self.components)
+    end
+
+    fn relation_count() -> Int
+        return ListOps.length(self.relations)
+    end
+
+    fn dimension_count() -> Int
+        let count : Int = 0
+        for dim in self.dimensions do
+            count = count + 1
+        end
+        return count
+    end
+
+    fn clone() -> Blueprint
+        let bp : Blueprint = Blueprint.new(self.blueprint_id, self.name, self.description)
+        bp.components = self.components
+        bp.relations = self.relations
+        bp.dimensions = self.dimensions
+        return bp
+    end
+
+    fn to_string() -> String
+        let cc : Int = self.component_count()
+        let rc : Int = self.relation_count()
+        let os : Float = self.overall_score()
+        return "Blueprint(" + self.blueprint_id + ", name=" + self.name + ", components=" + cc + ", relations=" + rc + ", score=" + os + ")"
+    end
+end
+
+entity DesignPattern
+    property pattern_id : String = ""
+    property name : String = ""
+    property category : String = ""
+    property structure : String = ""
+    property intent : String = ""
+    property applicability : List<String> = []
+
+    fn new(pattern_id : String, name : String, category : String, structure : String, intent : String) -> DesignPattern
+        let dp : DesignPattern = DesignPattern()
+        dp.pattern_id = pattern_id
+        dp.name = name
+        dp.category = category
+        dp.structure = structure
+        dp.intent = intent
+        dp.applicability = []
+        return dp
+    end
+
+    fn add_applicability(condition : String) -> DesignPattern
+        let updated : DesignPattern = self
+        updated.applicability = ListOps.append(updated.applicability, condition)
+        return updated
+    end
+
+    fn matches(context : String) -> Bool
+        intent "Check whether this pattern applies to the given design context"
+        let ctx_lower : String = StringOps.lowercase(context)
+        for condition in self.applicability do
+            let cond_lower : String = StringOps.lowercase(condition)
+            if StringOps.contains(ctx_lower, cond_lower)
+                return true
+            end
+        end
+        let name_lower : String = StringOps.lowercase(self.name)
+        if StringOps.contains(ctx_lower, name_lower)
+            return true
+        end
+        let cat_lower : String = StringOps.lowercase(self.category)
+        if StringOps.contains(ctx_lower, cat_lower)
+            return true
+        end
+        return false
+    end
+
+    fn applicability_count() -> Int
+        return ListOps.length(self.applicability)
+    end
+
+    fn to_string() -> String
+        let ac : Int = self.applicability_count()
+        return "DesignPattern(" + self.pattern_id + ", name=" + self.name + ", category=" + self.category + ", applicability_count=" + ac + ")"
+    end
+end
+
+entity Template
+    property template_id : String = ""
+    property name : String = ""
+    property pattern_ids : List<String> = []
+    property slots : Map<String, String> = {}
+
+    fn new(template_id : String, name : String) -> Template
+        let t : Template = Template()
+        t.template_id = template_id
+        t.name = name
+        t.pattern_ids = []
+        t.slots = {}
+        return t
+    end
+
+    fn add_pattern(pattern_id : String) -> Template
+        let updated : Template = self
+        updated.pattern_ids = ListOps.append(updated.pattern_ids, pattern_id)
+        return updated
+    end
+
+    fn add_slot(slot_name : String, slot_type : String) -> Template
+        let updated : Template = self
+        updated.slots[slot_name] = slot_type
+        return updated
+    end
+
+    fn required_slots() -> List<String>
+        let slots : List<String> = []
+        for slot_name in self.slots do
+            slots = ListOps.append(slots, slot_name)
+        end
+        return slots
+    end
+
+    fn slot_count() -> Int
+        return ListOps.length(self.required_slots())
+    end
+
+    fn pattern_count() -> Int
+        return ListOps.length(self.pattern_ids)
+    end
+
+    fn instantiate(slot_values : Map<String, String>) -> Blueprint
+        intent "Create a blueprint from this template by filling slots with provided values"
+        let bp : Blueprint = Blueprint.new(self.template_id, self.name, "Instantiated from template: " + self.name)
+        for slot_name in self.slots do
+            let slot_type : String = self.slots[slot_name]
+            let value : String = slot_values[slot_name]
+            bp = bp.add_component(slot_name, slot_type, value)
+        end
+        let i : Int = 0
+        let slot_names : List<String> = self.required_slots()
+        let slot_count : Int = self.slot_count()
+        if slot_count > 1
+            for i = 0 to slot_count - 2 do
+                let current : String = slot_names[i]
+                let next_slot : String = slot_names[i + 1]
+                bp = bp.add_relation(current, next_slot, "composed_of")
+            end
+        end
+        return bp
+    end
+
+    fn to_string() -> String
+        let pc : Int = self.pattern_count()
+        let sc : Int = self.slot_count()
+        return "Template(" + self.template_id + ", name=" + self.name + ", patterns=" + pc + ", slots=" + sc + ")"
+    end
+end
+
+entity AestheticScorer
+    property weights : Map<String, Float> = {}
+    property thresholds : Map<String, Float> = {}
+
+    fn new() -> AestheticScorer
+        let scorer : AestheticScorer = AestheticScorer()
+        scorer.weights = {}
+        scorer.weights["FORM"] = 0.125
+        scorer.weights["FUNCTION"] = 0.125
+        scorer.weights["AESTHETICS"] = 0.15
+        scorer.weights["ERGONOMICS"] = 0.1
+        scorer.weights["SEMANTICS"] = 0.15
+        scorer.weights["CULTURAL"] = 0.1
+        scorer.weights["ECONOMIC"] = 0.1
+        scorer.weights["SUSTAINABILITY"] = 0.15
+        scorer.thresholds = {}
+        scorer.thresholds["min_harmony"] = 0.4
+        scorer.thresholds["min_novelty"] = 0.2
+        scorer.thresholds["min_fitness"] = 0.5
+        return scorer
+    end
+
+    fn score(blueprint : Blueprint) -> Map<String, Float>
+        intent "Score a blueprint across all 8 design dimensions"
+        let scores : Map<String, Float> = {}
+        let components : List<Map<String, String>> = blueprint.components
+        let comp_count : Int = ListOps.length(components)
+        let rel_count : Int = ListOps.length(blueprint.relations)
+
+        let form_score : Float = 0.5
+        if comp_count > 0
+            form_score = 0.3 + (0.7 * (1.0 / (1.0 + comp_count * 0.1)))
+        end
+        scores["FORM"] = form_score
+
+        let func_score : Float = 0.5
+        if rel_count > 0
+            let ratio : Float = rel_count / comp_count
+            if ratio > 0.0
+                func_score = 0.4 + (0.6 * (ratio / (1.0 + ratio)))
+            end
+        end
+        scores["FUNCTION"] = func_score
+
+        let aesthetic_score : Float = self.harmony_score(components)
+        scores["AESTHETICS"] = aesthetic_score
+
+        let ergo_score : Float = 0.6
+        if comp_count > 1
+            ergo_score = 0.4 + (0.5 * (rel_count / comp_count))
+        end
+        if ergo_score > 1.0
+            ergo_score = 1.0
+        end
+        scores["ERGONOMICS"] = ergo_score
+
+        let sem_score : Float = 0.5
+        if blueprint.description != ""
+            sem_score = 0.7
+        end
+        scores["SEMANTICS"] = sem_score
+
+        let cultural_score : Float = 0.5
+        let desc_lower : String = StringOps.lowercase(blueprint.description)
+        if StringOps.contains(desc_lower, "universal")
+            cultural_score = 0.9
+        end
+        if StringOps.contains(desc_lower, "accessible")
+            cultural_score = 0.8
+        end
+        scores["CULTURAL"] = cultural_score
+
+        let econ_score : Float = 0.6
+        if comp_count > 10
+            econ_score = 0.3
+        end
+        if comp_count <= 5
+            econ_score = 0.8
+        end
+        scores["ECONOMIC"] = econ_score
+
+        let sust_score : Float = 0.7
+        if comp_count <= 3
+            sust_score = 0.9
+        end
+        if comp_count > 15
+            sust_score = 0.4
+        end
+        scores["SUSTAINABILITY"] = sust_score
+
+        return scores
+    end
+
+    fn harmony_score(components : List<Map<String, String>>) -> Float
+        intent "Measure internal consistency and coherence of component set"
+        let comp_count : Int = ListOps.length(components)
+        if comp_count == 0
+            return HARMONY_BASELINE
+        end
+        if comp_count == 1
+            return 0.8
+        end
+        let type_map : Map<String, Int> = {}
+        for comp in components do
+            let comp_type : String = comp["type"]
+            let current : Int = type_map[comp_type]
+            type_map[comp_type] = current + 1
+        end
+        let type_count : Int = 0
+        for t in type_map do
+            type_count = type_count + 1
+        end
+        let diversity : Float = type_count / comp_count
+        let uniqueness : Float = 1.0 - diversity
+        let harmony : Float = HARMONY_BASELINE + (0.4 * uniqueness) + (0.1 * diversity)
+        if harmony > 1.0
+            harmony = 1.0
+        end
+        return harmony
+    end
+
+    fn novelty_score(blueprint : Blueprint, existing : List<Blueprint>) -> Float
+        intent "Measure how novel a blueprint is compared to existing designs"
+        let existing_count : Int = ListOps.length(existing)
+        if existing_count == 0
+            return 1.0
+        end
+        let comp_count : Int = blueprint.component_count()
+        let rel_count : Int = blueprint.relation_count()
+        let name_lower : String = StringOps.lowercase(blueprint.name)
+        let total_similarity : Float = 0.0
+        for ex_bp in existing do
+            let ex_comp_count : Int = ex_bp.component_count()
+            let ex_rel_count : Int = ex_bp.relation_count()
+            let comp_diff : Float = 0.0
+            if comp_count + ex_comp_count > 0
+                comp_diff = 1.0 - (comp_count - ex_comp_count) / (comp_count + ex_comp_count)
+            end
+            if comp_diff < 0.0
+                comp_diff = 0.0 - comp_diff
+            end
+            let rel_diff : Float = 0.0
+            if rel_count + ex_rel_count > 0
+                rel_diff = 1.0 - (rel_count - ex_rel_count) / (rel_count + ex_rel_count)
+            end
+            if rel_diff < 0.0
+                rel_diff = 0.0 - rel_diff
+            end
+            let ex_name_lower : String = StringOps.lowercase(ex_bp.name)
+            let name_sim : Float = 0.0
+            if name_lower == ex_name_lower
+                name_sim = 1.0
+            end
+            let similarity : Float = (comp_diff + rel_diff + name_sim) / 3.0
+            total_similarity = total_similarity + similarity
+        end
+        let avg_similarity : Float = total_similarity / existing_count
+        let novelty : Float = 1.0 - avg_similarity
+        return novelty
+    end
+
+    fn fitness_score(blueprint : Blueprint, requirements : Map<String, Float>) -> Float
+        intent "Measure how well a blueprint meets stated requirements"
+        let dim_scores : Map<String, Float> = self.score(blueprint)
+        let total_error : Float = 0.0
+        let req_count : Int = 0
+        for req_dim in requirements do
+            let required : Float = requirements[req_dim]
+            let actual : Float = dim_scores[req_dim]
+            let error : Float = required - actual
+            if error < 0.0
+                error = 0.0 - error
+            end
+            total_error = total_error + error
+            req_count = req_count + 1
+        end
+        if req_count == 0
+            return 0.5
+        end
+        let avg_error : Float = total_error / req_count
+        let fitness : Float = 1.0 - avg_error
+        if fitness < 0.0
+            fitness = 0.0
+        end
+        return fitness
+    end
+
+    fn overall_aesthetic(blueprint : Blueprint) -> Float
+        intent "Compute weighted overall aesthetic score for a blueprint"
+        let dim_scores : Map<String, Float> = self.score(blueprint)
+        let weighted_total : Float = 0.0
+        for dim_name in dim_scores do
+            let score : Float = dim_scores[dim_name]
+            let weight : Float = self.weights[dim_name]
+            weighted_total = weighted_total + (score * weight)
+        end
+        return weighted_total
+    end
+
+    fn set_weight(dimension : String, weight : Float) -> AestheticScorer
+        let updated : AestheticScorer = self
+        updated.weights[dimension] = weight
+        return updated
+    end
+
+    fn to_string() -> String
+        return "AestheticScorer(dimensions=" + DIMENSION_COUNT + ")"
+    end
+end
+
+entity EvolutionaryDesign
+    property population : List<Blueprint> = []
+    property generation : Int = 0
+    property scorer : AestheticScorer = AestheticScorer.new()
+
+    fn init(population_size : Int) -> EvolutionaryDesign
+        intent "Initialize an evolutionary design population with random blueprints"
+        let ed : EvolutionaryDesign = EvolutionaryDesign()
+        ed.generation = 0
+        ed.scorer = AestheticScorer.new()
+        ed.population = []
+        let i : Int = 0
+        for i = 0 to population_size - 1 do
+            let bp_id : String = "gen0_bp" + i
+            let bp : Blueprint = Blueprint.new(bp_id, "blueprint_" + i, "Evolutionary candidate " + i)
+            let comp_count : Int = 1 + (i % 5)
+            let j : Int = 0
+            for j = 0 to comp_count - 1 do
+                bp = bp.add_component("comp_" + j, "module", "Component " + j + " of blueprint " + i)
+            end
+            if comp_count > 1
+                bp = bp.add_relation("comp_0", "comp_1", "depends_on")
+            end
+            let dim_scores : Map<String, Float> = ed.scorer.score(bp)
+            for dim in dim_scores do
+                bp = bp.set_dimension(dim, dim_scores[dim])
+            end
+            ed.population = ListOps.append(ed.population, bp)
+        end
+        return ed
+    end
+
+    fn population_size() -> Int
+        return ListOps.length(self.population)
+    end
+
+    fn select() -> List<Blueprint>
+        intent "Tournament selection: pick the best from random subsets"
+        let selected : List<Blueprint> = []
+        let pop_size : Int = self.population_size()
+        let select_count : Int = pop_size / 2
+        if select_count < 2
+            select_count = 2
+        end
+        let i : Int = 0
+        for i = 0 to select_count - 1 do
+            let best : Blueprint = self.population[i % pop_size]
+            let best_score : Float = self.scorer.overall_aesthetic(best)
+            let t : Int = 0
+            for t = 0 to TOURNAMENT_SIZE - 1 do
+                let idx : Int = (i + t + 1) % pop_size
+                let candidate : Blueprint = self.population[idx]
+                let cand_score : Float = self.scorer.overall_aesthetic(candidate)
+                if cand_score > best_score
+                    best = candidate
+                    best_score = cand_score
+                end
+            end
+            selected = ListOps.append(selected, best)
+        end
+        return selected
+    end
+
+    fn crossover(parent_a : Blueprint, parent_b : Blueprint) -> Blueprint
+        intent "Create offspring by combining components from both parents"
+        let child : Blueprint = Blueprint.new(parent_a.blueprint_id + "_x_" + parent_b.blueprint_id, "cross_" + parent_a.name + "_" + parent_b.name, "Crossover of " + parent_a.name + " and " + parent_b.name)
+        let a_comps : List<Map<String, String>> = parent_a.components
+        let b_comps : List<Map<String, String>> = parent_b.components
+        let a_count : Int = ListOps.length(a_comps)
+        let b_count : Int = ListOps.length(b_comps)
+        let split_a : Int = a_count / 2
+        let i : Int = 0
+        for i = 0 to split_a - 1 do
+            let comp : Map<String, String> = a_comps[i]
+            let comp_name : String = comp["name"]
+            let comp_type : String = comp["type"]
+            let comp_desc : String = comp["description"]
+            child = child.add_component(comp_name, comp_type, comp_desc)
+        end
+        let split_b : Int = b_count / 2
+        for i = split_b to b_count - 1 do
+            let comp : Map<String, String> = b_comps[i]
+            let comp_name : String = comp["name"]
+            let comp_type : String = comp["type"]
+            let comp_desc : String = comp["description"]
+            child = child.add_component(comp_name, comp_type, comp_desc)
+        end
+        let a_rels : List<Map<String, String>> = parent_a.relations
+        for rel in a_rels do
+            let source : String = rel["source"]
+            let target : String = rel["target"]
+            let rtype : String = rel["relation_type"]
+            child = child.add_relation(source, target, rtype)
+        end
+        let dim_scores : Map<String, Float> = self.scorer.score(child)
+        for dim in dim_scores do
+            child = child.set_dimension(dim, dim_scores[dim])
+        end
+        return child
+    end
+
+    fn mutate(blueprint : Blueprint) -> Blueprint
+        intent "Apply random mutations to a blueprint's components and dimensions"
+        let mutated : Blueprint = blueprint.clone()
+        let comp_count : Int = mutated.component_count()
+        if comp_count > 0
+            let mutate_comp : Bool = true
+            let new_comp_name : String = "mutated_comp_" + self.generation
+            mutated = mutated.add_component(new_comp_name, "variant", "Mutated component in generation " + self.generation)
+        end
+        for dim in mutated.dimensions do
+            let current : Float = mutated.dimensions[dim]
+            let delta : Float = (MUTATION_RATE * 2.0) - MUTATION_RATE
+            let new_score : Float = current + delta
+            if new_score < MIN_DIMENSION_SCORE
+                new_score = MIN_DIMENSION_SCORE
+            end
+            if new_score > MAX_DIMENSION_SCORE
+                new_score = MAX_DIMENSION_SCORE
+            end
+            mutated = mutated.set_dimension(dim, new_score)
+        end
+        let dim_scores : Map<String, Float> = self.scorer.score(mutated)
+        for dim in dim_scores do
+            mutated = mutated.set_dimension(dim, dim_scores[dim])
+        end
+        return mutated
+    end
+
+    fn best() -> Blueprint
+        intent "Return the highest-scoring blueprint in the current population"
+        let best_bp : Blueprint = self.population[0]
+        let best_score : Float = self.scorer.overall_aesthetic(best_bp)
+        for bp in self.population do
+            let score : Float = self.scorer.overall_aesthetic(bp)
+            if score > best_score
+                best_bp = bp
+                best_score = score
+            end
+        end
+        return best_bp
+    end
+
+    fn evolve(generations : Int, fitness_target : Float) -> Blueprint
+        intent "Run the evolutionary design loop for specified generations or until fitness target met"
+        let current : EvolutionaryDesign = self
+        let gen : Int = 0
+        for gen = 0 to generations - 1 do
+            let best_so_far : Blueprint = current.best()
+            let best_score : Float = current.scorer.overall_aesthetic(best_so_far)
+            if best_score >= fitness_target
+                return best_so_far
+            end
+            let selected : List<Blueprint> = current.select()
+            let new_population : List<Blueprint> = []
+            let sel_size : Int = ListOps.length(selected)
+            let i : Int = 0
+            for i = 0 to sel_size - 1 do
+                let parent_a_idx : Int = i % sel_size
+                let parent_b_idx : Int = (i + 1) % sel_size
+                let parent_a : Blueprint = selected[parent_a_idx]
+                let parent_b : Blueprint = selected[parent_b_idx]
+                let child : Blueprint = current.crossover(parent_a, parent_b)
+                child = current.mutate(child)
+                new_population = ListOps.append(new_population, child)
+            end
+            let top_count : Int = sel_size / 4
+            if top_count < 1
+                top_count = 1
+            end
+            let t : Int = 0
+            for t = 0 to top_count - 1 do
+                if t < sel_size
+                    new_population = ListOps.append(new_population, selected[t])
+                end
+            end
+            current.population = new_population
+            current.generation = current.generation + 1
+        end
+        return current.best()
+    end
+
+    fn to_string() -> String
+        let ps : Int = self.population_size()
+        return "EvolutionaryDesign(generation=" + self.generation + ", population=" + ps + ")"
+    end
+end
+
+entity BrilliantRuntime
+    property design_spaces : Map<String, DesignSpace> = {}
+    property patterns : List<DesignPattern> = []
+    property templates : Map<String, Template> = {}
+    property scorer : AestheticScorer = AestheticScorer.new()
+
+    fn init() -> BrilliantRuntime
+        let rt : BrilliantRuntime = BrilliantRuntime()
+        rt.design_spaces = {}
+        rt.patterns = []
+        rt.templates = {}
+        rt.scorer = AestheticScorer.new()
+        return rt
+    end
+
+    fn create_design_space(name : String, dimensions : List<String>) -> DesignSpace
+        intent "Create and register a new design space with named dimensions"
+        let space_id : String = "ds_" + StringOps.lowercase(name)
+        let ds : DesignSpace = DesignSpace.new(space_id, name)
+        for dim_name in dimensions do
+            let dim_upper : String = StringOps.uppercase(dim_name)
+            let dim : DesignDimension = DesignDimension.FORM
+            match dim_upper with
+                "FORM" then
+                    dim = DesignDimension.FORM
+                "FUNCTION" then
+                    dim = DesignDimension.FUNCTION
+                "AESTHETICS" then
+                    dim = DesignDimension.AESTHETICS
+                "ERGONOMICS" then
+                    dim = DesignDimension.ERGONOMICS
+                "SEMANTICS" then
+                    dim = DesignDimension.SEMANTICS
+                "CULTURAL" then
+                    dim = DesignDimension.CULTURAL
+                "ECONOMIC" then
+                    dim = DesignDimension.ECONOMIC
+                "SUSTAINABILITY" then
+                    dim = DesignDimension.SUSTAINABILITY
+            end
+            ds = ds.add_dimension(dim_name, dim)
+        end
+        self.design_spaces[space_id] = ds
+        return ds
+    end
+
+    fn register_pattern(pattern : DesignPattern)
+        intent "Register a design pattern for later use in templates and design"
+        self.patterns = ListOps.append(self.patterns, pattern)
+    end
+
+    fn create_template(name : String, pattern_ids : List<String>) -> Template
+        intent "Create a template composed from registered design patterns"
+        let template_id : String = "tpl_" + StringOps.lowercase(name)
+        let tpl : Template = Template.new(template_id, name)
+        for pid in pattern_ids do
+            tpl = tpl.add_pattern(pid)
+            let i : Int = 0
+            for i = 0 to ListOps.length(self.patterns) - 1 do
+                let pat : DesignPattern = self.patterns[i]
+                if pat.pattern_id == pid
+                    let slot_name : String = "slot_" + pat.name
+                    tpl = tpl.add_slot(slot_name, pat.category)
+                end
+            end
+        end
+        self.templates[template_id] = tpl
+        return tpl
+    end
+
+    fn design(requirements : Map<String, String>) -> Blueprint
+        intent "Execute full VIBE design cycle: express, sketch, craft, verify, refine with evolution"
+        let req_desc : String = requirements["description"]
+        let bp_name : String = requirements["name"]
+        if bp_name == ""
+            bp_name = "designed_solution"
+        end
+        let bp_id : String = "bp_" + StringOps.lowercase(bp_name)
+
+        let context_str : String = req_desc
+        for key in requirements do
+            if key != "description"
+                if key != "name"
+                    context_str = context_str + " " + key + ":" + requirements[key]
+                end
+            end
+        end
+
+        let bp : Blueprint = Blueprint.new(bp_id, bp_name, req_desc)
+
+        let i : Int = 0
+        for i = 0 to ListOps.length(self.patterns) - 1 do
+            let pat : DesignPattern = self.patterns[i]
+            if pat.matches(context_str)
+                bp = bp.add_component(pat.name, pat.category, "Applied pattern: " + pat.name)
+            end
+        end
+
+        let fitness_reqs : Map<String, Float> = {}
+        for key in requirements do
+            if key == "form_weight"
+                fitness_reqs["FORM"] = StringOps.to_float(requirements[key])
+            end
+            if key == "function_weight"
+                fitness_reqs["FUNCTION"] = StringOps.to_float(requirements[key])
+            end
+            if key == "aesthetics_weight"
+                fitness_reqs["AESTHETICS"] = StringOps.to_float(requirements[key])
+            end
+        end
+
+        let dim_scores : Map<String, Float> = self.scorer.score(bp)
+        for dim in dim_scores do
+            bp = bp.set_dimension(dim, dim_scores[dim])
+        end
+
+        if ListOps.length(fitness_reqs) > 0
+            let evo : EvolutionaryDesign = EvolutionaryDesign.init(DEFAULT_POPULATION_SIZE)
+            evo.scorer = self.scorer
+            let seed_count : Int = ListOps.length(evo.population)
+            let s : Int = 0
+            for s = 0 to seed_count - 1 do
+                let seed_bp : Blueprint = evo.population[s]
+                seed_bp = seed_bp.add_component("core", "requirement", req_desc)
+                let scored : Map<String, Float> = self.scorer.score(seed_bp)
+                for d in scored do
+                    seed_bp = seed_bp.set_dimension(d, scored[d])
+                end
+                evo.population[s] = seed_bp
+            end
+            let evolved : Blueprint = evo.evolve(MAX_GENERATIONS, DEFAULT_FITNESS_TARGET)
+            let evo_score : Float = self.scorer.overall_aesthetic(evolved)
+            let base_score : Float = self.scorer.overall_aesthetic(bp)
+            if evo_score > base_score
+                bp = evolved
+            end
+        end
+
+        let final_scores : Map<String, Float> = self.scorer.score(bp)
+        for dim in final_scores do
+            bp = bp.set_dimension(dim, final_scores[dim])
+        end
+
+        return bp
+    end
+
+    fn evaluate(blueprint : Blueprint) -> Map<String, Float>
+        intent "Produce a full evaluation report with dimension scores and overall metrics"
+        let results : Map<String, Float> = {}
+        let dim_scores : Map<String, Float> = self.scorer.score(blueprint)
+        for dim in dim_scores do
+            results[dim] = dim_scores[dim]
+        end
+        results["overall"] = self.scorer.overall_aesthetic(blueprint)
+        results["harmony"] = self.scorer.harmony_score(blueprint.components)
+        results["novelty"] = self.scorer.novelty_score(blueprint, [])
+        let fitness : Float = self.scorer.fitness_score(blueprint, {})
+        results["fitness"] = fitness
+        results["component_count"] = blueprint.component_count()
+        results["relation_count"] = blueprint.relation_count()
+        results["dimension_coverage"] = blueprint.dimension_count() / DIMENSION_COUNT
+        return results
+    end
+
+    fn list_design_spaces() -> List<String>
+        let names : List<String> = []
+        for id in self.design_spaces do
+            names = ListOps.append(names, id)
+        end
+        return names
+    end
+
+    fn list_templates() -> List<String>
+        let names : List<String> = []
+        for id in self.templates do
+            names = ListOps.append(names, id)
+        end
+        return names
+    end
+
+    fn pattern_count() -> Int
+        return ListOps.length(self.patterns)
+    end
+
+    fn to_string() -> String
+        let ds_count : Int = ListOps.length(self.list_design_spaces())
+        let p_count : Int = self.pattern_count()
+        let t_count : Int = ListOps.length(self.list_templates())
+        return "BrilliantRuntime(spaces=" + ds_count + ", patterns=" + p_count + ", templates=" + t_count + ")"
+    end
+end
+
+export DesignDimension
+export DesignSpace
+export Blueprint
+export DesignPattern
+export Template
+export AestheticScorer
+export EvolutionaryDesign
+export BrilliantRuntime

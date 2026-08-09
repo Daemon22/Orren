@@ -1,0 +1,497 @@
+-- navigation.orn: Code navigation for the Orren SDK.
+-- Provides go-to-definition, find-all-references, and symbol search
+-- across files, modules, projects, and workspaces.
+
+module orren_tools.sdk.navigation
+
+import module::{String, Int, Bool, List, Map, Result, File, Path, Time}
+import orren.core.language.foundation::{SourceLocation, ModuleResolver, Manifest}
+
+-- The kind of symbol being navigated.
+enum SymbolKind
+    ENTITY
+    FUNCTION
+    PROPERTY
+    ENUM
+    CONST
+    PARAMETER
+    MODULE
+end
+
+-- The scope in which a symbol search operates.
+enum SearchScope
+    FILE
+    MODULE
+    PROJECT
+    WORKSPACE
+    DEPENDENCIES
+end
+
+-- A single symbol location for navigation results.
+entity SymbolLocation
+    property file: String = ""
+    property line: Int = 0
+    property column: Int = 0
+    property name: String = ""
+    property kind: SymbolKind = SymbolKind.ENTITY
+    property module_path: String = ""
+
+    -- Returns a formatted location string.
+    fn to_string(self) -> String do
+        return self.file + ":" + String.from_int(self.line).to_string() + ":" + String.from_int(self.column).to_string() + " " + self.kind_label() + " " + self.name
+    end
+
+    -- Returns the symbol kind as a display string.
+    fn kind_label(self) -> String do
+        return match self.kind with
+            SymbolKind.ENTITY => "entity"
+            SymbolKind.FUNCTION => "function"
+            SymbolKind.PROPERTY => "property"
+            SymbolKind.ENUM => "enum"
+            SymbolKind.CONST => "const"
+            SymbolKind.PARAMETER => "parameter"
+            SymbolKind.MODULE => "module"
+        end
+    end
+
+    -- Checks whether this location matches a given file.
+    fn in_file(self, file_path: String) -> Bool do
+        return self.file == file_path
+    end
+end
+
+-- Result of a navigation search.
+entity NavigationResult
+    property locations: List<SymbolLocation> = List<SymbolLocation>.new()
+    property query: String = ""
+    property search_scope: SearchScope = SearchScope.PROJECT
+    property search_time: Float = 0.0
+
+    -- Returns the number of locations found.
+    fn count(self) -> Int do
+        return self.locations.length
+    end
+
+    -- Filters locations to those within a specific file.
+    fn filter_by_file(self, file_path: String) -> List<SymbolLocation> do
+        let filtered be List<SymbolLocation>.new()
+        for loc in self.locations do
+            if loc.in_file(file_path) then
+                filtered.append(loc)
+            end
+        end
+        return filtered
+    end
+
+    -- Filters locations by symbol kind.
+    fn filter_by_kind(self, kind: SymbolKind) -> List<SymbolLocation> do
+        let filtered be List<SymbolLocation>.new()
+        for loc in self.locations do
+            if loc.kind == kind then
+                filtered.append(loc)
+            end
+        end
+        return filtered
+    end
+
+    -- Returns a formatted summary of search results.
+    fn summary(self) -> String do
+        let scope_str be match self.search_scope with
+            SearchScope.FILE => "file"
+            SearchScope.MODULE => "module"
+            SearchScope.PROJECT => "project"
+            SearchScope.WORKSPACE => "workspace"
+            SearchScope.DEPENDENCIES => "dependencies"
+        end
+        let lines be List<String>.new()
+        lines.append("Navigation: '" + self.query + "' (scope: " + scope_str + ")")
+        lines.append("  Results: " + String.from_int(self.count()).to_string())
+        lines.append("  Time: " + String.from_float(self.search_time).to_string() + "ms")
+        for loc in self.locations do
+            lines.append("  - " + loc.to_string())
+        end
+        return lines.join("\n")
+    end
+end
+
+-- A symbol index for fast lookups.
+entity SymbolIndex
+    property symbols_by_name: Map<String, List<SymbolLocation>> = Map<String, List<SymbolLocation>>.new()
+    property symbols_by_kind: Map<String, List<SymbolLocation>> = Map<String, List<SymbolLocation>>.new()
+    property symbols_by_module: Map<String, List<SymbolLocation>> = Map<String, List<SymbolLocation>>.new()
+    property total_symbols: Int = 0
+
+    -- Adds a symbol location to the index.
+    fn add_symbol(self, loc: SymbolLocation) do
+        let kind_key be loc.kind_label()
+        let by_kind be self.symbols_by_kind.get(kind_key)
+        if by_kind == nothing then
+            by_kind = List<SymbolLocation>.new()
+            self.symbols_by_kind.set(kind_key, by_kind)
+        end
+        by_kind.append(loc)
+        let by_name be self.symbols_by_name.get(loc.name)
+        if by_name == nothing then
+            by_name = List<SymbolLocation>.new()
+            self.symbols_by_name.set(loc.name, by_name)
+        end
+        by_name.append(loc)
+        let by_module be self.symbols_by_module.get(loc.module_path)
+        if by_module == nothing then
+            by_module = List<SymbolLocation>.new()
+            self.symbols_by_module.set(loc.module_path, by_module)
+        end
+        by_module.append(loc)
+        self.total_symbols = self.total_symbols + 1
+    end
+
+    -- Looks up symbols by exact name.
+    fn find_by_name(self, name: String) -> List<SymbolLocation> do
+        let results be self.symbols_by_name.get(name)
+        if results == nothing then
+            return List<SymbolLocation>.new()
+        end
+        return results
+    end
+
+    -- Looks up symbols by kind.
+    fn find_by_kind(self, kind: SymbolKind) -> List<SymbolLocation> do
+        let kind_key be match kind with
+            SymbolKind.ENTITY => "entity"
+            SymbolKind.FUNCTION => "function"
+            SymbolKind.PROPERTY => "property"
+            SymbolKind.ENUM => "enum"
+            SymbolKind.CONST => "const"
+            SymbolKind.PARAMETER => "parameter"
+            SymbolKind.MODULE => "module"
+        end
+        let results be self.symbols_by_kind.get(kind_key)
+        if results == nothing then
+            return List<SymbolLocation>.new()
+        end
+        return results
+    end
+
+    -- Performs a fuzzy name search across all indexed symbols.
+    fn fuzzy_search(self, pattern: String) -> List<SymbolLocation> do
+        let results be List<SymbolLocation>.new()
+        let all_names be self.symbols_by_name.keys()
+        for name in all_names do
+            if self.fuzzy_match(name, pattern) then
+                let locs be self.symbols_by_name.get(name)
+                if locs != nothing then
+                    for loc in locs do
+                        results.append(loc)
+                    end
+                end
+            end
+        end
+        return results
+    end
+
+    -- Checks if a string fuzzy-matches a pattern.
+    fn fuzzy_match(self, text: String, pattern: String) -> Bool do
+        if text.contains(pattern) then
+            return true
+        end
+        if text.starts_with(pattern) then
+            return true
+        end
+        if pattern.length <= 2 and text.length >= pattern.length then
+            let idx be 0
+            let matched be 0
+            while idx < pattern.length do
+                let pat_ch be pattern.char_at(idx)
+                let tidx be 0
+                while tidx < text.length do
+                    if text.char_at(tidx) == pat_ch then
+                        matched = matched + 1
+                        break
+                    end
+                    tidx = tidx + 1
+                end
+                idx = idx + 1
+            end
+            return matched == pattern.length
+        end
+        return false
+    end
+
+    -- Returns the total number of indexed symbols.
+    fn size(self) -> Int do
+        return self.total_symbols
+    end
+end
+
+-- The main navigation provider.
+entity NavigationProvider
+    property symbol_index: SymbolIndex = SymbolIndex.new()
+    property project_root: String = ""
+
+    -- Indexes all symbols in a module for navigation.
+    fn index_module(self, file_path: String, module_path: String) do
+        let raw be File.read(file_path)
+        if raw.is_error then
+            return
+        end
+        let lines be raw.value.split_lines()
+        let idx be 0
+        while idx < lines.length do
+            let trimmed be lines.get(idx).strip()
+            if trimmed.starts_with("module ") then
+                let mod_loc be SymbolLocation.new()
+                mod_loc.file = file_path
+                mod_loc.line = idx
+                mod_loc.column = 0
+                mod_loc.name = module_path
+                mod_loc.kind = SymbolKind.MODULE
+                mod_loc.module_path = module_path
+                self.symbol_index.add_symbol(mod_loc)
+            end
+            if trimmed.starts_with("entity ") then
+                let parts be trimmed.split(" ")
+                if parts.length >= 2 then
+                    let name be parts.get(1)
+                    let loc be SymbolLocation.new()
+                    loc.file = file_path
+                    loc.line = idx
+                    loc.column = trimmed.find(name)
+                    loc.name = name
+                    loc.kind = SymbolKind.ENTITY
+                    loc.module_path = module_path
+                    self.symbol_index.add_symbol(loc)
+                    let prop_locs be self.index_entity_properties(lines, idx, file_path, module_path, name)
+                    for pl in prop_locs do
+                        self.symbol_index.add_symbol(pl)
+                    end
+                end
+            end
+            if trimmed.starts_with("enum ") then
+                let parts be trimmed.split(" ")
+                if parts.length >= 2 then
+                    let name be parts.get(1)
+                    let loc be SymbolLocation.new()
+                    loc.file = file_path
+                    loc.line = idx
+                    loc.column = trimmed.find(name)
+                    loc.name = name
+                    loc.kind = SymbolKind.ENUM
+                    loc.module_path = module_path
+                    self.symbol_index.add_symbol(loc)
+                    let variant_locs be self.index_enum_variants(lines, idx, file_path, module_path, name)
+                    for vl in variant_locs do
+                        self.symbol_index.add_symbol(vl)
+                    end
+                end
+            end
+            if trimmed.contains("fn ") and trimmed.contains(" do") then
+                let fn_name be self.parse_fn_name(trimmed)
+                if fn_name.length > 0 then
+                    let loc be SymbolLocation.new()
+                    loc.file = file_path
+                    loc.line = idx
+                    loc.column = trimmed.find(fn_name)
+                    loc.name = fn_name
+                    loc.kind = SymbolKind.FUNCTION
+                    loc.module_path = module_path
+                    self.symbol_index.add_symbol(loc)
+                end
+            end
+            idx = idx + 1
+        end
+    end
+
+    -- Indexes properties within an entity block.
+    fn index_entity_properties(self, lines: List<String>, start_line: Int, file_path: String, module_path: String, entity_name: String) -> List<SymbolLocation> do
+        let locs be List<SymbolLocation>.new()
+        let idx be start_line + 1
+        while idx < lines.length do
+            let trimmed be lines.get(idx).strip()
+            if trimmed.starts_with("property ") then
+                let rest be trimmed.substring(9).strip()
+                let colon_pos be rest.find(":")
+                if colon_pos > 0 then
+                    let prop_name be rest.substring(0, colon_pos).strip()
+                    let loc be SymbolLocation.new()
+                    loc.file = file_path
+                    loc.line = idx
+                    loc.column = trimmed.find(prop_name)
+                    loc.name = prop_name
+                    loc.kind = SymbolKind.PROPERTY
+                    loc.module_path = module_path
+                    locs.append(loc)
+                end
+            end
+            if trimmed == "end" then
+                return locs
+            end
+            idx = idx + 1
+        end
+        return locs
+    end
+
+    -- Indexes variant names within an enum block.
+    fn index_enum_variants(self, lines: List<String>, start_line: Int, file_path: String, module_path: String, enum_name: String) -> List<SymbolLocation> do
+        let locs be List<SymbolLocation>.new()
+        let idx be start_line + 1
+        while idx < lines.length do
+            let trimmed be lines.get(idx).strip()
+            if trimmed == "end" then
+                return locs
+            end
+            if not trimmed.starts_with("--") and trimmed.length > 0 then
+                let variant_name be trimmed.strip()
+                let loc be SymbolLocation.new()
+                loc.file = file_path
+                loc.line = idx
+                loc.column = 0
+                loc.name = variant_name
+                loc.kind = SymbolKind.ENUM
+                loc.module_path = module_path
+                locs.append(loc)
+            end
+            idx = idx + 1
+        end
+        return locs
+    end
+
+    -- Parses a function name from a declaration line.
+    fn parse_fn_name(self, line: String) -> String do
+        let fn_pos be line.find("fn ")
+        if fn_pos < 0 then
+            return ""
+        end
+        let after_fn be line.substring(fn_pos + 3).strip()
+        let paren_pos be after_fn.find("(")
+        if paren_pos < 0 then
+            return after_fn
+        end
+        return after_fn.substring(0, paren_pos).strip()
+    end
+
+    -- Navigates to the definition of a symbol at a given position.
+    fn go_to_definition(self, file_path: String, line: Int, column: Int) -> Result<SymbolLocation> do
+        let raw be File.read(file_path)
+        if raw.is_error then
+            return Result.error("Failed to read file: " + file_path)
+        end
+        let source_line be raw.value.split_lines().get(line)
+        if source_line == nothing then
+            return Result.error("Line out of bounds: " + String.from_int(line).to_string())
+        end
+        let trimmed be source_line.strip()
+        let symbol_name be self.extract_symbol_at(trimmed, column)
+        if symbol_name.length == 0 then
+            return Result.error("No symbol at position")
+        end
+        let definitions be self.symbol_index.find_by_name(symbol_name)
+        for defn in definitions do
+            if defn.in_file(file_path) or self.is_same_module(defn.module_path, file_path) then
+                return Result.ok(defn)
+            end
+        end
+        if definitions.length > 0 then
+            return Result.ok(definitions.get(0))
+        end
+        return Result.error("Definition not found for: " + symbol_name)
+    end
+
+    -- Extracts the symbol name at a given column position.
+    fn extract_symbol_at(self, line: String, column: Int) -> String do
+        if column >= line.length then
+            return ""
+        end
+        let start be column
+        while start > 0 and self.is_identifier_char(line.char_at(start - 1)) do
+            start = start - 1
+        end
+        let finish be column
+        while finish < line.length and self.is_identifier_char(line.char_at(finish)) do
+            finish = finish + 1
+        end
+        if start == finish then
+            return ""
+        end
+        return line.substring(start, finish)
+    end
+
+    -- Checks if a character can be part of an identifier.
+    fn is_identifier_char(self, ch: String) -> Bool do
+        return ch.is_alpha() or ch.is_digit() or ch == "_"
+    end
+
+    -- Checks if a module path corresponds to a given file path.
+    fn is_same_module(self, module_path: String, file_path: String) -> Bool do
+        let dotted be module_path.replace(".", "/")
+        let expected be dotted + ".orn"
+        return file_path.ends_with(expected)
+    end
+
+    -- Finds all references to a symbol across the project.
+    fn find_all_references(self, symbol_name: String) -> NavigationResult do
+        let start_time be Time.now()
+        let result be NavigationResult.new()
+        result.query = symbol_name
+        result.search_scope = SearchScope.PROJECT
+        let defs be self.symbol_index.find_by_name(symbol_name)
+        if defs.length > 0 then
+            let primary be defs.get(0)
+            let refs be self.find_symbol_references(primary.file, symbol_name)
+            for ref in refs do
+                result.locations.append(ref)
+            end
+        end
+        let end_time be Time.now()
+        result.search_time = Float.from_int(end_time - start_time)
+        return result
+    end
+
+    -- Finds all textual references to a symbol in a file.
+    fn find_symbol_references(self, file_path: String, symbol_name: String) -> List<SymbolLocation> do
+        let refs be List<SymbolLocation>.new()
+        let raw be File.read(file_path)
+        if raw.is_error then
+            return refs
+        end
+        let lines be raw.value.split_lines()
+        let idx be 0
+        while idx < lines.length do
+            let line be lines.get(idx)
+            let col be line.find(symbol_name)
+            while col >= 0 do
+                let trimmed be line.strip()
+                let comment_pos be trimmed.find("--")
+                if not (comment_pos >= 0 and col >= comment_pos) then
+                    let loc be SymbolLocation.new()
+                    loc.file = file_path
+                    loc.line = idx
+                    loc.column = col
+                    loc.name = symbol_name
+                    loc.kind = SymbolKind.ENTITY
+                    refs.append(loc)
+                end
+                let next be line.find_from(symbol_name, col + symbol_name.length)
+                col = next
+            end
+            idx = idx + 1
+        end
+        return refs
+    end
+
+    -- Searches for symbols by name pattern.
+    fn search_symbols(self, pattern: String, scope: SearchScope) -> NavigationResult do
+        let start_time be Time.now()
+        let result be NavigationResult.new()
+        result.query = pattern
+        result.search_scope = scope
+        let matches be self.symbol_index.fuzzy_search(pattern)
+        for m in matches do
+            result.locations.append(m)
+        end
+        let end_time be Time.now()
+        result.search_time = Float.from_int(end_time - start_time)
+        return result
+    end
+end
+
+export {SymbolKind, SearchScope, SymbolLocation, NavigationResult, SymbolIndex, NavigationProvider}

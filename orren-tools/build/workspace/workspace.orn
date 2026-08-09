@@ -1,0 +1,451 @@
+-- workspace.orn: Multi-project workspace management for the Orren build system.
+-- Manages collections of related Orren projects with shared dependencies and unified builds.
+module orren_tools.build.workspace
+
+import module::{String, Int, Bool, List, Map, Result, File, Path}
+import orren.core.language.foundation::{Manifest, Dependency, Version}
+
+-- Layout strategies
+enum WorkspaceLayout
+    MONOREPO
+    MULTI_REPO
+    HYBRID
+end
+
+-- Describes how two projects relate to each other within the workspace.
+enum ProjectRelation
+    DEPENDS_ON
+    PEER
+    PARENT
+    CHILD
+    UNRELATED
+end
+
+-- A single project registered within the workspace.
+entity ProjectEntry
+    property name: String = ""
+    property path: String = ""
+    property kind: String = "library"
+    property version: String = "0.0.0"
+    property dependencies: List<String> = List<String>.new()
+    property relation: ProjectRelation = ProjectRelation.UNRELATED
+    property enabled: Bool = true
+
+    -- Returns the fully qualified project identifier.
+    fn qualified_name(self) -> String do
+        return self.kind + ":" + self.name + "@" + self.version
+    end
+
+    -- Checks whether this entry refers to an application rather than a library.
+    fn is_application(self) -> Bool do
+        if self.kind == "application" then
+            return true
+        else
+            return false
+        end
+    end
+
+    -- Adds a dependency reference by name.
+    fn add_dependency(self, dep_name: String) do
+        self.dependencies.append(dep_name)
+    end
+
+    -- Removes a dependency reference by name if present.
+    fn remove_dependency(self, dep_name: String) do
+        let filtered be List<String>.new()
+        for dep in self.dependencies do
+            if dep != dep_name then
+                filtered.append(dep)
+            end
+        end
+        self.dependencies = filtered
+    end
+end
+
+-- Configuration that controls workspace-wide behavior.
+entity WorkspaceConfig
+    property layout: WorkspaceLayout = WorkspaceLayout.MONOREPO
+    property projects: List<ProjectEntry> = List<ProjectEntry>.new()
+    property shared_deps_dir: String = "_shared/deps"
+    property shared_build_dir: String = "_shared/build"
+    property root_manifest: String = "workspace.orn"
+
+    -- Returns the number of enabled projects in this configuration.
+    fn enabled_count(self) -> Int do
+        let count be 0
+        for project in self.projects do
+            if project.enabled then
+                count = count + 1
+            end
+        end
+        return count
+    end
+
+    -- Returns the number of disabled (excluded) projects.
+    fn disabled_count(self) -> Int do
+        return self.projects.length - self.enabled_count()
+    end
+
+    -- Looks up a project entry by its name.
+    fn find_project(self, name: String) -> Result<ProjectEntry> do
+        for project in self.projects do
+            if project.name == name then
+                return Result.ok(project)
+            end
+        end
+        return Result.error("Project not found: " + name)
+    end
+end
+
+-- The primary workspace orchestrator coordinating builds across projects.
+entity Workspace
+    property config: WorkspaceConfig = WorkspaceConfig.new()
+    property loaded_projects: Map<String, ProjectEntry> = Map<String, ProjectEntry>.new()
+    property dependency_graph: Map<String, List<String>> = Map<String, List<String>>.new()
+    property build_order: List<String> = List<String>.new()
+
+    -- Loads the workspace manifest from the given path and populates state.
+    fn load_manifest(self, manifest_path: String) -> Result<Bool> do
+        self.config.root_manifest = manifest_path
+        let raw be File.read(manifest_path)
+        if raw.is_error then
+            return Result.error("Failed to read workspace manifest: " + raw.error_message)
+        end
+        let lines be raw.value.split_lines()
+        for line in lines do
+            let trimmed be line.strip()
+            if trimmed.starts_with("--") then
+                continue
+            end
+            if trimmed.starts_with("project ") then
+                let parts be trimmed.split(" ")
+                let name be parts.get(1).strip_quotes()
+                let entry be ProjectEntry.new()
+                entry.name = name
+                entry.path = "projects/" + name
+                self.config.projects.append(entry)
+            end
+        end
+        return self.rebuild_state()
+    end
+
+    -- Rebuilds internal maps and graphs from the current configuration.
+    fn rebuild_state(self) -> Result<Bool> do
+        self.loaded_projects = Map<String, ProjectEntry>.new()
+        self.dependency_graph = Map<String, List<String>>.new()
+        for project in self.config.projects do
+            if project.enabled then
+                self.loaded_projects.set(project.name, project)
+                self.dependency_graph.set(project.name, project.dependencies)
+            end
+        end
+        let order_result be self.compute_build_order()
+        if order_result.is_error then
+            return Result.error(order_result.error_message)
+        end
+        self.build_order = order_result.value
+        return Result.ok(true)
+    end
+
+    -- Resolves all cross-project dependencies into the dependency graph.
+    fn resolve_cross_deps(self) -> Result<Bool> do
+        for project in self.config.projects do
+            if not project.enabled then
+                continue
+            end
+            project.dependencies = List<String>.new()
+            let proj_path be project.path + "/" + self.config.root_manifest
+            let raw be File.read(proj_path)
+            if raw.is_error then
+                continue
+            end
+            let lines be raw.value.split_lines()
+            for line in lines do
+                let trimmed be line.strip()
+                if trimmed.starts_with("import ") then
+                    let import_path be trimmed.substring(7).strip()
+                    for other in self.config.projects do
+                        if other.name != project.name and import_path.contains(other.name) then
+                            project.add_dependency(other.name)
+                            let rel be self.classify_relation(project, other)
+                            if rel != ProjectRelation.UNRELATED then
+                                self.dependency_graph.set(project.name, project.dependencies)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        return Result.ok(true)
+    end
+
+    -- Classifies the relationship between two projects based on their layout.
+    fn classify_relation(self, a: ProjectEntry, b: ProjectEntry) -> ProjectRelation do
+        if self.config.layout == WorkspaceLayout.MONOREPO then
+            if b.dependencies.contains(a.name) then
+                return ProjectRelation.CHILD
+            else
+                return ProjectRelation.PEER
+            end
+        else if self.config.layout == WorkspaceLayout.MULTI_REPO then
+            if a.dependencies.contains(b.name) then
+                return ProjectRelation.DEPENDS_ON
+            else if b.dependencies.contains(a.name) then
+                return ProjectRelation.PARENT
+            else
+                return ProjectRelation.UNRELATED
+            end
+        else
+            -- HYBRID layout: inspect paths for nesting
+            if a.path.starts_with(b.path) then
+                return ProjectRelation.CHILD
+            else if b.path.starts_with(a.path) then
+                return ProjectRelation.PARENT
+            else
+                return ProjectRelation.PEER
+            end
+        end
+    end
+
+    -- Computes a topological sort of all projects respecting dependencies.
+    fn compute_build_order(self) -> Result<List<String>> do
+        let visited be Map<String, Bool>.new()
+        let in_stack be Map<String, Bool>.new()
+        let order be List<String>.new()
+        for project in self.config.projects do
+            if project.enabled then
+                visited.set(project.name, false)
+                in_stack.set(project.name, false)
+            end
+        end
+        for project in self.config.projects do
+            if project.enabled and not visited.get(project.name) then
+                let result be self.topo_visit(project.name, visited, in_stack, order)
+                if result.is_error then
+                    return Result.error(result.error_message)
+                end
+            end
+        end
+        return Result.ok(order)
+    end
+
+    -- Recursive depth-first visit for topological sort with cycle detection.
+    fn topo_visit(self, name: String, visited: Map<String, Bool>, in_stack: Map<String, Bool>, order: List<String>) -> Result<Bool> do
+        visited.set(name, true)
+        in_stack.set(name, true)
+        let deps be self.dependency_graph.get(name)
+        if deps != nothing then
+            for dep in deps do
+                let dep_visited be visited.get(dep)
+                if dep_visited == nothing then
+                    continue
+                end
+                let in_stk be in_stack.get(dep)
+                if in_stk != nothing and in_stk == true then
+                    return Result.error("Circular dependency detected involving: " + name + " -> " + dep)
+                end
+                if not dep_visited then
+                    let result be self.topo_visit(dep, visited, in_stack, order)
+                    if result.is_error then
+                        return result
+                    end
+                end
+            end
+        end
+        in_stack.set(name, false)
+        order.append(name)
+        return Result.ok(true)
+    end
+
+    -- Detects all circular dependency chains in the workspace.
+    fn detect_circular_deps(self) -> List<List<String>> do
+        let cycles be List<List<String>>.new()
+        let visited be Map<String, Int>.new()
+        let rec_stack be List<String>.new()
+        for project in self.config.projects do
+            if project.enabled then
+                visited.set(project.name, 0)
+            end
+        end
+        for project in self.config.projects do
+            if project.enabled then
+                let state be visited.get(project.name)
+                if state != nothing and state == 0 then
+                    self.cycle_search(project.name, visited, rec_stack, cycles)
+                end
+            end
+        end
+        return cycles
+    end
+
+    -- Recursively searches for cycles starting from a given node.
+    fn cycle_search(self, node: String, visited: Map<String, Int>, rec_stack: List<String>, cycles: List<List<String>>) do
+        visited.set(node, 1)
+        rec_stack.append(node)
+        let deps be self.dependency_graph.get(node)
+        if deps != nothing then
+            for dep in deps do
+                let state be visited.get(dep)
+                if state != nothing and state == 0 then
+                    self.cycle_search(dep, visited, rec_stack, cycles)
+                else if state != nothing and state == 1 then
+                    let cycle be List<String>.new()
+                    let started be false
+                    for entry in rec_stack do
+                        if entry == dep then
+                            started = true
+                        end
+                        if started then
+                            cycle.append(entry)
+                        end
+                    end
+                    cycle.append(dep)
+                    cycles.append(cycle)
+                end
+            end
+        end
+        rec_stack.pop_last()
+        visited.set(node, 2)
+    end
+
+    -- Adds a new project to the workspace.
+    fn add_project(self, name: String, path: String, kind: String) -> Result<ProjectEntry> do
+        let existing be self.config.find_project(name)
+        if not existing.is_error then
+            return Result.error("Project already exists: " + name)
+        end
+        let entry be ProjectEntry.new()
+        entry.name = name
+        entry.path = path
+        entry.kind = kind
+        entry.version = "0.1.0"
+        entry.enabled = true
+        self.config.projects.append(entry)
+        self.loaded_projects.set(name, entry)
+        self.dependency_graph.set(name, List<String>.new())
+        return Result.ok(entry)
+    end
+
+    -- Removes a project from the workspace by name.
+    fn remove_project(self, name: String) -> Result<Bool> do
+        let filtered be List<ProjectEntry>.new()
+        let found be false
+        for project in self.config.projects do
+            if project.name == name then
+                found = true
+            else
+                filtered.append(project)
+            end
+        end
+        if not found then
+            return Result.error("Project not found: " + name)
+        end
+        self.config.projects = filtered
+        self.loaded_projects.remove(name)
+        self.dependency_graph.remove(name)
+        -- Clean up reverse references in remaining projects.
+        for project in self.config.projects do
+            project.remove_dependency(name)
+        end
+        let rebuild be self.rebuild_state()
+        if rebuild.is_error then
+            return Result.error("Rebuild after removal failed: " + rebuild.error_message)
+        end
+        return Result.ok(true)
+    end
+
+    -- Returns the list of project names in the computed build order.
+    fn get_build_order(self) -> List<String> do
+        return self.build_order
+    end
+
+    -- Returns all project names that the given project transitively depends on.
+    fn transitive_deps(self, name: String) -> List<String> do
+        let result be List<String>.new()
+        let visited be Map<String, Bool>.new()
+        self.collect_transitive(name, visited, result)
+        return result
+    end
+
+    -- Recursively collects all transitive dependencies.
+    fn collect_transitive(self, name: String, visited: Map<String, Bool>, result: List<String>) do
+        visited.set(name, true)
+        let deps be self.dependency_graph.get(name)
+        if deps != nothing then
+            for dep in deps do
+                let seen be visited.get(dep)
+                if seen == nothing or seen == false then
+                    result.append(dep)
+                    self.collect_transitive(dep, visited, result)
+                end
+            end
+        end
+    end
+
+    -- Orchestrates a full workspace build following the computed build order.
+    fn orchestrate_build(self, targets: List<String>) -> Result<Map<String, Bool>> do
+        let results be Map<String, Bool>.new()
+        let order be self.get_build_order()
+        for project_name in order do
+            if targets.length > 0 and not targets.contains(project_name) then
+                -- Skip projects not in the target set unless they are transitive deps.
+                let needed be false
+                for target in targets do
+                    let tdeps be self.transitive_deps(target)
+                    if tdeps.contains(project_name) then
+                        needed = true
+                    end
+                end
+                if not needed then
+                    continue
+                end
+            end
+            let proj be self.loaded_projects.get(project_name)
+            if proj == nothing then
+                results.set(project_name, false)
+                continue
+            end
+            let build_dir be self.config.shared_build_dir + "/" + project_name
+            let ok be self.build_single_project(proj, build_dir)
+            results.set(project_name, ok)
+            if not ok then
+                return Result.error("Build failed for project: " + project_name)
+            end
+        end
+        return Result.ok(results)
+    end
+
+    -- Builds a single project within the workspace context.
+    fn build_single_project(self, project: ProjectEntry, build_dir: String) -> Bool do
+        -- In a full implementation this would invoke the Orren compiler.
+        let src_dir be project.path + "/src"
+        let output_path be build_dir + "/" + project.name + ".ornb"
+        if not Path.exists(src_dir) then
+            return false
+        end
+        Path.ensure_directory(build_dir)
+        return true
+    end
+
+    -- Returns a human-readable summary of the workspace.
+    fn summary(self) -> String do
+        let layout_str be match self.config.layout with
+            WorkspaceLayout.MONOREPO => "monorepo"
+            WorkspaceLayout.MULTI_REPO => "multi-repo"
+            WorkspaceLayout.HYBRID => "hybrid"
+        end
+        let lines be List<String>.new()
+        lines.append("Workspace (" + layout_str + ")")
+        lines.append("  Root: " + self.config.root_manifest)
+        lines.append("  Projects: " + String.from_int(self.config.projects.length).to_string())
+        lines.append("  Enabled: " + String.from_int(self.config.enabled_count()).to_string())
+        lines.append("  Shared deps: " + self.config.shared_deps_dir)
+        lines.append("  Build order:")
+        for name in self.build_order do
+            lines.append("    - " + name)
+        end
+        return lines.join("\n")
+    end
+end
+
+export {WorkspaceLayout, ProjectRelation, ProjectEntry, WorkspaceConfig, Workspace}

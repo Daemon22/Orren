@@ -1,0 +1,337 @@
+-- benchmarks.orn
+-- Benchmarking framework for Orren with statistical analysis
+-- Supports memory tracking, semantic overhead measurement, and outlier rejection
+
+module orren_tools.testing.benchmarks
+
+import orren.core.language.foundation::{String, Int, Float, Bool, List, Map}
+import orren.core.language.foundation::{FileSystem, DateTime, Timer}
+
+-- Units for reporting benchmark timing
+enum BenchUnit
+  NANOSECONDS
+  MICROSECONDS
+  MILLISECONDS
+  SECONDS
+  OPERATIONS_PER_SEC
+end
+
+-- Status of a benchmark execution
+enum BenchStatus
+  COMPLETE
+  FAILED
+  SKIPPED
+end
+
+-- Quality classification for collected samples
+enum SampleQuality
+  LOW
+  MEDIUM
+  HIGH
+  EXCELLENT
+end
+
+-- A single timing sample collected during benchmarking
+entity BenchSample
+  property value_ns: Int = 0
+  property iteration: Int = 0
+  property timestamp: Int = 0
+  property memory_bytes: Int = 0
+  property semantic_ops_count: Int = 0
+end
+
+-- Aggregated result for a single benchmark with full statistics
+entity BenchResult
+  property name: String = ""
+  property samples: List<BenchSample> = List<BenchSample>{}
+  property min_ns: Int = 0
+  property max_ns: Int = 0
+  property mean_ns: Float = 0.0
+  property median_ns: Float = 0.0
+  property std_dev_ns: Float = 0.0
+  property p95_ns: Int = 0
+  property p99_ns: Int = 0
+  property total_ops: Int = 0
+  property ops_per_sec: Float = 0.0
+  property memory_peak: Int = 0
+  property semantic_overhead_pct: Float = 0.0
+  property quality: SampleQuality = SampleQuality.MEDIUM
+end
+
+-- Configuration controlling benchmark execution parameters
+entity BenchConfig
+  property warmup_iterations: Int = 10
+  property measure_iterations: Int = 100
+  property max_time_ns: Int = 30000000000
+  property min_samples: Int = 50
+  property target_quality: SampleQuality = SampleQuality.HIGH
+  property track_memory: Bool = false
+  property track_semantic: Bool = false
+  property outlier_rejection: Bool = true
+end
+
+-- Main benchmark runner that orchestrates execution and analysis
+entity BenchmarkRunner
+  property config: BenchConfig = BenchConfig{}
+  property results: List<BenchResult> = List<BenchResult>{}
+  property start_time: Int = 0
+end
+
+-- Intent declaration for the benchmarking subsystem
+intent "execute and analyze performance benchmarks with statistical rigor"
+
+-- Run a single benchmark function and collect samples
+fn run_bench(self: BenchmarkRunner, name: String, bench_fn: String) -> BenchResult do
+  let result be BenchResult{name = name}
+  let _ = self.warmup(bench_fn)
+  let samples be self.collect_samples(bench_fn, self.config.measure_iterations)
+  result.samples = samples
+  if samples.length() < self.config.min_samples then
+    result.quality = SampleQuality.LOW
+    return result
+  end
+  let filtered be samples
+  if self.config.outlier_rejection then
+    filtered = self.reject_outliers(samples)
+  end
+  result = self.compute_statistics(result, filtered)
+  result.quality = self.assess_quality(result, filtered)
+  self.results.append(result)
+  return result
+end
+
+-- Warm up the benchmark function to stabilize JIT and caches
+fn warmup(self: BenchmarkRunner, bench_fn: String) -> Bool do
+  let warmup_count be self.config.warmup_iterations
+  for i in 0 .. warmup_count do
+    let _ = FileSystem.exec_orren_expression(bench_fn + "()")
+  end
+  return true
+end
+
+-- Collect timing samples for the benchmark function
+fn collect_samples(self: BenchmarkRunner, bench_fn: String, count: Int) -> List<BenchSample> do
+  let samples be List<BenchSample>{}
+  let elapsed_total be 0
+  for i in 0 .. count do
+    let start be Timer.now_ns()
+    let _ = FileSystem.exec_orren_expression(bench_fn + "()")
+    let end_time be Timer.now_ns()
+    let duration be end_time - start
+    let sample be BenchSample{
+      value_ns = duration,
+      iteration = i,
+      timestamp = end_time,
+      memory_bytes = 0,
+      semantic_ops_count = 0
+    }
+    if self.config.track_memory then
+      sample.memory_bytes = FileSystem.memory_usage()
+    end
+    if self.config.track_semantic then
+      sample.semantic_ops_count = self.count_semantic_ops()
+    end
+    samples.append(sample)
+    elapsed_total = elapsed_total + duration
+    if elapsed_total >= self.config.max_time_ns then
+      break
+    end
+  end
+  return samples
+end
+
+-- Count semantic operations for overhead tracking
+fn count_semantic_ops(self: BenchmarkRunner) -> Int do
+  let trace be FileSystem.get_semantic_trace()
+  if trace.length() == 0 then return 0 end
+  let ops be trace.split("\n")
+  return ops.length()
+end
+
+-- Compute statistical metrics from collected samples
+fn compute_statistics(self: BenchmarkRunner, result: BenchResult, samples: List<BenchSample>) -> BenchResult do
+  if samples.length() == 0 then return result end
+  let sorted be self.sort_samples(samples)
+  result.min_ns = sorted[0].value_ns
+  result.max_ns = sorted[sorted.length() - 1].value_ns
+  let total be 0
+  let mem_peak be 0
+  for sample in sorted do
+    total = total + sample.value_ns
+    if sample.memory_bytes > mem_peak then
+      mem_peak = sample.memory_bytes
+    end
+  end
+  result.mean_ns = total.to_float() / sorted.length().to_float()
+  result.median_ns = self.compute_median(sorted)
+  result.std_dev_ns = self.compute_std_dev(sorted, result.mean_ns)
+  result.p95_ns = sorted[(sorted.length() * 95 / 100).min(sorted.length() - 1)].value_ns
+  result.p99_ns = sorted[(sorted.length() * 99 / 100).min(sorted.length() - 1)].value_ns
+  result.total_ops = sorted.length()
+  if result.mean_ns > 0 then
+    result.ops_per_sec = 1000000000.0 / result.mean_ns
+  end
+  result.memory_peak = mem_peak
+  result.semantic_overhead_pct = self.compute_semantic_overhead(sorted)
+  return result
+end
+
+-- Sort samples by value in ascending order
+fn sort_samples(self: BenchmarkRunner, samples: List<BenchSample>) -> List<BenchSample> do
+  let sorted be List<BenchSample>{}
+  for sample in samples do
+    sorted.append(sample)
+  end
+  let n be sorted.length()
+  let i be 0
+  while i < n do
+    let j be i + 1
+    while j < n do
+      if sorted[j].value_ns < sorted[i].value_ns then
+        let tmp be sorted[i]
+        sorted[i] = sorted[j]
+        sorted[j] = tmp
+      end
+      j = j + 1
+    end
+    i = i + 1
+  end
+  return sorted
+end
+
+-- Compute median from sorted samples
+fn compute_median(self: BenchmarkRunner, sorted: List<BenchSample>) -> Float do
+  let n be sorted.length()
+  if n == 0 then return 0.0 end
+  if n % 2 == 1 then
+    return sorted[n / 2].value_ns.to_float()
+  end
+  let a be sorted[n / 2 - 1].value_ns.to_float()
+  let b be sorted[n / 2].value_ns.to_float()
+  return (a + b) / 2.0
+end
+
+-- Compute standard deviation from sorted samples
+fn compute_std_dev(self: BenchmarkRunner, sorted: List<BenchSample>, mean: Float) -> Float do
+  let n be sorted.length()
+  if n == 0 then return 0.0 end
+  let sum_sq be 0.0
+  for sample in sorted do
+    let diff be sample.value_ns.to_float() - mean
+    sum_sq = sum_sq + (diff * diff)
+  end
+  let variance be sum_sq / n.to_float()
+  return variance.sqrt()
+end
+
+-- Compute semantic overhead as percentage of total time
+fn compute_semantic_overhead(self: BenchmarkRunner, samples: List<BenchSample>) -> Float do
+  let total_semantic be 0
+  let total_time be 0
+  for sample in samples do
+    total_semantic = total_semantic + sample.semantic_ops_count
+    total_time = total_time + sample.value_ns
+  end
+  if total_time == 0 then return 0.0 end
+  let avg_sem be total_semantic.to_float() / samples.length().to_float()
+  let est_sem_ns be avg_sem * 150.0
+  return (est_sem_ns / total_time.to_float()) * 100.0
+end
+
+-- Reject statistical outliers using IQR method
+fn reject_outliers(self: BenchmarkRunner, samples: List<BenchSample>) -> List<BenchSample> do
+  let sorted be self.sort_samples(samples)
+  let n be sorted.length()
+  if n < 4 then return sorted end
+  let q1_idx be n / 4
+  let q3_idx be (n * 3) / 4
+  let q1 be sorted[q1_idx].value_ns.to_float()
+  let q3 be sorted[q3_idx].value_ns.to_float()
+  let iqr be q3 - q1
+  let lower be q1 - (iqr * 1.5)
+  let upper be q3 + (iqr * 1.5)
+  let filtered be List<BenchSample>{}
+  for sample in sorted do
+    let val be sample.value_ns.to_float()
+    if val >= lower and val <= upper then
+      filtered.append(sample)
+    end
+  end
+  return filtered
+end
+
+-- Assess the quality of collected benchmark samples
+fn assess_quality(self: BenchmarkRunner, result: BenchResult, samples: List<BenchSample>) -> SampleQuality do
+  if samples.length() < 10 then return SampleQuality.LOW end
+  let cv be result.std_dev_ns / result.mean_ns
+  if cv < 0.01 then return SampleQuality.EXCELLENT end
+  if cv < 0.05 then return SampleQuality.HIGH end
+  if cv < 0.15 then return SampleQuality.MEDIUM end
+  return SampleQuality.LOW
+end
+
+-- Compare two benchmark results and report the difference
+fn compare_results(self: BenchmarkRunner, a: BenchResult, b: BenchResult) -> String do
+  let lines be List<String>{}
+  lines.append("Benchmark Comparison: " + a.name + " vs " + b.name)
+  lines.append("")
+  let a_unit be self.fmt_ns(a.mean_ns)
+  let b_unit be self.fmt_ns(b.mean_ns)
+  lines.append("  Mean:   " + a_unit + " vs " + b_unit)
+  let pct be ((b.mean_ns - a.mean_ns) / a.mean_ns) * 100.0
+  if pct < 0 then
+    lines.append("  Change: " + pct.abs().to_string() + "% faster")
+  else
+    lines.append("  Change: +" + pct.to_string() + "% slower")
+  end
+  lines.append("  Quality: " + a.quality.to_string() + " vs " + b.quality.to_string())
+  if a.memory_peak > 0 and b.memory_peak > 0 then
+    lines.append("  Memory: " + a.memory_peak.to_string() + "B vs " + b.memory_peak.to_string() + "B")
+  end
+  return lines.join("\n")
+end
+
+-- Generate a full benchmark report for all results
+fn generate_report(self: BenchmarkRunner) -> String do
+  let lines be List<String>{"Benchmark Report", "================", ""}
+  let total_time be Timer.now_ns() - self.start_time
+  lines.append("Total benchmarks: " + self.results.length().to_string())
+  lines.append("Total time: " + self.fmt_ns(total_time))
+  lines.append("")
+  for result in self.results do
+    lines.append("[" + result.quality.to_string() + "] " + result.name)
+    lines.append("  Samples:     " + result.total_ops.to_string())
+    lines.append("  Min:         " + self.fmt_ns(result.min_ns.to_float()))
+    lines.append("  Max:         " + self.fmt_ns(result.max_ns.to_float()))
+    lines.append("  Mean:        " + self.fmt_ns(result.mean_ns))
+    lines.append("  Median:      " + self.fmt_ns(result.median_ns))
+    lines.append("  Std Dev:     " + self.fmt_ns(result.std_dev_ns))
+    lines.append("  P95:         " + self.fmt_ns(result.p95_ns.to_float()))
+    lines.append("  P99:         " + self.fmt_ns(result.p99_ns.to_float()))
+    lines.append("  Ops/sec:     " + result.ops_per_sec.to_string())
+    if result.memory_peak > 0 then
+      lines.append("  Memory Peak: " + result.memory_peak.to_string() + " bytes")
+    end
+    if result.semantic_overhead_pct > 0.0 then
+      lines.append("  Sem. Overhead: " + result.semantic_overhead_pct.to_string() + "%")
+    end
+    lines.append("")
+  end
+  return lines.join("\n")
+end
+
+-- Format nanoseconds into the most appropriate unit
+fn fmt_ns(self: BenchmarkRunner, ns: Float) -> String do
+  if ns < 1000.0 then
+    return ns.to_string() + " ns"
+  end
+  if ns < 1000000.0 then
+    return (ns / 1000.0).to_string() + " us"
+  end
+  if ns < 1000000000.0 then
+    return (ns / 1000000.0).to_string() + " ms"
+  end
+  return (ns / 1000000000.0).to_string() + " s"
+end
+
+export {BenchUnit, BenchStatus, SampleQuality, BenchSample, BenchResult, BenchConfig, BenchmarkRunner}

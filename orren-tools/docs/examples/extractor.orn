@@ -1,0 +1,436 @@
+module orren_tools.docs.examples
+
+import module::{String, Int, Float, Bool, List, Map}
+
+-- Extract code examples from Orren source files and organize them for documentation.
+-- Supports inline, block, intent-based, and full-module examples.
+
+intent "Extract, deduplicate, verify, and organize code examples from Orren source files into structured collections ready for documentation output."
+
+-- Kind of code example found in source.
+enum ExampleKind
+    INLINE
+    BLOCK
+    FULL_MODULE
+    INTENT_EXAMPLE
+end
+
+-- Verification status of a code example.
+enum ExampleStatus
+    EXTRACTED
+    VERIFIED
+    BROKEN
+    OUTDATED
+end
+
+-- A single extracted code example.
+entity CodeExample
+    property id: String = ""
+    property title: String = ""
+    property description: String = ""
+    property source_code: String = ""
+    property file: String = ""
+    property line: Int = 0
+    property kind: ExampleKind = ExampleKind.INLINE
+    property language: String = "orren"
+    property status: ExampleStatus = ExampleStatus.EXTRACTED
+    property last_verified: String = ""
+    property dependencies: List<String> = List<String>.new()
+    property tags: List<String> = List<String>.new()
+end
+
+-- A collection of examples organized by module and tag.
+entity ExampleCollection
+    property examples: List<CodeExample> = List<CodeExample>.new()
+    property by_module: Map<String, List<String>> = Map<String, List<String>>.new()
+    property by_tag: Map<String, List<String>> = Map<String, List<String>>.new()
+    property total_extracted: Int = 0
+    property total_verified: Int = 0
+end
+
+-- The example extractor state and configuration.
+entity ExampleExtractor
+    property config: Map<String, String> = Map<String, String>.new()
+    property collections: List<ExampleCollection> = List<ExampleCollection>.new()
+    property current_file: String = ""
+end
+
+-- Generate a unique example id based on file and line.
+fn generate_example_id(self, file: String, line: Int, counter: Int) -> String do
+    let file_hash be file.replace("/", "_").replace(".", "_")
+    let id_str be "ex_" + file_hash + "_" + line.to_string() + "_" + counter.to_string()
+    return id_str
+end
+
+-- Scan a single file line and detect if it starts a block example.
+fn is_block_start(self, line: String) -> Bool do
+    let trimmed be line.trim()
+    if trimmed.starts_with("-- example:") then
+        return true
+    end
+    if trimmed.starts_with("-- @example") then
+        return true
+    end
+    return false
+end
+
+-- Scan a single file line and detect if it ends a block example.
+fn is_block_end(self, line: String) -> Bool do
+    let trimmed be line.trim()
+    if trimmed.starts_with("-- end example") then
+        return true
+    end
+    if trimmed.starts_with("-- @end") then
+        return true
+    end
+    return false
+end
+
+-- Extract the title from an example annotation line.
+fn extract_example_title(self, line: String) -> String do
+    let trimmed be line.trim()
+    -- Try "-- example: Some Title" format.
+    if trimmed.starts_with("-- example:") then
+        let rest be trimmed.substring(12).trim()
+        return rest
+    end
+    -- Try "-- @example Some Title" format.
+    if trimmed.starts_with("-- @example") then
+        let rest be trimmed.substring(11).trim()
+        return rest
+    end
+    return ""
+end
+
+-- Extract an inline example from a comment line.
+fn extract_inline_example(self, line: String) -> CodeExample do
+    let example be CodeExample.new()
+    let trimmed be line.trim()
+    -- Look for backtick-enclosed code in comments.
+    let parts be trimmed.split("`")
+    if parts.length() >= 2 then
+        let code_parts be List<String>.new()
+        let i be 1
+        while i < parts.length() do
+            code_parts.append(parts.get(i))
+            i = i + 2
+        end
+        example.source_code = code_parts.join("\n")
+        example.kind = ExampleKind.INLINE
+    end
+    return example
+end
+
+-- Extract examples from an intent block.
+fn extract_intent_example(self, lines: List<String>, start_idx: Int) -> CodeExample do
+    let example be CodeExample.new()
+    example.kind = ExampleKind.INTENT_EXAMPLE
+    let code_lines be List<String>.new()
+    let i be start_idx
+    while i < lines.length() do
+        let line be lines.get(i).trim()
+        if line == "end" then
+            break
+        end
+        if not line.starts_with("--") and line != "" then
+            code_lines.append(line)
+        end
+        i = i + 1
+    end
+    example.source_code = code_lines.join("\n")
+    return example
+end
+
+-- Parse a full source file for all example types.
+fn scan_file(self, extractor: ExampleExtractor, file_path: String, file_content: String) -> List<CodeExample> do
+    extractor.current_file = file_path
+    let lines be file_content.split("\n")
+    let examples be List<CodeExample>.new()
+    let counter be 0
+    let in_block be false
+    let block_lines be List<String>.new()
+    let block_start_line be 0
+    let block_title be ""
+    let i be 0
+    while i < lines.length() do
+        let line be lines.get(i)
+        if not in_block then
+            -- Check for block example start.
+            if self.is_block_start(line) then
+                in_block = true
+                block_start_line = i + 1
+                block_title = self.extract_example_title(line)
+                block_lines = List<String>.new()
+            else if line.trim().starts_with("intent ") then
+                -- Check for intent-based examples.
+                let iex be self.extract_intent_example(lines, i + 1)
+                if iex.source_code != "" then
+                    counter = counter + 1
+                    iex.id = self.generate_example_id(file_path, i + 1, counter)
+                    iex.file = file_path
+                    iex.line = i + 1
+                    iex.title = "Intent example from line " + (i + 1).to_string()
+                    examples.append(iex)
+                end
+            end
+        end
+        else
+            -- Inside a block example.
+            if self.is_block_end(line) then
+                let example be CodeExample.new()
+                counter = counter + 1
+                example.id = self.generate_example_id(file_path, block_start_line, counter)
+                example.title = block_title
+                example.source_code = block_lines.join("\n")
+                example.file = file_path
+                example.line = block_start_line
+                example.kind = ExampleKind.BLOCK
+                example.language = "orren"
+                examples.append(example)
+                in_block = false
+                block_lines = List<String>.new()
+            else
+                block_lines.append(line)
+            end
+        end
+        i = i + 1
+    end
+    return examples
+end
+
+-- Compute a simple hash of source code for deduplication.
+fn code_hash(self, code: String) -> String do
+    let stripped be code.replace(" ", "").replace("\n", "").replace("\t", "")
+    return stripped.hash_simple()
+end
+
+-- Deduplicate examples by normalizing and comparing code hashes.
+fn deduplicate_examples(self, examples: List<CodeExample>) -> List<CodeExample> do
+    let seen be Map<String, Int>.new()
+    let unique be List<CodeExample>.new()
+    for ex in examples do
+        let h be self.code_hash(ex.source_code)
+        if not seen.contains_key(h) then
+            seen.put(h, 1)
+            unique.append(ex)
+        end
+    end
+    return unique
+end
+
+-- Tag an example based on its source code content.
+fn auto_tag_example(self, example: CodeExample) -> List<String> do
+    let tags be List<String>.new()
+    let code be example.source_code
+    if code.contains("fn ") then
+        tags.append("function")
+    end
+    if code.contains("entity ") then
+        tags.append("entity")
+    end
+    if code.contains("enum ") then
+        tags.append("enum")
+    end
+    if code.contains("match ") then
+        tags.append("pattern-matching")
+    end
+    if code.contains("for ") then
+        tags.append("loops")
+    end
+    if code.contains("while ") then
+        tags.append("loops")
+    end
+    if code.contains("List<") then
+        tags.append("collections")
+    end
+    if code.contains("Map<") then
+        tags.append("collections")
+    end
+    if code.contains("intent ") then
+        tags.append("intent")
+    end
+    if code.contains("import ") then
+        tags.append("import")
+    end
+    -- Estimate complexity from line count.
+    let line_count be code.split("\n").length()
+    if line_count <= 3 then
+        tags.append("snippet")
+    else if line_count <= 10 then
+        tags.append("short-example")
+    else
+        tags.append("long-example")
+    end
+    return tags
+end
+
+-- Extract module path from a file path.
+fn file_to_module_path(self, file_path: String, base_dir: String) -> String do
+    let relative be file_path.replace(base_dir, "").replace(".orn", "")
+    let parts be relative.split("/")
+    let module_parts be List<String>.new()
+    for p in parts do
+        let trimmed be p.trim()
+        if trimmed != "" then
+            module_parts.append(trimmed)
+        end
+    end
+    return module_parts.join(".")
+end
+
+-- Add a list of examples to a collection, organizing by module and tag.
+fn add_examples_to_collection(self, collection: ExampleCollection, examples: List<CodeExample>, base_dir: String) -> Unit do
+    for ex in examples do
+        -- Auto-tag the example.
+        let auto_tags be self.auto_tag_example(ex)
+        for t in auto_tags do
+            if not ex.tags.contains(t) then
+                ex.tags.append(t)
+            end
+        end
+        -- Add to main list.
+        collection.examples.append(ex)
+        collection.total_extracted = collection.total_extracted + 1
+        -- Index by module path.
+        let module_path be self.file_to_module_path(ex.file, base_dir)
+        let mod_list be collection.by_module.get_or_default(module_path, List<String>.new())
+        mod_list.append(ex.id)
+        collection.by_module.put(module_path, mod_list)
+        -- Index by each tag.
+        for tag in ex.tags do
+            let tag_list be collection.by_tag.get_or_default(tag, List<String>.new())
+            if not tag_list.contains(ex.id) then
+                tag_list.append(ex.id)
+                collection.by_tag.put(tag, tag_list)
+            end
+        end
+    end
+end
+
+-- Verify that an example compiles successfully.
+fn verify_example(self, example: CodeExample) -> Bool do
+    if example.source_code.trim() == "" then
+        example.status = ExampleStatus.BROKEN
+        return false
+    end
+    -- Check for balanced keywords.
+    let code be example.source_code
+    let do_count be 0
+    let end_count be 0
+    for line in code.split("\n") do
+        let trimmed be line.trim()
+        if trimmed.ends_with("do") then
+            do_count = do_count + 1
+        end
+        if trimmed == "end" then
+            end_count = end_count + 1
+        end
+    end
+    if do_count != end_count then
+        example.status = ExampleStatus.BROKEN
+        return false
+    end
+    example.status = ExampleStatus.VERIFIED
+    example.last_verified = current_timestamp().to_string()
+    return true
+end
+
+-- Verify all examples in a collection.
+fn verify_all(self, collection: ExampleCollection) -> Map<String, Bool> do
+    let results be Map<String, Bool>.new()
+    collection.total_verified = 0
+    for ex in collection.examples do
+        let ok be self.verify_example(ex)
+        results.put(ex.id, ok)
+        if ok then
+            collection.total_verified = collection.total_verified + 1
+        end
+    end
+    return results
+end
+
+-- Produce an example index string summarizing the collection.
+fn produce_example_index(self, collection: ExampleCollection) -> String do
+    let lines be List<String>.new()
+    lines.append("Example Index")
+    lines.append("==============")
+    lines.append("")
+    lines.append("Total extracted: " + collection.total_extracted.to_string())
+    lines.append("Total verified: " + collection.total_verified.to_string())
+    lines.append("")
+    -- Group by module.
+    lines.append("By Module:")
+    for mod_path in collection.by_module.keys() do
+        let ids be collection.by_module.get(mod_path)
+        lines.append("  " + mod_path + " (" + ids.length().to_string() + " examples)")
+        for eid in ids do
+            let ex be self.find_example(collection, eid)
+            if ex != nil then
+                let status_str be match ex.status with
+                    ExampleStatus.VERIFIED do "OK" end
+                    ExampleStatus.BROKEN do "BROKEN" end
+                    ExampleStatus.OUTDATED do "OUTDATED" end
+                    ExampleStatus.EXTRACTED do "UNVERIFIED" end
+                end
+                lines.append("    - " + ex.title + " [" + status_str + "] (line " + ex.line.to_string() + ")")
+            end
+        end
+    end
+    lines.append("")
+    -- Group by tag.
+    lines.append("By Tag:")
+    for tag in collection.by_tag.keys() do
+        let ids be collection.by_tag.get(tag)
+        lines.append("  " + tag + ": " + ids.length().to_string() + " examples")
+    end
+    return lines.join("\n")
+end
+
+-- Find an example by id in the collection.
+fn find_example(self, collection: ExampleCollection, example_id: String) -> CodeExample do
+    for ex in collection.examples do
+        if ex.id == example_id then
+            return ex
+        end
+    end
+    return nil
+end
+
+-- Create a new empty example collection.
+fn new_collection(self) -> ExampleCollection do
+    return ExampleCollection.new()
+end
+-- Create a new extractor with default configuration.
+fn new_extractor(self) -> ExampleExtractor do
+    let extractor be ExampleExtractor.new()
+    extractor.config.put("base_dir", ".")
+    extractor.config.put("auto_tag", "true")
+    extractor.config.put("auto_verify", "false")
+    return extractor
+end
+
+export {
+    ExampleKind,
+    ExampleStatus,
+    CodeExample,
+    ExampleCollection,
+    ExampleExtractor,
+    generate_example_id,
+    is_block_start,
+    is_block_end,
+    extract_example_title,
+    extract_inline_example,
+    extract_intent_example,
+    scan_file,
+    code_hash,
+    deduplicate_examples,
+    auto_tag_example,
+    file_to_module_path,
+    add_examples_to_collection,
+    verify_example,
+    verify_all,
+    produce_example_index,
+    find_example,
+    new_collection,
+    new_extractor
+}

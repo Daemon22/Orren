@@ -1,0 +1,317 @@
+-- reporters.orn
+-- Test output reporters for the Orren testing framework.
+-- Supports TAP, JUnit XML, pretty-printed text, compact text, JSON, and semantic reports.
+
+module orren_tools.testing.reporters
+
+import module::{String, Int, Float, Bool, List, Map, Option}
+import orren.core.language.foundation::{TestCase, TestSuite, TestResult}
+
+-- Formats available for test result output.
+enum ReportFormat
+  TAP
+  JUNIT_XML
+  PRETTY_TEXT
+  COMPACT_TEXT
+  JSON_REPORT
+  SEMANTIC_REPORT
+end
+
+-- Verbosity levels controlling output detail.
+enum ReportVerbosity
+  MINIMAL
+  NORMAL
+  VERBOSE
+  EXTRA_VERBOSE
+end
+
+-- TAP (Test Anything Protocol) output reporter.
+entity TAPReporter
+  property test_count: Int = 0
+  property failed_count: Int = 0
+  property output_buffer: List<String> = []
+  property plan_emitted: Bool = false
+end
+
+-- JUnit-style XML output reporter.
+entity JUnitReporter
+  property test_suites: List<Map<String, String>> = []
+  property output_buffer: List<String> = []
+  property errors: List<String> = []
+end
+
+-- Human-readable pretty-printed text reporter.
+entity PrettyReporter
+  property width: Int = 80
+  property color_enabled: Bool = true
+  property show_timing: Bool = true
+  property show_semantic: Bool = false
+  property output_buffer: List<String> = []
+end
+
+-- Factory for creating configured reporter instances.
+entity ReporterFactory
+  property format: ReportFormat = ReportFormat.PRETTY_TEXT
+  property verbosity: ReportVerbosity = ReportVerbosity.NORMAL
+  property output_file: String = ""
+end
+
+-- TAP Reporter: begin a test suite.
+fn begin_suite(self: TAPReporter, suite: TestSuite) do
+  let header be "TAP version 13"
+  self.output_buffer.append(header)
+  let diag be "# Suite: " + suite.name
+  self.output_buffer.append(diag)
+end
+
+-- TAP Reporter: end a test suite and emit plan.
+fn end_suite(self: TAPReporter, suite: TestSuite) do
+  if not self.plan_emitted then
+    let plan be "1.." + self.test_count.to_string()
+    self.output_buffer.append(plan)
+    self.plan_emitted = true
+  end
+end
+
+-- TAP Reporter: begin an individual test.
+fn begin_test(self: TAPReporter, test: TestCase) do
+  let diag be "# --- " + test.name + " ---"
+  self.output_buffer.append(diag)
+end
+
+-- TAP Reporter: end an individual test.
+fn end_test(self: TAPReporter, test: TestCase, result: TestResult) do
+  self.test_count = self.test_count + 1
+end
+
+-- TAP Reporter: report a passing test.
+fn report_pass(self: TAPReporter, test: TestCase, result: TestResult) do
+  self.test_count = self.test_count + 1
+  let line be "ok " + self.test_count.to_string() + " - " + test.name
+  self.output_buffer.append(line)
+end
+
+-- TAP Reporter: report a failing test with diagnostics.
+fn report_fail(self: TAPReporter, test: TestCase, result: TestResult) do
+  self.test_count = self.test_count + 1
+  self.failed_count = self.failed_count + 1
+  let line be "not ok " + self.test_count.to_string() + " - " + test.name
+  self.output_buffer.append(line)
+  if result.message != "" then
+    self.output_buffer.append("# " + result.message)
+  end
+end
+
+-- TAP Reporter: report a skipped test.
+fn report_skip(self: TAPReporter, test: TestCase, result: TestResult) do
+  self.test_count = self.test_count + 1
+  let line be "ok " + self.test_count.to_string() + " - " + test.name + " # SKIP"
+  self.output_buffer.append(line)
+end
+
+-- TAP Reporter: finalize output and return complete buffer.
+fn finalize_output(self: TAPReporter) -> String do
+  if not self.plan_emitted then
+    let plan be "1.." + self.test_count.to_string()
+    self.output_buffer.append(plan)
+  end
+  return self.output_buffer.join("\n")
+end
+
+-- JUnit Reporter: begin a test suite.
+fn begin_suite(self: JUnitReporter, suite: TestSuite) do
+  let entry be Map<String, String>()
+  entry["name"] = suite.name
+  entry["tests"] = "0"
+  entry["failures"] = "0"
+  entry["errors"] = "0"
+  entry["cases"] = ""
+  self.test_suites.append(entry)
+end
+
+-- JUnit Reporter: end a test suite and close XML tags.
+fn end_suite(self: JUnitReporter, suite: TestSuite) do
+  let xml be "</testsuite>"
+  self.output_buffer.append(xml)
+end
+
+-- JUnit Reporter: begin an individual test.
+fn begin_test(self: JUnitReporter, test: TestCase) do
+  let xml = "    <testcase name=\"" + test.name + "\">"
+  self.output_buffer.append(xml)
+end
+
+-- JUnit Reporter: end an individual test.
+fn end_test(self: JUnitReporter, test: TestCase, result: TestResult) do
+  let idx be self.test_suites.length - 1
+  if idx >= 0 then
+    let suite_entry be self.test_suites[idx]
+    let count be suite_entry["tests"].to_int() + 1
+    suite_entry["tests"] = count.to_string()
+  end
+  self.output_buffer.append("    </testcase>")
+end
+
+-- JUnit Reporter: report a passing test.
+fn report_pass(self: JUnitReporter, test: TestCase, result: TestResult) do
+  -- pass is default in JUnit, no special tag needed
+end
+
+-- JUnit Reporter: report a failing test with failure element.
+fn report_fail(self: JUnitReporter, test: TestCase, result: TestResult) do
+  let fail_xml = "      <failure message=\"" + result.message + "\">" + result.message + "</failure>"
+  self.output_buffer.append(fail_xml)
+  let idx be self.test_suites.length - 1
+  if idx >= 0 then
+    let suite_entry be self.test_suites[idx]
+    let count be suite_entry["failures"].to_int() + 1
+    suite_entry["failures"] = count.to_string()
+  end
+end
+
+-- JUnit Reporter: report a skipped test.
+fn report_skip(self: JUnitReporter, test: TestCase, result: TestResult) do
+  let skip_xml = "      <skipped/>"
+  self.output_buffer.append(skip_xml)
+end
+
+-- JUnit Reporter: finalize output as complete XML document.
+fn finalize_output(self: JUnitReporter) -> String do
+  let lines be List<String>()
+  lines.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+  lines.append("<testsuites>")
+  for entry in self.test_suites do
+    let tag be "  <testsuite name=\"" + entry["name"] + "\" tests=\"" + entry["tests"] + "\" failures=\"" + entry["failures"] + "\">"
+    lines.append(tag)
+  end
+  for line in self.output_buffer do
+    lines.append(line)
+  end
+  for entry in self.test_suites do
+    lines.append("  </testsuite>")
+  end
+  lines.append("</testsuites>")
+  return lines.join("\n")
+end
+
+-- Pretty Reporter: begin a test suite.
+fn begin_suite(self: PrettyReporter, suite: TestSuite) do
+  let sep be "="
+  let i be 0
+  while i < self.width do
+    sep = sep + "="
+    i = i + 1
+  end
+  self.output_buffer.append("")
+  self.output_buffer.append(sep)
+  self.output_buffer.append("Suite: " + suite.name)
+  self.output_buffer.append(sep)
+end
+
+-- Pretty Reporter: end a test suite with summary.
+fn end_suite(self: PrettyReporter, suite: TestSuite) do
+  self.output_buffer.append("")
+end
+
+-- Pretty Reporter: begin an individual test.
+fn begin_test(self: PrettyReporter, test: TestCase) do
+  let line be "  [RUN ] " + test.name
+  self.output_buffer.append(line)
+end
+
+-- Pretty Reporter: end an individual test.
+fn end_test(self: PrettyReporter, test: TestCase, result: TestResult) do
+  if result.passed then
+    let line be "  [PASS] " + test.name
+    if self.show_timing then
+      line = line + " (" + result.duration.to_string() + "ms)"
+    end
+    self.output_buffer.append(line)
+  end
+end
+
+-- Pretty Reporter: report a passing test.
+fn report_pass(self: PrettyReporter, test: TestCase, result: TestResult) do
+  let line be "  [PASS] " + test.name
+  if self.show_timing then
+    line = line + " (" + result.duration.to_string() + "ms)"
+  end
+  if self.show_semantic and result.semantic_score > 0.0 then
+    line = line + " [semantic: " + result.semantic_score.to_string() + "]"
+  end
+  self.output_buffer.append(line)
+end
+
+-- Pretty Reporter: report a failing test.
+fn report_fail(self: PrettyReporter, test: TestCase, result: TestResult) do
+  let line be "  [FAIL] " + test.name
+  self.output_buffer.append(line)
+  if result.message != "" then
+    self.output_buffer.append("        " + result.message)
+  end
+end
+
+-- Pretty Reporter: report a skipped test.
+fn report_skip(self: PrettyReporter, test: TestCase, result: TestResult) do
+  let line be "  [SKIP] " + test.name
+  self.output_buffer.append(line)
+end
+
+-- Pretty Reporter: finalize output.
+fn finalize_output(self: PrettyReporter) -> String do
+  return self.output_buffer.join("\n")
+end
+
+-- ReporterFactory: create a reporter based on configured format.
+fn create_reporter(self: ReporterFactory) -> String do
+  match self.format with
+    ReportFormat.TAP then return "TAPReporter"
+    ReportFormat.JUNIT_XML then return "JUnitReporter"
+    ReportFormat.PRETTY_TEXT then return "PrettyReporter"
+    ReportFormat.COMPACT_TEXT then return "CompactReporter"
+    ReportFormat.JSON_REPORT then return "JSONReporter"
+    ReportFormat.SEMANTIC_REPORT then return "SemanticReporter"
+  end
+  return "PrettyReporter"
+end
+
+-- ReporterFactory: configure format from a string name.
+fn configure_from_string(self: ReporterFactory, name: String) -> Bool do
+  match name with
+    "tap" then
+      self.format = ReportFormat.TAP
+      return true
+    "junit" then
+      self.format = ReportFormat.JUNIT_XML
+      return true
+    "pretty" then
+      self.format = ReportFormat.PRETTY_TEXT
+      return true
+    "compact" then
+      self.format = ReportFormat.COMPACT_TEXT
+      return true
+    "json" then
+      self.format = ReportFormat.JSON_REPORT
+      return true
+    "semantic" then
+      self.format = ReportFormat.SEMANTIC_REPORT
+      return true
+    else
+      return false
+  end
+end
+
+-- ReporterFactory: list all available format names.
+fn available_formats(self: ReporterFactory) -> List<String> do
+  let formats be List<String>()
+  formats.append("tap")
+  formats.append("junit")
+  formats.append("pretty")
+  formats.append("compact")
+  formats.append("json")
+  formats.append("semantic")
+  return formats
+end
+
+export {TAPReporter, JUnitReporter, PrettyReporter, ReporterFactory}
+export {ReportFormat, ReportVerbosity}

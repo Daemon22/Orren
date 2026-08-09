@@ -1,0 +1,508 @@
+module orren.mind
+
+import from orren.core.language.foundation::{*}
+
+intent "Provide higher-level cognitive-mind compositions"
+intent "Implement MindState for tracking attention, focus, and working context"
+intent "Deliver MindEngine as the primary cognitive orchestration interface"
+
+const MIND_VERSION = "1.0.0"
+const MAX_ATTENTION_SET = 7
+const MAX_COGNITIVE_LOAD = 1.0
+const MIN_COGNITIVE_LOAD = 0.0
+const DEFAULT_FOCUS = "unfocused"
+const INTUITION_THRESHOLD = 0.7
+const DELIBERATION_MIN_STEPS = 4
+const CREATIVITY_DIVERGENCE_COUNT = 5
+const LEARNING_RATE = 0.1
+
+entity MindState
+    property current_focus : String = DEFAULT_FOCUS
+    property attention_set : List<String> = []
+    property working_context : Map<String, String> = {}
+    property cognitive_load : Float = 0.0
+    property history : List<Map<String, String>> = []
+    property emotional_valence : Float = 0.5
+
+    fn new() -> MindState
+        let s : MindState = MindState()
+        s.current_focus = DEFAULT_FOCUS
+        s.attention_set = []
+        s.working_context = {}
+        s.cognitive_load = 0.0
+        s.history = []
+        s.emotional_valence = 0.5
+        return s
+    end
+
+    fn focus(item : String) -> MindState
+        intent "Set the current focus, updating cognitive load"
+        let updated : MindState = self
+        updated.current_focus = item
+        let load_delta : Float = 0.1
+        updated.cognitive_load = updated.cognitive_load + load_delta
+        if updated.cognitive_load > MAX_COGNITIVE_LOAD
+            updated.cognitive_load = MAX_COGNITIVE_LOAD
+        end
+        let event : Map<String, String> = {}
+        event["action"] = "focus"
+        event["target"] = item
+        event["load_after"] = "" + updated.cognitive_load
+        updated.history = ListOps.append(updated.history, event)
+        return updated
+    end
+
+    fn attend(items : List<String>) -> MindState
+        intent "Set the attention set, bounded by cognitive capacity"
+        let updated : MindState = self
+        let count : Int = ListOps.length(items)
+        if count > MAX_ATTENTION_SET
+            let trimmed : List<String> = ListOps.take(items, MAX_ATTENTION_SET)
+            updated.attention_set = trimmed
+        else
+            updated.attention_set = items
+        end
+        let load_from_attention : Float = 0.05
+        let total_addition : Float = load_from_attention * count
+        updated.cognitive_load = updated.cognitive_load + total_addition
+        if updated.cognitive_load > MAX_COGNITIVE_LOAD
+            updated.cognitive_load = MAX_COGNITIVE_LOAD
+        end
+        return updated
+    end
+
+    fn contextualize(key : String, value : String) -> MindState
+        intent "Add a key-value pair to working context"
+        let updated : MindState = self
+        updated.working_context[key] = value
+        return updated
+    end
+
+    fn load() -> Float
+        return self.cognitive_load
+    end
+
+    fn get_context(key : String) -> String
+        let value : String = self.working_context[key]
+        return value
+    end
+
+    fn clear_focus() -> MindState
+        let updated : MindState = self
+        updated.current_focus = DEFAULT_FOCUS
+        updated.cognitive_load = MIN_COGNITIVE_LOAD
+        return updated
+    end
+
+    fn clear_attention() -> MindState
+        let updated : MindState = self
+        updated.attention_set = []
+        updated.cognitive_load = MIN_COGNITIVE_LOAD
+        return updated
+    end
+
+    fn record_event(action : String, detail : String) -> MindState
+        let updated : MindState = self
+        let event : Map<String, String> = {}
+        event["action"] = action
+        event["detail"] = detail
+        event["focus"] = updated.current_focus
+        event["load"] = "" + updated.cognitive_load
+        updated.history = ListOps.append(updated.history, event)
+        return updated
+    end
+
+    fn event_count() -> Int
+        return ListOps.length(self.history)
+    end
+
+    fn is_overloaded() -> Bool
+        if self.cognitive_load >= MAX_COGNITIVE_LOAD
+            return true
+        else
+            return false
+        end
+    end
+
+    fn available_capacity() -> Float
+        let remaining : Float = MAX_COGNITIVE_LOAD - self.cognitive_load
+        if remaining < 0.0
+            return 0.0
+        end
+        return remaining
+    end
+
+    fn snapshot() -> Map<String, String>
+        let snap : Map<String, String> = {}
+        snap["current_focus"] = self.current_focus
+        snap["attention_count"] = "" + ListOps.length(self.attention_set)
+        snap["context_keys"] = "" + 0
+        snap["cognitive_load"] = "" + self.cognitive_load
+        snap["emotional_valence"] = "" + self.emotional_valence
+        snap["event_count"] = "" + self.event_count()
+        return snap
+    end
+
+    fn to_string() -> String
+        return "MindState(focus=" + self.current_focus + ", load=" + self.cognitive_load + ")"
+    end
+end
+
+entity ThoughtPattern
+    property pattern_id : String = ""
+    property steps : List<String> = []
+    property cognitive_keywords_used : List<String> = []
+    property description : String = ""
+    property expected_outcome : String = ""
+
+    fn new(pattern_id : String, steps : List<String>, cognitive_keywords_used : List<String>) -> ThoughtPattern
+        let tp : ThoughtPattern = ThoughtPattern()
+        tp.pattern_id = pattern_id
+        tp.steps = steps
+        tp.cognitive_keywords_used = cognitive_keywords_used
+        return tp
+    end
+
+    fn execute(context : MindState) -> Map<String, String>
+        intent "Execute the thought pattern within a given mind state"
+        let result : Map<String, String> = {}
+        result["pattern_id"] = self.pattern_id
+        result["step_count"] = "" + ListOps.length(self.steps)
+        result["keywords"] = "" + ListOps.length(self.cognitive_keywords_used)
+        result["initial_focus"] = context.current_focus
+        result["initial_load"] = "" + context.cognitive_load
+        let current_state : MindState = context
+        let step_results : List<String> = []
+        let i : Int = 0
+        for step in self.steps do
+            let step_result : String = step + "_executed"
+            step_results = ListOps.append(step_results, step_result)
+            current_state = current_state.record_event("pattern_step", step)
+            i = i + 1
+        end
+        let outcomes_str : String = ""
+        for sr in step_results do
+            if outcomes_str == ""
+                outcomes_str = sr
+            else
+                outcomes_str = outcomes_str + "; " + sr
+            end
+        end
+        result["step_results"] = outcomes_str
+        result["final_focus"] = current_state.current_focus
+        result["final_load"] = "" + current_state.cognitive_load
+        result["status"] = "completed"
+        result["description"] = self.description
+        result["expected_outcome"] = self.expected_outcome
+        return result
+    end
+
+    fn add_step(step : String) -> ThoughtPattern
+        let updated_steps : List<String> = ListOps.append(self.steps, step)
+        let updated : ThoughtPattern = self
+        updated.steps = updated_steps
+        return updated
+    end
+
+    fn add_keyword(keyword : String) -> ThoughtPattern
+        let updated_keywords : List<String> = ListOps.append(self.cognitive_keywords_used, keyword)
+        let updated : ThoughtPattern = self
+        updated.cognitive_keywords_used = updated_keywords
+        return updated
+    end
+
+    fn step_count() -> Int
+        return ListOps.length(self.steps)
+    end
+
+    fn to_string() -> String
+        return "ThoughtPattern(" + self.pattern_id + ", " + self.step_count() + " steps)"
+    end
+end
+
+entity MindEngine
+    property state : MindState = MindState.new()
+    property reasoning : Reasoning = Reasoning.new()
+    property belief : Belief = Belief.new()
+    property perception : Perception = Perception.new()
+    property planning : Planning = Planning.new()
+    property reflection : Reflection = Reflection.new()
+    property thought_log : List<Map<String, String>> = []
+    property engine_id : String = ""
+
+    fn init() -> MindEngine
+        intent "Initialize a fresh MindEngine with clean cognitive state"
+        let engine : MindEngine = MindEngine()
+        engine.state = MindState.new()
+        engine.reasoning = Reasoning.new()
+        engine.belief = Belief.new()
+        engine.perception = Perception.new()
+        engine.planning = Planning.new()
+        engine.reflection = Reflection.new()
+        engine.thought_log = []
+        engine.engine_id = "mind_engine_"
+        return engine
+    end
+
+    fn think(problem : String, context : MindState) -> Map<String, String>
+        intent "Full cognitive cycle: perceive -> reason -> believe -> reflect -> plan -> deliberate"
+        let result : Map<String, String> = {}
+        result["engine_id"] = self.engine_id
+        result["mode"] = "full_cognitive_cycle"
+        result["problem"] = problem
+
+        let current_state : MindState = context
+        current_state = current_state.focus(problem)
+
+        let perception_result : Map<String, String> = self.perception.perceive_semantic(problem)
+        result["perception"] = perception_result["processed"]
+        current_state = current_state.record_event("perceive", problem)
+
+        let chain : List<Map<String, String>> = self.reasoning.chain_of_thought(problem)
+        result["reasoning_steps"] = "" + ListOps.length(chain)
+        current_state = current_state.record_event("reason", "chain_of_thought")
+
+        let belief_result : Map<String, String> = self.belief.form(problem, ["perception", "reasoning"])
+        result["belief_confidence"] = belief_result["confidence"]
+        current_state = current_state.record_event("believe", problem)
+
+        let targets : List<String> = [problem, perception_result["processed"], belief_result["status"]]
+        let reflect_result : Map<String, String> = self.reflection.reflect_shallow(targets)
+        result["reflection_depth"] = reflect_result["depth"]
+        current_state = current_state.record_event("reflect", "shallow")
+
+        let plan_result : Map<String, String> = self.planning.create_plan(problem, "thinking")
+        result["plan_status"] = plan_result["status"]
+        current_state = current_state.record_event("plan", problem)
+
+        result["deliberation"] = "deliberation_complete"
+        result["final_load"] = "" + current_state.cognitive_load
+        result["status"] = "thought_complete"
+        result["outcome"] = "cognitive_cycle_executed"
+
+        let log_entry : Map<String, String> = result
+        self.thought_log = ListOps.append(self.thought_log, log_entry)
+
+        return result
+    end
+
+    fn intuitive_judge(input : String) -> Map<String, String>
+        intent "Fast cognition: perceive + abductive reasoning + believe"
+        let result : Map<String, String> = {}
+        result["engine_id"] = self.engine_id
+        result["mode"] = "intuitive_judgment"
+        result["input"] = input
+        result["speed"] = "fast"
+        result["cognitive_path"] = "perceive -> abductive_reason -> believe"
+
+        let perception_result : Map<String, String> = self.perception.perceive_semantic(input)
+        result["perception"] = perception_result["processed"]
+
+        let observations : List<String> = [input]
+        let abductive_result : Map<String, String> = self.reasoning.abductive(observations)
+        result["hypothesis"] = abductive_result["hypothesis"]
+        result["reasoning_confidence"] = abductive_result["confidence"]
+
+        let belief_result : Map<String, String> = self.belief.form(abductive_result["hypothesis"], ["abduction"])
+        result["belief"] = belief_result["status"]
+        result["belief_confidence"] = belief_result["confidence"]
+
+        result["judgment"] = abductive_result["hypothesis"]
+        result["status"] = "intuitive_judgment_complete"
+
+        let log_entry : Map<String, String> = result
+        self.thought_log = ListOps.append(self.thought_log, log_entry)
+
+        return result
+    end
+
+    fn deliberate_analysis(input : String) -> Map<String, String>
+        intent "Slow cognition: perceive + deductive reasoning + plan + deep reflect + deliberate"
+        let result : Map<String, String> = {}
+        result["engine_id"] = self.engine_id
+        result["mode"] = "deliberate_analysis"
+        result["input"] = input
+        result["speed"] = "slow"
+        result["cognitive_path"] = "perceive -> deductive_reason -> plan -> deep_reflect -> deliberate"
+
+        let perception_result : Map<String, String> = self.perception.perceive_semantic(input)
+        result["perception"] = perception_result["processed"]
+
+        let premises : List<String> = [input]
+        let deductive_result : Map<String, String> = self.reasoning.deductive(premises, "conclusion_from: " + input)
+        result["deduction_validity"] = deductive_result["validity"]
+        result["deduction_confidence"] = deductive_result["confidence"]
+
+        let chain : List<Map<String, String>> = self.reasoning.chain_of_thought(input)
+        result["chain_steps"] = "" + ListOps.length(chain)
+
+        let plan_result : Map<String, String> = self.planning.create_plan(input, "deliberate_analysis")
+        result["plan_status"] = plan_result["status"]
+
+        let decomp : List<String> = self.planning.decompose(input)
+        result["decomposed_steps"] = "" + ListOps.length(decomp)
+
+        let targets : List<String> = [input, deductive_result["conclusion"], plan_result["status"]]
+        let reflect_result : Map<String, String> = self.reflection.reflect_deep(targets)
+        result["reflection_depth"] = reflect_result["depth"]
+        result["reflection_findings"] = reflect_result["findings"]
+        result["reflection_confidence"] = reflect_result["confidence"]
+
+        let meta_targets : List<String> = ["deliberate_process", "deduction_method", "reflection_quality"]
+        let meta_result : Map<String, String> = self.reflection.meta_reflect(meta_targets)
+        result["meta_reflection"] = meta_result["findings"]
+
+        result["deliberation"] = "thorough_analysis_complete"
+        result["status"] = "deliberate_analysis_complete"
+        result["confidence"] = reflect_result["confidence"]
+        result["outcome"] = "carefully_deliberated_conclusion"
+
+        let log_entry : Map<String, String> = result
+        self.thought_log = ListOps.append(self.thought_log, log_entry)
+
+        return result
+    end
+
+    fn creative_synthesis(concepts : List<String>) -> Map<String, String>
+        intent "Creative cycle: recall -> evolve -> deep reflect -> intend"
+        let result : Map<String, String> = {}
+        result["engine_id"] = self.engine_id
+        result["mode"] = "creative_synthesis"
+        result["concept_count"] = "" + ListOps.length(concepts)
+        result["cognitive_path"] = "recall -> evolve -> deep_reflect -> intend"
+
+        let concept_str : String = ""
+        for c in concepts do
+            if concept_str == ""
+                concept_str = c
+            else
+                concept_str = concept_str + ", " + c
+            end
+        end
+        result["input_concepts"] = concept_str
+
+        let recalled : List<String> = []
+        for concept in concepts do
+            let recalled_item : String = "recalled: " + concept
+            recalled = ListOps.append(recalled, recalled_item)
+        end
+        result["recalled_count"] = "" + ListOps.length(recalled)
+
+        let evolved_concepts : List<String> = []
+        for concept in concepts do
+            let evolved : String = "evolved: " + concept + " -> novel_interpretation"
+            evolved_concepts = ListOps.append(evolved_concepts, evolved)
+        end
+        result["evolved_count"] = "" + ListOps.length(evolved_concepts)
+        result["evolution_method"] = "conceptual_blend_and_recombination"
+
+        let synthesis_seed : String = ""
+        for ec in evolved_concepts do
+            if synthesis_seed == ""
+                synthesis_seed = ec
+            else
+                synthesis_seed = synthesis_seed + " + " + ec
+            end
+        end
+        result["synthesis_seed"] = synthesis_seed
+
+        let reflect_targets : List<String> = evolved_concepts
+        let reflect_result : Map<String, String> = self.reflection.reflect_deep(reflect_targets)
+        result["reflection_on_synthesis"] = reflect_result["findings"]
+
+        result["intention"] = "create_novel_combination_from_evolved_concepts"
+        result["creative_output"] = "synthesis_of: " + concept_str
+        result["divergence"] = "" + CREATIVITY_DIVERGENCE_COUNT
+        result["status"] = "creative_synthesis_complete"
+        result["outcome"] = "novel_conceptual_combination_generated"
+
+        let log_entry : Map<String, String> = result
+        self.thought_log = ListOps.append(self.thought_log, log_entry)
+
+        return result
+    end
+
+    fn learn(experience : String, context : MindState) -> MindState
+        intent "Learning cycle: perceive -> inductive reason -> believe -> evolve -> store"
+        let result : Map<String, String> = {}
+        result["mode"] = "learning_cycle"
+        result["experience"] = experience
+
+        let perception_result : Map<String, String> = self.perception.perceive_semantic(experience)
+        result["perception"] = perception_result["processed"]
+
+        let observations : List<String> = [experience, perception_result["processed"]]
+        let inductive_result : Map<String, String> = self.reasoning.inductive(observations)
+        result["generalization"] = inductive_result["generalization"]
+        result["inductive_confidence"] = inductive_result["confidence"]
+
+        let belief_result : Map<String, String> = self.belief.form(
+            inductive_result["generalization"],
+            observations
+        )
+        result["belief_status"] = belief_result["status"]
+        result["belief_confidence"] = belief_result["confidence"]
+
+        result["evolution"] = "cognitive_structures_adapted_based_on_experience"
+        result["learning_rate"] = "" + LEARNING_RATE
+
+        let updated_state : MindState = context
+        updated_state = updated_state.focus(experience)
+        updated_state = updated_state.contextualize(
+            "learned_from_experience",
+            experience
+        )
+        updated_state = updated_state.contextualize(
+            "generalization",
+            inductive_result["generalization"]
+        )
+        updated_state = updated_state.contextualize(
+            "confidence",
+            belief_result["confidence"]
+        )
+
+        result["status"] = "learning_complete"
+        result["state_updated"] = "true"
+
+        let log_entry : Map<String, String> = result
+        self.thought_log = ListOps.append(self.thought_log, log_entry)
+
+        return updated_state
+    end
+
+    fn thought_count() -> Int
+        return ListOps.length(self.thought_log)
+    end
+
+    fn get_thought(index : Int) -> Map<String, String>
+        return self.thought_log[index]
+    end
+
+    fn recent_thoughts(n : Int) -> List<Map<String, String>>
+        let total : Int = self.thought_count()
+        if n > total
+            n = total
+        end
+        let start : Int = total - n
+        let result : List<Map<String, String>> = []
+        let i : Int = start
+        for i < total do
+            result = ListOps.append(result, self.thought_log[i])
+            i = i + 1
+        end
+        return result
+    end
+
+    fn clear_log()
+        self.thought_log = []
+    end
+
+    fn to_string() -> String
+        let tc : Int = self.thought_count()
+        return "MindEngine(id=" + self.engine_id + ", thoughts=" + tc + ")"
+    end
+end
+
+export MindState
+export ThoughtPattern
+export MindEngine

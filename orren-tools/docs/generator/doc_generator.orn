@@ -1,0 +1,346 @@
+-- doc_generator.orn
+-- Documentation generator for Orren source code
+-- Parses modules, extracts documentation elements, and produces structured output
+
+module orren_tools.docs.generator
+
+import orren.core.language.foundation::{String, Int, Float, Bool, List, Map}
+import orren.core.language.foundation::{FileSystem, Path}
+
+-- Types of documentation elements found in Orren source
+enum DocElementType
+  MODULE
+  ENTITY
+  ENUM
+  FUNCTION
+  PROPERTY
+  CONST
+  IMPORT
+  EXPORT
+  COGNITIVE_KEYWORD
+  SEMANTIC_DOMAIN
+end
+
+-- Supported output formats for generated documentation
+enum DocOutputFormat
+  MARKDOWN
+  HTML
+  JSON
+  SEMANTIC_HTML
+end
+
+-- A single extracted documentation element
+entity DocElement
+  property name: String = ""
+  property kind: DocElementType = DocElementType.MODULE
+  property module_path: String = ""
+  property description: String = ""
+  property signature: String = ""
+  property properties_doc: List<String> = List<String>{}
+  property functions_doc: List<String> = List<String>{}
+  property intent_text: String = ""
+  property line: Int = 0
+  property source_file: String = ""
+  property semantic_relevance: String = ""
+  property examples: List<String> = List<String>{}
+  property see_also: List<String> = List<String>{}
+end
+
+-- Complete documentation for a parsed module
+entity ModuleDoc
+  property module_path: String = ""
+  property elements: List<DocElement> = List<DocElement>{}
+  property imports: List<String> = List<String>{}
+  property exports: List<String> = List<String>{}
+  property intents: List<String> = List<String>{}
+  property description: String = ""
+  property file_path: String = ""
+  property total_entities: Int = 0
+  property total_functions: Int = 0
+  property total_enums: Int = 0
+end
+
+-- Configuration controlling documentation generation behavior
+entity DocGeneratorConfig
+  property output_format: DocOutputFormat = DocOutputFormat.MARKDOWN
+  property include_private: Bool = false
+  property include_semantic: Bool = true
+  property include_examples: Bool = true
+  property include_source_links: Bool = true
+  property max_depth: Int = 10
+  property exclude_modules: List<String> = List<String>{}
+end
+
+-- Main documentation generator that orchestrates parsing and output
+entity DocGenerator
+  property config: DocGeneratorConfig = DocGeneratorConfig{}
+  property parsed_modules: List<ModuleDoc> = List<ModuleDoc>{}
+  property warnings: List<String> = List<String>{}
+  property cross_references: Map<String, List<String>> = Map<String, List<String>>{}
+end
+
+intent "parse Orren source modules, extract documentation elements, resolve cross-references, and generate structured documentation"
+
+-- Parse a single source file into a module documentation structure
+fn parse_file(self: DocGenerator, file_path: String) -> ModuleDoc do
+  let content be FileSystem.read_file(file_path)
+  let mod_doc be ModuleDoc{file_path = file_path}
+  -- Extract module name from the first line
+  let lines be content.split("\n")
+  for line in lines do
+    let trimmed be line.trim()
+    if trimmed.starts_with("module ") then
+      mod_doc.module_path = trimmed.substring(7, trimmed.length()).trim()
+    end
+  end
+  mod_doc.imports = self.extract_imports(content)
+  mod_doc.exports = self.extract_exports(content)
+  mod_doc.intents = self.extract_intents(content)
+  mod_doc.elements = self.extract_entities(content, file_path, mod_doc.module_path)
+  let funcs be self.extract_functions(content, file_path, mod_doc.module_path)
+  for f in funcs do
+    mod_doc.elements.append(f)
+  end
+  let enums be self.extract_enums(content, file_path, mod_doc.module_path)
+  for e in enums do
+    mod_doc.elements.append(e)
+  end
+  mod_doc.total_entities = self.count_by_kind(mod_doc.elements, DocElementType.ENTITY)
+  mod_doc.total_functions = self.count_by_kind(mod_doc.elements, DocElementType.FUNCTION)
+  mod_doc.total_enums = self.count_by_kind(mod_doc.elements, DocElementType.ENUM)
+  self.parsed_modules.append(mod_doc)
+  return mod_doc
+end
+
+-- Extract all intent declarations from source content
+fn extract_intents(self: DocGenerator, content: String) -> List<String> do
+  let intents be List<String>{}
+  let lines be content.split("\n")
+  for line in lines do
+    let trimmed be line.trim()
+    if trimmed.starts_with("intent ") then
+      let quote_start be trimmed.index_of("\"")
+      if quote_start >= 0 then
+        let quote_end be trimmed.index_of("\"", quote_start + 1)
+        if quote_end > quote_start then
+          let intent_text be trimmed.substring(quote_start + 1, quote_end)
+          intents.append(intent_text)
+        end
+      end
+    end
+  end
+  return intents
+end
+
+-- Extract all entity definitions from source content
+fn extract_entities(self: DocGenerator, content: String, file_path: String, module_path: String) -> List<DocElement> do
+  let entities be List<DocElement>{}
+  let lines be content.split("\n")
+  let current_comment be List<String>{}
+  let i be 0
+  while i < lines.length() do
+    let trimmed be lines[i].trim()
+    if trimmed.starts_with("--") then
+      current_comment.append(trimmed.substring(2).trim())
+    else if trimmed.starts_with("entity ") then
+      let name be trimmed.substring(7, trimmed.length()).trim()
+      let desc be current_comment.join(" ")
+      let elem be DocElement{
+        name = name,
+        kind = DocElementType.ENTITY,
+        module_path = module_path,
+        description = desc,
+        line = i,
+        source_file = file_path
+      }
+      -- Extract properties
+      let props be List<String>{}
+      let j be i + 1
+      while j < lines.length() do
+        let prop_line be lines[j].trim()
+        if prop_line.starts_with("property ") then
+          props.append(prop_line)
+        else if prop_line == "end" then
+          break
+        end end
+        j = j + 1
+      end
+      elem.properties_doc = props
+      entities.append(elem)
+      current_comment = List<String>{}
+    else
+      current_comment = List<String>{}
+    end end
+    i = i + 1
+  end
+  return entities
+end
+
+-- Extract all function definitions from source content
+fn extract_functions(self: DocGenerator, content: String, file_path: String, module_path: String) -> List<DocElement> do
+  let functions be List<DocElement>{}
+  let lines be content.split("\n")
+  let current_comment be List<String>{}
+  let i be 0
+  while i < lines.length() do
+    let trimmed be lines[i].trim()
+    if trimmed.starts_with("--") then
+      current_comment.append(trimmed.substring(2).trim())
+    else if trimmed.starts_with("fn ") then
+      let rest be trimmed.substring(3, trimmed.length()).trim()
+      let paren be rest.index_of("(")
+      let name be ""
+      let sig be rest
+      if paren > 0 then
+        name = rest.substring(0, paren)
+      end
+      let desc be current_comment.join(" ")
+      let elem be DocElement{
+        name = name,
+        kind = DocElementType.FUNCTION,
+        module_path = module_path,
+        description = desc,
+        signature = sig,
+        line = i,
+        source_file = file_path
+      }
+      functions.append(elem)
+      current_comment = List<String>{}
+    else
+      current_comment = List<String>{}
+    end end
+    i = i + 1
+  end
+  return functions
+end
+
+-- Extract all enum definitions from source content
+fn extract_enums(self: DocGenerator, content: String, file_path: String, module_path: String) -> List<DocElement> do
+  let enums be List<DocElement>{}
+  let lines be content.split("\n")
+  let current_comment be List<String>{}
+  let i be 0
+  while i < lines.length() do
+    let trimmed be lines[i].trim()
+    if trimmed.starts_with("--") then
+      current_comment.append(trimmed.substring(2).trim())
+    else if trimmed.starts_with("enum ") then
+      let name be trimmed.substring(5, trimmed.length()).trim()
+      let desc be current_comment.join(" ")
+      let elem be DocElement{
+        name = name,
+        kind = DocElementType.ENUM,
+        module_path = module_path,
+        description = desc,
+        line = i,
+        source_file = file_path
+      }
+      enums.append(elem)
+      current_comment = List<String>{}
+    else
+      current_comment = List<String>{}
+    end end
+    i = i + 1
+  end
+  return enums
+end
+
+-- Extract all import statements from source content
+fn extract_imports(self: DocGenerator, content: String) -> List<String> do
+  let imports be List<String>{}
+  let lines be content.split("\n")
+  for line in lines do
+    let trimmed be line.trim()
+    if trimmed.starts_with("import ") then
+      imports.append(trimmed)
+    end
+  end
+  return imports
+end
+
+-- Extract all export statements from source content
+fn extract_exports(self: DocGenerator, content: String) -> List<String> do
+  let exports be List<String>{}
+  let lines be content.split("\n")
+  for line in lines do
+    let trimmed be line.trim()
+    if trimmed.starts_with("export ") then
+      exports.append(trimmed)
+    end
+  end
+  return exports
+end
+
+-- Build a complete module doc from a parsed file path
+fn build_module_doc(self: DocGenerator, file_path: String) -> ModuleDoc do
+  return self.parse_file(file_path)
+end
+
+-- Resolve cross-references between documented elements
+fn resolve_cross_references(self: DocGenerator) -> Map<String, List<String>> do
+  self.cross_references = Map<String, List<String>>{}
+  for mod_doc in self.parsed_modules do
+    for elem in mod_doc.elements do
+      let refs be List<String>{}
+      -- Check imports for references
+      for imp in mod_doc.imports do
+        if imp.contains(elem.name) then
+          refs.append(imp)
+        end
+      end
+      -- Check see_also fields
+      for also in elem.see_also do
+        refs.append(also)
+      end
+      if refs.length() > 0 then
+        let key be mod_doc.module_path + ":" + elem.name
+        self.cross_references[key] = refs
+      end
+    end
+  end
+  return self.cross_references
+end
+
+-- Generate documentation for all parsed modules
+fn generate_all(self: DocGenerator) -> List<ModuleDoc> do
+  self.resolve_cross_references()
+  return self.parsed_modules
+end
+
+-- Generate documentation for a single module by path
+fn generate_single(self: DocGenerator, module_path: String) -> ModuleDoc do
+  for mod_doc in self.parsed_modules do
+    if mod_doc.module_path == module_path then
+      return mod_doc
+    end
+  end
+  self.warnings.append("Module not found: " + module_path)
+  let empty be ModuleDoc{module_path = module_path}
+  return empty
+end
+
+-- Find a specific element by name across all parsed modules
+fn find_element(self: DocGenerator, name: String) -> DocElement do
+  let not_found be DocElement{name = "", kind = DocElementType.MODULE}
+  for mod_doc in self.parsed_modules do
+    for elem in mod_doc.elements do
+      if elem.name == name then
+        return elem
+      end
+    end
+  end
+  return not_found
+end
+
+-- Count elements by their documentation type
+fn count_by_kind(self: DocGenerator, elements: List<DocElement>, kind: DocElementType) -> Int do
+  let count be 0
+  for elem in elements do
+    if elem.kind == kind then
+      count = count + 1
+    end
+  end
+  return count
+end
+
+export {DocElementType, DocOutputFormat, DocElement, ModuleDoc, DocGeneratorConfig, DocGenerator}

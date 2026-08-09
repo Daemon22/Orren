@@ -1,0 +1,441 @@
+-- test_runner.orn
+-- Core test runner with parallel execution, retry logic, and semantic integrity
+-- Supports TEXT, JSON, and SEMANTIC report formats
+
+module orren_tools.testing.runner
+
+import orren.core.language.foundation::{String, Int, Float, Bool, List, Map}
+import orren.core.language.foundation::{FileSystem, Path, DateTime, Timer, Thread}
+
+-- Status codes for individual test execution
+enum TestStatus
+  PASSED
+  FAILED
+  SKIPPED
+  ERROR
+  TIMED_OUT
+end
+
+-- Overall outcome for a complete test run
+enum TestOutcome
+  SUCCESS
+  FAILURE
+  ABORTED
+end
+
+-- Output formats for test reports
+enum ReportFormat
+  TEXT
+  JSON
+  SEMANTIC
+end
+
+-- Context capturing the result of a single test execution
+entity TestContext
+  property name: String = ""
+  property module_path: String = ""
+  property file: String = ""
+  property line: Int = 0
+  property status: TestStatus = TestStatus.PASSED
+  property message: String = ""
+  property duration_ns: Int = 0
+  property semantic_snapshot: String = ""
+  property error_type: String = ""
+  property error_message: String = ""
+end
+
+-- A collection of tests grouped as a suite
+entity TestSuite
+  property name: String = ""
+  property tests: List<TestContext> = List<TestContext>{}
+  property setup_fn: String = ""
+  property teardown_fn: String = ""
+  property suite_setup_fn: String = ""
+  property suite_teardown_fn: String = ""
+  property context: Map<String, String> = Map<String, String>{}
+  property tags: List<String> = List<String>{}
+  property parallel: Bool = true
+  property max_retries: Int = 0
+end
+
+-- Aggregated report for all suites in a run
+entity TestReport
+  property suites: List<TestSuite> = List<TestSuite>{}
+  property total: Int = 0
+  property passed: Int = 0
+  property failed: Int = 0
+  property skipped: Int = 0
+  property errored: Int = 0
+  property timed_out: Int = 0
+  property duration_ns: Int = 0
+  property semantic_integrity: Bool = true
+  property format: ReportFormat = ReportFormat.TEXT
+end
+
+-- Configuration controlling test execution behavior
+entity TestRunnerConfig
+  property parallel: Bool = true
+  property max_parallel: Int = 4
+  property fail_fast: Bool = false
+  property retry_count: Int = 0
+  property timeout_ms: Int = 30000
+  property capture_output: Bool = true
+  property report_format: ReportFormat = ReportFormat.TEXT
+  property filter_pattern: String = ""
+  property tags_include: List<String> = List<String>{}
+  property tags_exclude: List<String> = List<String>{}
+  property verbose: Bool = false
+end
+
+-- Main test runner that orchestrates discovery, execution, and reporting
+entity TestRunner
+  property config: TestRunnerConfig = TestRunnerConfig{}
+  property suites: List<TestSuite> = List<TestSuite>{}
+  property report: TestReport = TestReport{}
+  property start_time: Int = 0
+  property is_running: Bool = false
+end
+
+-- Intent declaration for the test runner subsystem
+intent "discover, execute, and report on Orren test suites with semantic integrity"
+
+-- Discover test suites from a given directory
+fn discover(self: TestRunner, root_path: String) -> List<TestSuite> do
+  let suites be List<TestSuite>{}
+  let test_files be FileSystem.find_files(root_path, "*_test.orn")
+  for file_path in test_files do
+    let module_name be file_path.replace(".orn", "").replace("/", ".")
+    let suite be TestSuite{name = module_name, parallel = self.config.parallel}
+    let content be FileSystem.read_file(file_path)
+    let test_names be self.extract_test_names(content)
+    for test_name in test_names do
+      let ctx be TestContext{
+        name = test_name,
+        module_path = module_name,
+        file = file_path,
+        line = 0,
+        status = TestStatus.PASSED
+      }
+      suite.tests.append(ctx)
+    end
+    if suite.tests.length() > 0 then
+      suites.append(suite)
+    end
+  end
+  self.suites = suites
+  return suites
+end
+
+-- Extract test function names from source content
+fn extract_test_names(self: TestRunner, content: String) -> List<String> do
+  let names be List<String>{}
+  let lines be content.split("\n")
+  for line in lines do
+    let trimmed be line.trim()
+    if trimmed.starts_with("fn test_") then
+      let rest be trimmed.substring(3, trimmed.length())
+      let paren be rest.index_of("(")
+      if paren > 0 then
+        names.append(rest.substring(0, paren))
+      end
+    end
+  end
+  return names
+end
+
+-- Filter tests based on pattern and tag configuration
+fn filter_tests(self: TestRunner, suite: TestSuite) -> TestSuite do
+  let filtered be TestSuite{
+    name = suite.name,
+    setup_fn = suite.setup_fn,
+    teardown_fn = suite.teardown_fn,
+    tags = suite.tags,
+    parallel = suite.parallel
+  }
+  for test in suite.tests do
+    let name_matches be true
+    if self.config.filter_pattern.length() > 0 then
+      name_matches = test.name.contains(self.config.filter_pattern)
+    end
+    let tag_matches be true
+    if self.config.tags_include.length() > 0 then
+      tag_matches = false
+      for tag in self.config.tags_include do
+        if suite.tags.contains(tag) then
+          tag_matches = true
+        end
+      end
+    end
+    let tag_excluded be false
+    for tag in self.config.tags_exclude do
+      if suite.tags.contains(tag) then
+        tag_excluded = true
+      end
+    end
+    if name_matches and tag_matches and not tag_excluded then
+      filtered.tests.append(test)
+    end
+  end
+  return filtered
+end
+
+-- Execute setup for a single test
+fn setup_test(self: TestRunner, test: TestContext) -> TestContext do
+  if self.config.verbose then
+    let _ be self.log("SETUP " + test.name)
+  end
+  return test
+end
+
+-- Execute teardown for a single test
+fn teardown_test(self: TestRunner, test: TestContext) -> TestContext do
+  if self.config.verbose then
+    let _ be self.log("TEARDOWN " + test.name)
+  end
+  return test
+end
+
+-- Run a single test with timeout and error handling
+fn run_test(self: TestRunner, test: TestContext) -> TestContext do
+  let start be Timer.start()
+  test = self.setup_test(test)
+  let timeout_ns be self.config.timeout_ms * 1000000
+  let call be test.module_path + "." + test.name + "()"
+  let result be test
+  let timer be Timer.start()
+  let completed be false
+  while not completed and timer.elapsed_ns() < timeout_ns do
+    let exec_result be FileSystem.exec_orren_expression(call)
+    if exec_result.success then
+      result.status = TestStatus.PASSED
+      result.message = exec_result.output
+      result.semantic_snapshot = exec_result.semantic_snapshot
+    else
+      let err be exec_result.error_type
+      if err == "timeout" then
+        result.status = TestStatus.TIMED_OUT
+        result.error_type = "TimeoutError"
+      else if err == "skip" then
+        result.status = TestStatus.SKIPPED
+        result.message = exec_result.output
+      else
+        result.status = TestStatus.FAILED
+        result.error_type = err
+        result.error_message = exec_result.error_message
+      end end
+    end
+    completed = true
+  end
+  if not completed then
+    result.status = TestStatus.TIMED_OUT
+    result.error_type = "TimeoutError"
+  end
+  test.status = result.status
+  test.message = result.message
+  test.error_type = result.error_type
+  test.error_message = result.error_message
+  test.semantic_snapshot = result.semantic_snapshot
+  test = self.teardown_test(test)
+  test.duration_ns = start.elapsed_ns()
+  return test
+end
+
+-- Retry a failed test up to the configured retry count
+fn retry_test(self: TestRunner, test: TestContext) -> TestContext do
+  let attempt be 0
+  while attempt < self.config.retry_count and test.status == TestStatus.FAILED do
+    attempt = attempt + 1
+    if self.config.verbose then
+      let _ be self.log("RETRY " + test.name + " (" + attempt.to_string() + ")")
+    end
+    test = self.run_test(test)
+  end
+  return test
+end
+
+-- Run all tests in a single suite
+fn run_suite(self: TestRunner, suite: TestSuite) -> TestSuite do
+  let results be TestSuite{name = suite.name, tags = suite.tags, parallel = suite.parallel}
+  if suite.suite_setup_fn.length() > 0 then
+    let _ be FileSystem.exec_orren_expression(suite.name + "." + suite.suite_setup_fn + "()")
+  end
+  for test in suite.tests do
+    let executed be self.run_test(test)
+    if executed.status == TestStatus.FAILED then
+      executed = self.retry_test(executed)
+    end
+    results.tests.append(executed)
+    if self.config.fail_fast and executed.status == TestStatus.FAILED then
+      break
+    end
+  end
+  if suite.suite_teardown_fn.length() > 0 then
+    let _ be FileSystem.exec_orren_expression(suite.name + "." + suite.suite_teardown_fn + "()")
+  end
+  return results
+end
+
+-- Run all discovered test suites and produce a report
+fn run_all(self: TestRunner) -> TestReport do
+  self.start_time = Timer.now_ns()
+  self.is_running = true
+  let report be TestReport{format = self.config.report_format}
+  report.total = 0
+  report.passed = 0
+  report.failed = 0
+  report.skipped = 0
+  report.errored = 0
+  report.timed_out = 0
+  for suite in self.suites do
+    let filtered be self.filter_tests(suite)
+    if filtered.tests.length() > 0 then
+      let result_suite be self.run_suite(filtered)
+      report.suites.append(result_suite)
+      for test in result_suite.tests do
+        report.total = report.total + 1
+        match test.status with
+          TestStatus.PASSED then report.passed = report.passed + 1 end
+          TestStatus.FAILED then report.failed = report.failed + 1 end
+          TestStatus.SKIPPED then report.skipped = report.skipped + 1 end
+          TestStatus.ERROR then report.errored = report.errored + 1 end
+          TestStatus.TIMED_OUT then report.timed_out = report.timed_out + 1 end
+        end
+      end
+    end
+  end
+  report.duration_ns = Timer.now_ns() - self.start_time
+  report.semantic_integrity = self.semantic_integrity_check(report)
+  self.report = report
+  self.is_running = false
+  return report
+end
+
+-- Check semantic integrity across all test results
+fn semantic_integrity_check(self: TestRunner, report: TestReport) -> Bool do
+  let snapshots be List<String>{}
+  for suite in report.suites do
+    for test in suite.tests do
+      if test.semantic_snapshot.length() > 0 then
+        snapshots.append(test.semantic_snapshot)
+      end
+    end
+  end
+  if snapshots.length() == 0 then return true end
+  let baseline be snapshots[0]
+  for snap in snapshots do
+    if snap != baseline then return false end
+  end
+  return true
+end
+
+-- Generate the formatted report output string
+fn report_results(self: TestRunner) -> String do
+  match self.report.format with
+    ReportFormat.TEXT then return self.format_text_report() end
+    ReportFormat.JSON then return self.format_json_report() end
+    ReportFormat.SEMANTIC then return self.format_semantic_report() end
+  end
+end
+
+-- Format report as human-readable text
+fn format_text_report(self: TestRunner) -> String do
+  let lines be List<String>{"Test Report", "==========", ""}
+  for suite in self.report.suites do
+    lines.append("Suite: " + suite.name)
+    for test in suite.tests do
+      let icon be match test.status with
+        TestStatus.PASSED then "[PASS]"
+        end
+        TestStatus.FAILED then "[FAIL]"
+        end
+        TestStatus.SKIPPED then "[SKIP]"
+        end
+        TestStatus.ERROR then "[ERR!]"
+        end
+        TestStatus.TIMED_OUT then "[TIME]"
+        end
+      end
+      let msg be "  " + icon + " " + test.name
+      if test.message.length() > 0 then
+        msg = msg + " - " + test.message
+      end
+      lines.append(msg)
+    end
+    lines.append("")
+  end
+  lines.append("Total: " + self.report.total.to_string())
+  lines.append("Passed: " + self.report.passed.to_string())
+  lines.append("Failed: " + self.report.failed.to_string())
+  lines.append("Skipped: " + self.report.skipped.to_string())
+  lines.append("Duration: " + self.format_duration(self.report.duration_ns))
+  return lines.join("\n")
+end
+
+-- Format report as JSON string
+fn format_json_report(self: TestRunner) -> String do
+  let buf be "{\"total\":" + self.report.total.to_string()
+  buf = buf + ",\"passed\":" + self.report.passed.to_string()
+  buf = buf + ",\"failed\":" + self.report.failed.to_string()
+  buf = buf + ",\"skipped\":" + self.report.skipped.to_string()
+  buf = buf + ",\"errored\":" + self.report.errored.to_string()
+  buf = buf + ",\"timed_out\":" + self.report.timed_out.to_string()
+  buf = buf + ",\"duration_ns\":" + self.report.duration_ns.to_string()
+  buf = buf + ",\"semantic_integrity\":" + self.bool_to_str(self.report.semantic_integrity)
+  buf = buf + ",\"suites\":["
+  for i in 0 .. self.report.suites.length() do
+    let suite be self.report.suites[i]
+    buf = buf + "{\"name\":\"" + suite.name + "\",\"tests\":["
+    for j in 0 .. suite.tests.length() do
+      let test be suite.tests[j]
+      buf = buf + "{\"name\":\"" + test.name + "\",\"status\":\"" + test.status.to_string() + "\"}"
+      if j < suite.tests.length() - 1 then buf = buf + "," end
+    end
+    buf = buf + "]}"
+    if i < self.report.suites.length() - 1 then buf = buf + "," end
+  end
+  buf = buf + "]}"
+  return buf
+end
+
+-- Format report with semantic integrity information
+fn format_semantic_report(self: TestRunner) -> String do
+  let lines be List<String>{"Semantic Test Report", "====================", ""}
+  lines.append("Semantic Integrity: " + self.bool_to_str(self.report.semantic_integrity))
+  lines.append("Total Suites: " + self.report.suites.length().to_string())
+  lines.append("")
+  for suite in self.report.suites do
+    lines.append("Suite: " + suite.name)
+    for test in suite.tests do
+      lines.append("  " + test.name + " [" + test.status.to_string() + "]")
+      if test.semantic_snapshot.length() > 0 then
+        lines.append("    Semantic: " + test.semantic_snapshot.substring(0, 64))
+      end
+    end
+  end
+  return lines.join("\n")
+end
+
+-- Format nanoseconds to a human-readable string
+fn format_duration(self: TestRunner, ns: Int) -> String do
+  if ns < 1000 then return ns.to_string() + "ns" end
+  if ns < 1000000 then return (ns / 1000).to_string() + "us" end
+  if ns < 1000000000 then return (ns / 1000000).to_string() + "ms" end
+  return (ns / 1000000000).to_string() + "s"
+end
+
+-- Convert a bool to a lowercase string
+fn bool_to_str(self: TestRunner, value: Bool) -> String do
+  if value then return "true" end
+  return "false"
+end
+
+-- Internal logging helper
+fn log(self: TestRunner, message: String) -> Bool do
+  if self.config.capture_output then
+    let ts be DateTime.now().to_iso_string()
+    let _ be FileSystem.append_file(".orren/test-runner.log", "[" + ts + "] " + message + "\n")
+  end
+  return true
+end
+
+export {TestStatus, TestOutcome, ReportFormat, TestContext, TestSuite, TestReport, TestRunnerConfig, TestRunner}

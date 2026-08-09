@@ -1,0 +1,486 @@
+-- analyzer.orn: Higher-level code analysis for the Orren SDK.
+-- Computes code metrics, complexity, coupling, and provides architectural insights
+-- beyond basic linting. Operates at module, project, and workspace scope.
+
+module orren_tools.sdk.analyzer
+
+import module::{String, Int, Bool, Float, List, Map, Result, File, Path}
+import orren.core.language.foundation::{SourceLocation, ModuleResolver, Manifest}
+
+-- The scope at which analysis operates.
+enum AnalysisScope
+    MODULE
+    PROJECT
+    WORKSPACE
+end
+
+-- Categories of metrics that can be computed.
+enum MetricCategory
+    COMPLEXITY
+    COUPLING
+    COHESION
+    SIZE
+    READABILITY
+end
+
+-- Aggregated metrics for a single module.
+entity ModuleMetrics
+    property module_path: String = ""
+    property entity_count: Int = 0
+    property function_count: Int = 0
+    property total_lines: Int = 0
+    property avg_function_length: Float = 0.0
+    property cyclomatic_complexity: Float = 0.0
+    property coupling_score: Float = 0.0
+    property cohesion_score: Float = 0.0
+
+    -- Returns a formatted summary of all metrics.
+    fn summary(self) -> String do
+        let lines be List<String>.new()
+        lines.append("Module: " + self.module_path)
+        lines.append("  Entities: " + String.from_int(self.entity_count).to_string())
+        lines.append("  Functions: " + String.from_int(self.function_count).to_string())
+        lines.append("  Total lines: " + String.from_int(self.total_lines).to_string())
+        lines.append("  Avg function length: " + String.from_float(self.avg_function_length).to_string())
+        lines.append("  Cyclomatic complexity: " + String.from_float(self.cyclomatic_complexity).to_string())
+        lines.append("  Coupling score: " + String.from_float(self.coupling_score).to_string())
+        lines.append("  Cohesion score: " + String.from_float(self.cohesion_score).to_string())
+        return lines.join("\n")
+    end
+
+    -- Classifies the overall health of the module based on its metrics.
+    fn health_rating(self) -> String do
+        if self.cyclomatic_complexity < 5.0 and self.coupling_score < 0.3 then
+            return "excellent"
+        else if self.cyclomatic_complexity < 10.0 and self.coupling_score < 0.5 then
+            return "good"
+        else if self.cyclomatic_complexity < 20.0 and self.coupling_score < 0.7 then
+            return "moderate"
+        else
+            return "needs-refactoring"
+        end
+    end
+end
+
+-- Configuration controlling how analysis is performed.
+entity AnalysisConfig
+    property scope: AnalysisScope = AnalysisScope.MODULE
+    property include_private: Bool = false
+    property metrics_filter: List<MetricCategory> = List<MetricCategory>.new()
+    property max_depth: Int = 10
+
+    -- Checks whether a specific metric category should be computed.
+    fn should_compute(self, category: MetricCategory) -> Bool do
+        if self.metrics_filter.length == 0 then
+            return true
+        end
+        for cat in self.metrics_filter do
+            if cat == category then
+                return true
+            end
+        end
+        return false
+    end
+
+    -- Returns the scope as a display string.
+    fn scope_label(self) -> String do
+        return match self.scope with
+            AnalysisScope.MODULE => "module"
+            AnalysisScope.PROJECT => "project"
+            AnalysisScope.WORKSPACE => "workspace"
+        end
+    end
+end
+
+-- The primary code analysis engine.
+entity CodeAnalyzer
+    property config: AnalysisConfig = AnalysisConfig.new()
+    property results: Map<String, ModuleMetrics> = Map<String, ModuleMetrics>.new()
+    property analyzed_count: Int = 0
+
+    -- Computes cyclomatic complexity for a single function body.
+    fn compute_cyclomatic_complexity(self, source_lines: List<String>, start_line: Int, end_line: Int) -> Int do
+        let complexity be 1
+        let idx be start_line
+        while idx <= end_line do
+            if idx < source_lines.length then
+                let line be source_lines.get(idx).strip()
+                if line.starts_with("if ") then
+                    complexity = complexity + 1
+                else if line.starts_with("else if ") then
+                    complexity = complexity + 1
+                else if line.contains("for ") and line.contains(" in ") then
+                    complexity = complexity + 1
+                else if line.starts_with("while ") then
+                    complexity = complexity + 1
+                else if line.contains("match ") then
+                    let branch_count be self.count_match_branches(source_lines, idx)
+                    complexity = complexity + branch_count
+                end
+            end
+            idx = idx + 1
+        end
+        return complexity
+    end
+
+    -- Counts the number of pattern branches in a match expression.
+    fn count_match_branches(self, source_lines: List<String>, match_line: Int) -> Int do
+        let count be 0
+        let idx be match_line + 1
+        while idx < source_lines.length do
+            let line be source_lines.get(idx).strip()
+            if line.contains("=>") then
+                count = count + 1
+            end
+            if line == "end" or line.contains(" end") then
+                return count
+            end
+            idx = idx + 1
+        end
+        return count
+    end
+
+    -- Measures the coupling score of a module based on its imports and exports.
+    fn measure_coupling(self, module_path: String, imports: List<String>, exports: List<String>) -> Float do
+        if imports.length == 0 and exports.length == 0 then
+            return 0.0
+        end
+        let total_deps be imports.length + exports.length
+        if total_deps == 0 then
+            return 0.0
+        end
+        let external_imports be self.count_external_deps(imports, module_path)
+        let coupling be Float.from_int(external_imports) / Float.from_int(total_deps)
+        if coupling > 1.0 then
+            return 1.0
+        end
+        return coupling
+    end
+
+    -- Counts imports that reference modules outside the current package.
+    fn count_external_deps(self, imports: List<String>, current_module: String) -> Int do
+        let count be 0
+        let base_pkg be self.extract_base_package(current_module)
+        for imp in imports do
+            let imp_pkg be self.extract_base_package(imp)
+            if imp_pkg != base_pkg then
+                count = count + 1
+            end
+        end
+        return count
+    end
+
+    -- Extracts the top-level package from a dotted module path.
+    fn extract_base_package(self, module_path: String) -> String do
+        let parts be module_path.split(".")
+        if parts.length > 0 then
+            return parts.get(0)
+        end
+        return ""
+    end
+
+    -- Computes the cohesion score by measuring how related the entities in a module are.
+    fn compute_cohesion(self, module_path: String, entity_names: List<String>, cross_refs: Map<String, List<String>>) -> Float do
+        if entity_names.length <= 1 then
+            return 1.0
+        end
+        let internal_refs be 0
+        let max_possible be entity_names.length * (entity_names.length - 1)
+        for name_a in entity_names do
+            for name_b in entity_names do
+                if name_a != name_b then
+                    let refs be cross_refs.get(name_a)
+                    if refs != nothing then
+                        for ref in refs do
+                            if ref == name_b then
+                                internal_refs = internal_refs + 1
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        if max_possible == 0 then
+            return 0.0
+        end
+        return Float.from_int(internal_refs) / Float.from_int(max_possible)
+    end
+
+    -- Analyzes a single module and returns its metrics.
+    fn analyze_module(self, module_path: String, source_path: String) -> Result<ModuleMetrics> do
+        let raw be File.read(source_path)
+        if raw.is_error then
+            return Result.error("Failed to read module source: " + source_path)
+        end
+        let lines be raw.value.split_lines()
+        let metrics be ModuleMetrics.new()
+        metrics.module_path = module_path
+        metrics.total_lines = lines.length
+        let imports be self.extract_imports(lines)
+        let exports be self.extract_exports(lines)
+        let entities be self.extract_entities(lines)
+        metrics.entity_count = entities.length
+        let function_lines be self.extract_function_ranges(lines)
+        metrics.function_count = function_lines.length
+        let total_fn_length be 0
+        let total_complexity be 0
+        for fn_range in function_lines do
+            let fn_length be fn_range.end_line - fn_range.start_line + 1
+            total_fn_length = total_fn_length + fn_length
+            let cc be self.compute_cyclomatic_complexity(lines, fn_range.start_line, fn_range.end_line)
+            total_complexity = total_complexity + cc
+        end
+        if metrics.function_count > 0 then
+            metrics.avg_function_length = Float.from_int(total_fn_length) / Float.from_int(metrics.function_count)
+            metrics.cyclomatic_complexity = Float.from_int(total_complexity) / Float.from_int(metrics.function_count)
+        end
+        if self.config.should_compute(MetricCategory.COUPLING) then
+            metrics.coupling_score = self.measure_coupling(module_path, imports, exports)
+        end
+        if self.config.should_compute(MetricCategory.COHESION) then
+            let cross_refs be self.build_cross_reference_map(entities, lines)
+            metrics.cohesion_score = self.compute_cohesion(module_path, entities, cross_refs)
+        end
+        self.results.set(module_path, metrics)
+        self.analyzed_count = self.analyzed_count + 1
+        return Result.ok(metrics)
+    end
+
+    -- Extracts all import paths from the source lines.
+    fn extract_imports(self, lines: List<String>) -> List<String> do
+        let imports be List<String>.new()
+        for line in lines do
+            let trimmed be line.strip()
+            if trimmed.starts_with("import ") then
+                let remainder be trimmed.substring(7).strip()
+                if remainder.contains("::{") then
+                    let bracket_pos be remainder.find("::{")
+                    let mod_path be remainder.substring(0, bracket_pos).strip()
+                    imports.append(mod_path)
+                else
+                    imports.append(remainder)
+                end
+            end
+        end
+        return imports
+    end
+
+    -- Extracts exported symbol names from the source lines.
+    fn extract_exports(self, lines: List<String>) -> List<String> do
+        let exports be List<String>.new()
+        for line in lines do
+            let trimmed be line.strip()
+            if trimmed.starts_with("export ") then
+                if trimmed.contains("{") and trimmed.contains("}") then
+                    let start be trimmed.find("{") + 1
+                    let finish be trimmed.find("}")
+                    let inner be trimmed.substring(start, finish).strip()
+                    let parts be inner.split(", ")
+                    for part in parts do
+                        exports.append(part.strip())
+                    end
+                end
+            end
+        end
+        return exports
+    end
+
+    -- Extracts all entity names from the source lines.
+    fn extract_entities(self, lines: List<String>) -> List<String> do
+        let names be List<String>.new()
+        for line in lines do
+            let trimmed be line.strip()
+            if trimmed.starts_with("entity ") then
+                let parts be trimmed.split(" ")
+                if parts.length >= 2 then
+                    let name be parts.get(1).strip()
+                    names.append(name)
+                end
+            end
+        end
+        return names
+    end
+
+    -- Extracts function name and line ranges from source lines.
+    fn extract_function_ranges(self, lines: List<String>) -> List<FunctionRange> do
+        let ranges be List<FunctionRange>.new()
+        let idx be 0
+        while idx < lines.length do
+            let trimmed be lines.get(idx).strip()
+            if trimmed.contains("fn ") and trimmed.contains(" do") then
+                let fn_name be self.parse_function_name(trimmed)
+                let start be idx
+                let depth be 1
+                let j be idx + 1
+                while j < lines.length and depth > 0 do
+                    let jline be lines.get(j).strip()
+                    if jline.contains(" do") and not jline.starts_with("--") then
+                        depth = depth + 1
+                    end
+                    if jline == "end" then
+                        depth = depth - 1
+                    end
+                    j = j + 1
+                end
+                let range be FunctionRange.new()
+                range.name = fn_name
+                range.start_line = start
+                range.end_line = j - 2
+                ranges.append(range)
+            end
+            idx = idx + 1
+        end
+        return ranges
+    end
+
+    -- Parses the function name from a function declaration line.
+    fn parse_function_name(self, line: String) -> String do
+        let fn_pos be line.find("fn ")
+        if fn_pos < 0 then
+            return ""
+        end
+        let after_fn be line.substring(fn_pos + 3).strip()
+        let paren_pos be after_fn.find("(")
+        if paren_pos < 0 then
+            return after_fn
+        end
+        return after_fn.substring(0, paren_pos).strip()
+    end
+
+    -- Builds a map of which entities reference which other entities.
+    fn build_cross_reference_map(self, entities: List<String>, lines: List<String>) -> Map<String, List<String>> do
+        let ref_map be Map<String, List<String>>.new()
+        for name in entities do
+            let refs be List<String>.new()
+            for other in entities do
+                if name != other then
+                    for line in lines do
+                        let trimmed be line.strip()
+                        if not trimmed.starts_with("--") then
+                            if trimmed.contains(other) and trimmed.contains("self") then
+                                if not refs.contains(other) then
+                                    refs.append(other)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            ref_map.set(name, refs)
+        end
+        return ref_map
+    end
+
+    -- Analyzes an entire project by scanning all modules within the project root.
+    fn analyze_project(self, project_root: String) -> Result<Map<String, ModuleMetrics>> do
+        let config be AnalysisConfig.new()
+        config.scope = AnalysisScope.PROJECT
+        self.config = config
+        let module_files be self.discover_modules(project_root)
+        for file_path in module_files do
+            let mod_path be self.file_to_module_path(file_path, project_root)
+            let result be self.analyze_module(mod_path, file_path)
+            if result.is_error then
+                return Result.error("Failed to analyze " + mod_path + ": " + result.error_message)
+            end
+        end
+        return Result.ok(self.results)
+    end
+
+    -- Discovers all .orn module files within the project root directory.
+    fn discover_modules(self, root: String) -> List<String> do
+        let files be List<String>.new()
+        let entries be Path.list_directory(root)
+        for entry in entries do
+            let full_path be root + "/" + entry
+            if Path.is_directory(full_path) then
+                let sub_files be self.discover_modules(full_path)
+                for sf in sub_files do
+                    files.append(sf)
+                end
+            else if entry.ends_with(".orn") then
+                files.append(full_path)
+            end
+        end
+        return files
+    end
+
+    -- Converts a file path to a dotted module path.
+    fn file_to_module_path(self, file_path: String, root: String) -> String do
+        let rel be file_path.substring(root.length + 1)
+        let no_ext be rel.replace(".orn", "")
+        let dotted be no_ext.replace("/", ".")
+        return dotted
+    end
+
+    -- Produces a comprehensive analysis report for all analyzed modules.
+    fn produce_report(self) -> String do
+        let lines be List<String>.new()
+        lines.append("=== Code Analysis Report ===")
+        lines.append("Scope: " + self.config.scope_label())
+        lines.append("Modules analyzed: " + String.from_int(self.analyzed_count).to_string())
+        lines.append("")
+        let all_keys be self.results.keys()
+        for key in all_keys do
+            let metrics be self.results.get(key)
+            if metrics != nothing then
+                lines.append(metrics.summary())
+                lines.append("  Health: " + metrics.health_rating())
+                lines.append("")
+            end
+        end
+        let summary_metrics be self.compute_project_summary()
+        lines.append("=== Project Summary ===")
+        lines.append("  Total entities: " + String.from_int(summary_metrics.total_entities).to_string())
+        lines.append("  Total functions: " + String.from_int(summary_metrics.total_functions).to_string())
+        lines.append("  Avg complexity: " + String.from_float(summary_metrics.avg_complexity).to_string())
+        lines.append("  Avg coupling: " + String.from_float(summary_metrics.avg_coupling).to_string())
+        lines.append("  Avg cohesion: " + String.from_float(summary_metrics.avg_cohesion).to_string())
+        return lines.join("\n")
+    end
+
+    -- Computes aggregate project-level metrics from all module results.
+    fn compute_project_summary(self) -> ProjectSummaryMetrics do
+        let summary be ProjectSummaryMetrics.new()
+        let keys be self.results.keys()
+        let total_complexity be 0.0
+        let total_coupling be 0.0
+        let total_cohesion be 0.0
+        let module_count be 0
+        for key in keys do
+            let metrics be self.results.get(key)
+            if metrics != nothing then
+                summary.total_entities = summary.total_entities + metrics.entity_count
+                summary.total_functions = summary.total_functions + metrics.function_count
+                total_complexity = total_complexity + metrics.cyclomatic_complexity
+                total_coupling = total_coupling + metrics.coupling_score
+                total_cohesion = total_cohesion + metrics.cohesion_score
+                module_count = module_count + 1
+            end
+        end
+        if module_count > 0 then
+            summary.avg_complexity = total_complexity / Float.from_int(module_count)
+            summary.avg_coupling = total_coupling / Float.from_int(module_count)
+            summary.avg_cohesion = total_cohesion / Float.from_int(module_count)
+        end
+        return summary
+    end
+end
+
+-- Internal helper for tracking function line ranges.
+entity FunctionRange
+    property name: String = ""
+    property start_line: Int = 0
+    property end_line: Int = 0
+end
+
+-- Aggregate metrics computed across an entire project.
+entity ProjectSummaryMetrics
+    property total_entities: Int = 0
+    property total_functions: Int = 0
+    property avg_complexity: Float = 0.0
+    property avg_coupling: Float = 0.0
+    property avg_cohesion: Float = 0.0
+end
+
+export {AnalysisScope, MetricCategory, ModuleMetrics, AnalysisConfig, CodeAnalyzer, FunctionRange, ProjectSummaryMetrics}

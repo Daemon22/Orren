@@ -1,0 +1,400 @@
+-- cache.orn: Content-addressable build cache for the Orren build system.
+-- Stores build artifacts keyed by content hashes for perfect cache hits.
+
+module orren_tools.build.cache
+
+import module::{String, Int, Bool, List, Map, Result, File, Path, Time}
+import orren.core.language.foundation::{HashAlgorithm, Fingerprint}
+
+-- Where cached artifacts are stored.
+enum CacheStorage
+    LOCAL
+    REMOTE
+    HYBRID
+end
+
+-- Policy for evicting entries when the cache exceeds its size limit.
+enum EvictionPolicy
+    LRU
+    LFU
+    SIZE_BASED
+    NEVER
+end
+
+-- Describes the kind of cache hit achieved.
+enum CacheHitKind
+    EXACT
+    SEMANTIC_EQUIVALENT
+    MISS
+end
+
+-- A unique key derived from source file contents and build configuration.
+entity CacheKey
+    property hash: String = ""
+    property source_files: List<String> = List<String>.new()
+    property config_hash: String = ""
+    property target: String = ""
+
+    -- Constructs a display string for the cache key.
+    fn to_string(self) -> String do
+        return self.target + ":" + self.config_hash + ":" + self.hash
+    end
+
+    -- Checks if this key matches another by hash and config.
+    fn matches(self, other: CacheKey) -> Bool do
+        if self.hash != other.hash then
+            return false
+        end
+        if self.config_hash != other.config_hash then
+            return false
+        end
+        if self.target != other.target then
+            return false
+        end
+        return true
+    end
+
+    -- Computes a combined fingerprint from all source file paths.
+    fn compute_hash(self, files: List<String>) -> String do
+        let parts be List<String>.new()
+        for f in files do
+            parts.append(f)
+            let content be File.read(f)
+            if not content.is_error then
+                parts.append(content.value)
+            end
+        end
+        let combined be parts.join("\0")
+        return HashAlgorithm.sha256(combined)
+    end
+end
+
+-- A single cached artifact stored in the build cache.
+entity CacheEntry
+    property key: CacheKey = CacheKey.new()
+    property artifact_path: String = ""
+    property size_bytes: Int = 0
+    property created: Int = 0
+    property accessed: Int = 0
+    property access_count: Int = 0
+    property semantic_fingerprint: String = ""
+
+    -- Records a cache access, updating the timestamp and counter.
+    fn touch(self) do
+        self.accessed = Time.now()
+        self.access_count = self.access_count + 1
+    end
+
+    -- Returns whether this entry has been accessed at least once.
+    fn has_been_used(self) -> Bool do
+        return self.access_count > 0
+    end
+
+    -- Returns a human-readable size string.
+    fn size_label(self) -> String do
+        if self.size_bytes < 1024 then
+            return String.from_int(self.size_bytes).to_string() + " B"
+        else if self.size_bytes < 1048576 then
+            let kb be self.size_bytes / 1024
+            return String.from_int(kb).to_string() + " KB"
+        else
+            let mb be self.size_bytes / 1048576
+            return String.from_int(mb).to_string() + " MB"
+        end
+    end
+
+    -- Returns the age of this entry in seconds.
+    fn age_seconds(self) -> Int do
+        return Time.now() - self.created
+    end
+
+    -- Sets the semantic fingerprint for equivalence matching.
+    fn set_semantic_fingerprint(self, fingerprint: String) do
+        self.semantic_fingerprint = fingerprint
+    end
+end
+
+-- Aggregate statistics about cache performance.
+entity CacheStats
+    property hits: Int = 0
+    property misses: Int = 0
+    property evictions: Int = 0
+    property total_size: Int = 0
+    property hit_rate: Float = 0.0
+    property semantic_hits: Int = 0
+
+    -- Records a cache hit and recomputes the hit rate.
+    fn record_hit(self, kind: CacheHitKind) do
+        self.hits = self.hits + 1
+        if kind == CacheHitKind.SEMANTIC_EQUIVALENT then
+            self.semantic_hits = self.semantic_hits + 1
+        end
+        self.recompute_rate()
+    end
+
+    -- Records a cache miss and recomputes the hit rate.
+    fn record_miss(self) do
+        self.misses = self.misses + 1
+        self.recompute_rate()
+    end
+
+    -- Records an eviction event.
+    fn record_eviction(self) do
+        self.evictions = self.evictions + 1
+    end
+
+    -- Recomputes the hit rate from hits and misses.
+    fn recompute_rate(self) do
+        let total be self.hits + self.misses
+        if total > 0 then
+            self.hit_rate = Float.from_int(self.hits) / Float.from_int(total)
+        else
+            self.hit_rate = 0.0
+        end
+    end
+
+    -- Returns a formatted statistics summary.
+    fn summary(self) -> String do
+        let lines be List<String>.new()
+        lines.append("Cache Statistics")
+        lines.append("  Hits: " + String.from_int(self.hits).to_string())
+        lines.append("  Misses: " + String.from_int(self.misses).to_string())
+        lines.append("  Semantic hits: " + String.from_int(self.semantic_hits).to_string())
+        lines.append("  Evictions: " + String.from_int(self.evictions).to_string())
+        lines.append("  Total size: " + String.from_int(self.total_size).to_string() + " bytes")
+        lines.append("  Hit rate: " + String.from_float(self.hit_rate).to_string())
+        return lines.join("\n")
+    end
+end
+
+-- The main content-addressable build cache.
+entity BuildCache
+    property config: Map<String, String> = Map<String, String>.new()
+    property stats: CacheStats = CacheStats.new()
+    property entries: Map<String, CacheEntry> = Map<String, CacheEntry>.new()
+    property storage_dir: String = ".cache/orren"
+    property max_size_bytes: Int = 536870912
+    property eviction_policy: EvictionPolicy = EvictionPolicy.LRU
+
+    -- Initializes the cache storage directory.
+    fn initialize(self) -> Result<Bool> do
+        Path.ensure_directory(self.storage_dir)
+        Path.ensure_directory(self.storage_dir + "/artifacts")
+        Path.ensure_directory(self.storage_dir + "/metadata")
+        return Result.ok(true)
+    end
+
+    -- Computes a content hash for the given list of source files.
+    fn compute_content_hash(self, files: List<String>, config_str: String) -> String do
+        let key be CacheKey.new()
+        key.source_files = files
+        let hash be key.compute_hash(files)
+        let combined be hash + ":" + HashAlgorithm.sha256(config_str)
+        return HashAlgorithm.sha256(combined)
+    end
+
+    -- Looks up a cached artifact by its content hash.
+    fn lookup(self, content_hash: String) -> CacheHitKind do
+        let entry be self.entries.get(content_hash)
+        if entry == nothing then
+            self.stats.record_miss()
+            return CacheHitKind.MISS
+        end
+        entry.touch()
+        self.stats.record_hit(CacheHitKind.EXACT)
+        return CacheHitKind.EXACT
+    end
+
+    -- Looks up a cached artifact using semantic equivalence matching.
+    fn lookup_semantic(self, fingerprint: String) -> CacheHitKind do
+        for key in self.entries.keys() do
+            let entry be self.entries.get(key)
+            if entry != nothing then
+                if entry.semantic_fingerprint == fingerprint then
+                    entry.touch()
+                    self.stats.record_hit(CacheHitKind.SEMANTIC_EQUIVALENT)
+                    return CacheHitKind.SEMANTIC_EQUIVALENT
+                end
+            end
+        end
+        self.stats.record_miss()
+        return CacheHitKind.MISS
+    end
+
+    -- Stores an artifact in the cache under the given content hash.
+    fn store(self, content_hash: String, artifact_path: String, semantic_fp: String) -> Result<Bool> do
+        let dest be self.storage_dir + "/artifacts/" + content_hash
+        let copy_ok be File.copy(artifact_path, dest)
+        if not copy_ok then
+            return Result.error("Failed to copy artifact to cache")
+        end
+        let file_info be File.info(dest)
+        let entry be CacheEntry.new()
+        entry.key.hash = content_hash
+        entry.artifact_path = dest
+        entry.size_bytes = file_info.size
+        entry.created = Time.now()
+        entry.accessed = Time.now()
+        entry.access_count = 0
+        entry.semantic_fingerprint = semantic_fp
+        self.entries.set(content_hash, entry)
+        self.stats.total_size = self.stats.total_size + entry.size_bytes
+        if self.stats.total_size > self.max_size_bytes then
+            self.evict()
+        end
+        return Result.ok(true)
+    end
+
+    -- Retrieves an artifact from the cache, copying it to the output path.
+    fn retrieve(self, content_hash: String, output_path: String) -> Result<Bool> do
+        let entry be self.entries.get(content_hash)
+        if entry == nothing then
+            return Result.error("Cache miss: " + content_hash)
+        end
+        if not File.exists(entry.artifact_path) then
+            self.entries.remove(content_hash)
+            self.stats.total_size = self.stats.total_size - entry.size_bytes
+            return Result.error("Artifact missing from disk: " + content_hash)
+        end
+        let copy_ok be File.copy(entry.artifact_path, output_path)
+        if not copy_ok then
+            return Result.error("Failed to copy cached artifact")
+        end
+        entry.touch()
+        return Result.ok(true)
+    end
+
+    -- Evicts entries according to the configured eviction policy.
+    fn evict(self) do
+        while self.stats.total_size > self.max_size_bytes do
+            let victim be self.select_eviction_candidate()
+            if victim == nothing then
+                return
+            end
+            self.remove_entry(victim)
+        end
+    end
+
+    -- Selects which entry should be evicted based on the policy.
+    fn select_eviction_candidate(self) -> String do
+        match self.eviction_policy with
+            EvictionPolicy.LRU => return self.find_lru_candidate()
+            EvictionPolicy.LFU => return self.find_lfu_candidate()
+            EvictionPolicy.SIZE_BASED => return self.find_largest_candidate()
+            EvictionPolicy.NEVER => return nothing
+        end
+    end
+
+    -- Finds the least-recently-used entry.
+    fn find_lru_candidate(self) -> String do
+        let oldest_key be ""
+        let oldest_time be 0
+        for key in self.entries.keys() do
+            let entry be self.entries.get(key)
+            if entry != nothing then
+                if oldest_key == "" or entry.accessed < oldest_time then
+                    oldest_key = key
+                    oldest_time = entry.accessed
+                end
+            end
+        end
+        if oldest_key == "" then
+            return nothing
+        end
+        return oldest_key
+    end
+
+    -- Finds the least-frequently-used entry.
+    fn find_lfu_candidate(self) -> String do
+        let lowest_key be ""
+        let lowest_count be 0
+        for key in self.entries.keys() do
+            let entry be self.entries.get(key)
+            if entry != nothing then
+                if lowest_key == "" or entry.access_count < lowest_count then
+                    lowest_key = key
+                    lowest_count = entry.access_count
+                end
+            end
+        end
+        if lowest_key == "" then
+            return nothing
+        end
+        return lowest_key
+    end
+
+    -- Finds the largest entry for size-based eviction.
+    fn find_largest_candidate(self) -> String do
+        let largest_key be ""
+        let largest_size be 0
+        for key in self.entries.keys() do
+            let entry be self.entries.get(key)
+            if entry != nothing then
+                if entry.size_bytes > largest_size then
+                    largest_key = key
+                    largest_size = entry.size_bytes
+                end
+            end
+        end
+        if largest_key == "" then
+            return nothing
+        end
+        return largest_key
+    end
+
+    -- Removes a specific entry from the cache.
+    fn remove_entry(self, hash: String) do
+        let entry be self.entries.get(hash)
+        if entry != nothing then
+            File.delete(entry.artifact_path)
+            self.stats.total_size = self.stats.total_size - entry.size_bytes
+            self.stats.record_eviction()
+        end
+        self.entries.remove(hash)
+    end
+
+    -- Clears all entries from the cache.
+    fn clear(self) do
+        for key in self.entries.keys() do
+            let entry be self.entries.get(key)
+            if entry != nothing then
+                File.delete(entry.artifact_path)
+            end
+        end
+        self.entries = Map<String, CacheEntry>.new()
+        self.stats = CacheStats.new()
+    end
+
+    -- Returns the number of entries currently stored.
+    fn entry_count(self) -> Int do
+        return self.entries.size()
+    end
+
+    -- Returns the current utilization as a fraction of max size.
+    fn utilization(self) -> Float do
+        if self.max_size_bytes == 0 then
+            return 1.0
+        end
+        return Float.from_int(self.stats.total_size) / Float.from_int(self.max_size_bytes)
+    end
+
+    -- Generates a summary string of cache state.
+    fn summary(self) -> String do
+        let policy_str be match self.eviction_policy with
+            EvictionPolicy.LRU => "lru"
+            EvictionPolicy.LFU => "lfu"
+            EvictionPolicy.SIZE_BASED => "size-based"
+            EvictionPolicy.NEVER => "never"
+        end
+        let lines be List<String>.new()
+        lines.append("Build Cache")
+        lines.append("  Storage: " + self.storage_dir)
+        lines.append("  Policy: " + policy_str)
+        lines.append("  Entries: " + String.from_int(self.entry_count()).to_string())
+        lines.append("  Utilization: " + String.from_float(self.utilization()).to_string())
+        lines.append(self.stats.summary())
+        return lines.join("\n")
+    end
+end
+
+export {CacheStorage, EvictionPolicy, CacheHitKind, CacheKey, CacheEntry, CacheStats, BuildCache}

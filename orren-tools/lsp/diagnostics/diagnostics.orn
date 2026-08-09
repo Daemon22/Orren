@@ -1,0 +1,441 @@
+-- diagnostics.orn: Diagnostics management for the Orren LSP server.
+-- Collects, merges, debounces, and publishes diagnostics (errors, warnings)
+-- for open documents. Integrates with the compiler and linter subsystems.
+
+module orren_tools.lsp.diagnostics
+
+import module::{String, Int, Bool, List, Map, Time}
+import orren.core.language.foundation::{SourceLocation}
+import orren_tools.lsp.protocol::{Position, Range}
+import orren_tools.lsp.documents::{DocumentStore, OpenDocument}
+
+-- The severity level of a diagnostic.
+enum DiagnosticSeverity
+    ERROR
+    WARNING
+    INFORMATION
+    HINT
+end
+
+-- Additional tags that can be applied to a diagnostic.
+enum DiagnosticTag
+    UNNECESSARY
+    DEPRECATED
+end
+
+-- Converts a DiagnosticSeverity to its LSP integer value.
+fn severity_to_int(sev: DiagnosticSeverity) -> Int do
+    return match sev with
+        DiagnosticSeverity.ERROR => 1
+        DiagnosticSeverity.WARNING => 2
+        DiagnosticSeverity.INFORMATION => 3
+        DiagnosticSeverity.HINT => 4
+    end
+end
+
+-- Converts a DiagnosticTag to its LSP integer value.
+fn tag_to_int(tag: DiagnosticTag) -> Int do
+    return match tag with
+        DiagnosticTag.UNNECESSARY => 1
+        DiagnosticTag.DEPRECATED => 2
+    end
+end
+
+-- Related information for a diagnostic, linking to another location.
+entity DiagnosticRelatedInfo
+    property location_uri: String = ""
+    property location_start_line: Int = 0
+    property location_start_char: Int = 0
+    property location_end_line: Int = 0
+    property location_end_char: Int = 0
+    property message: String = ""
+
+    -- Creates related info from a URI, range, and message.
+    fn make(uri: String, range: Range, message: String) -> DiagnosticRelatedInfo do
+        let info be DiagnosticRelatedInfo.new()
+        info.location_uri = uri
+        info.location_start_line = range.start_line
+        info.location_start_char = range.start_char
+        info.location_end_line = range.end_line
+        info.location_end_char = range.end_char
+        info.message = message
+        return info
+    end
+
+    -- Converts the related info to a JSON string.
+    fn to_json(self) -> String do
+        let loc be "{\"uri\": \"" + self.location_uri + "\", \"range\": " + range_to_json(self.location_start_line, self.location_start_char, self.location_end_line, self.location_end_char) + "}"
+        return "{\"location\": " + loc + ", \"message\": \"" + escape_json(self.message) + "\"}"
+    end
+end
+
+-- A single diagnostic report for a specific range in a document.
+entity Diagnostic
+    property start_line: Int = 0
+    property start_char: Int = 0
+    property end_line: Int = 0
+    property end_char: Int = 0
+    property severity: DiagnosticSeverity = DiagnosticSeverity.ERROR
+    property code: String = ""
+    property source: String = "orren"
+    property message: String = ""
+    property related_info: List<DiagnosticRelatedInfo> = List<DiagnosticRelatedInfo>.new()
+    property tags: List<DiagnosticTag> = List<DiagnosticTag>.new()
+
+    intent "Represent a single diagnostic with range, severity, and message"
+
+    -- Creates a diagnostic at a given range with a severity and message.
+    fn make(range: Range, severity: DiagnosticSeverity, message: String) -> Diagnostic do
+        let d be Diagnostic.new()
+        d.start_line = range.start_line
+        d.start_char = range.start_char
+        d.end_line = range.end_line
+        d.end_char = range.end_char
+        d.severity = severity
+        d.message = message
+        return d
+    end
+
+    -- Creates an error diagnostic.
+    fn error(range: Range, message: String) -> Diagnostic do
+        return Diagnostic.make(range, DiagnosticSeverity.ERROR, message)
+    end
+
+    -- Creates a warning diagnostic.
+    fn warning(range: Range, message: String) -> Diagnostic do
+        return Diagnostic.make(range, DiagnosticSeverity.WARNING, message)
+    end
+
+    -- Creates an information diagnostic.
+    fn info(range: Range, message: String) -> Diagnostic do
+        return Diagnostic.make(range, DiagnosticSeverity.INFORMATION, message)
+    end
+
+    -- Creates a hint diagnostic.
+    fn hint(range: Range, message: String) -> Diagnostic do
+        return Diagnostic.make(range, DiagnosticSeverity.HINT, message)
+    end
+
+    -- Adds a related info entry to this diagnostic.
+    fn add_related(self, uri: String, range: Range, message: String) do
+        let info be DiagnosticRelatedInfo.make(uri, range, message)
+        self.related_info.append(info)
+    end
+
+    -- Adds a tag to this diagnostic.
+    fn add_tag(self, tag: DiagnosticTag) do
+        self.tags.append(tag)
+    end
+
+    -- Sets the diagnostic code and source.
+    fn set_code(self, code: String, source: String) do
+        self.code = code
+        self.source = source
+    end
+
+    -- Converts the diagnostic to a JSON string.
+    fn to_json(self) -> String do
+        let parts be List<String>.new()
+        parts.append("\"range\": " + range_to_json(self.start_line, self.start_char, self.end_line, self.end_char))
+        parts.append("\"severity\": " + String.from_int(severity_to_int(self.severity)))
+        if self.code.length > 0 then
+            parts.append("\"code\": \"" + escape_json(self.code) + "\"")
+        end
+        parts.append("\"source\": \"" + escape_json(self.source) + "\"")
+        parts.append("\"message\": \"" + escape_json(self.message) + "\"")
+        if self.related_info.length > 0 then
+            let info_parts be List<String>.new()
+            for ri in self.related_info do
+                info_parts.append(ri.to_json())
+            end
+            parts.append("\"relatedInformation\": [" + info_parts.join(", ") + "]")
+        end
+        if self.tags.length > 0 then
+            let tag_strs be List<String>.new()
+            for t in self.tags do
+                tag_strs.append(String.from_int(tag_to_int(t)))
+            end
+            parts.append("\"tags\": [" + tag_strs.join(", ") + "]")
+        end
+        return "{" + parts.join(", ") + "}"
+    end
+end
+
+-- A list of diagnostics for a specific document URI and version.
+entity DiagnosticList
+    property diagnostics: List<Diagnostic> = List<Diagnostic>.new()
+    property uri: String = ""
+    property version: Int = 0
+
+    -- Creates a diagnostic list for a document.
+    fn make(uri: String, version: Int) -> DiagnosticList do
+        let dl be DiagnosticList.new()
+        dl.uri = uri
+        dl.version = version
+        return dl
+    end
+
+    -- Adds a diagnostic to this list.
+    fn add(self, diagnostic: Diagnostic) do
+        self.diagnostics.append(diagnostic)
+    end
+
+    -- Returns the number of diagnostics.
+    fn count(self) -> Int do
+        return self.diagnostics.length
+    end
+
+    -- Returns diagnostics filtered by severity.
+    fn by_severity(self, sev: DiagnosticSeverity) -> List<Diagnostic> do
+        let filtered be List<Diagnostic>.new()
+        for d in self.diagnostics do
+            if d.severity == sev then
+                filtered.append(d)
+            end
+        end
+        return filtered
+    end
+
+    -- Returns the count of errors in this list.
+    fn error_count(self) -> Int do
+        return self.by_severity(DiagnosticSeverity.ERROR).length
+    end
+
+    -- Returns the count of warnings in this list.
+    fn warning_count(self) -> Int do
+        return self.by_severity(DiagnosticSeverity.WARNING).length
+    end
+
+    -- Removes all diagnostics from this list.
+    fn clear(self) do
+        self.diagnostics = List<Diagnostic>.new()
+    end
+
+    -- Converts the diagnostic list to the JSON-RPC notification body.
+    fn to_notification_json(self) -> String do
+        let diag_parts be List<String>.new()
+        for d in self.diagnostics do
+            diag_parts.append(d.to_json())
+        end
+        let params be "{\"uri\": \"" + self.uri + "\", \"diagnostics\": [" + diag_parts.join(", ") + "]}"
+        return "{\"jsonrpc\": \"2.0\", \"method\": \"textDocument/publishDiagnostics\", \"params\": " + params + "}"
+    end
+end
+
+-- Manages diagnostic collection, merging, debouncing, and publishing.
+entity DiagnosticPublisher
+    property document_store: DocumentStore = DocumentStore.new()
+    property pending: Map<String, DiagnosticList> = Map<String, DiagnosticList>.new()
+    property debounce_ms: Int = 150
+    property is_publishing: Bool = false
+    property last_publish_times: Map<String, Int> = Map<String, Int>.new()
+    property published: Map<String, DiagnosticList> = Map<String, DiagnosticList>.new()
+
+    intent "Collect, merge, debounce, and publish diagnostics to the LSP client"
+
+    -- Creates a new diagnostic publisher.
+    fn make(store: DocumentStore) -> DiagnosticPublisher do
+        let pub be DiagnosticPublisher.new()
+        pub.document_store = store
+        return pub
+    end
+
+    -- Collects diagnostics from the compiler for a document.
+    fn collect_from_compiler(self, uri: String) -> DiagnosticList do
+        let list be DiagnosticList.make(uri, 0)
+        let content be self.document_store.get_content(uri)
+        if content.length == 0 then
+            return list
+        end
+        let lines be content.split_lines()
+        let line_num be 0
+        for line in lines do
+            let trimmed be line.strip()
+            if trimmed.starts_with("TODO") then
+                let r be Range.make(line_num, 0, line_num, trimmed.length)
+                let d be Diagnostic.warning(r, "TODO comment found: " + trimmed)
+                d.set_code("TODO", "orren-linter")
+                list.add(d)
+            end
+            if trimmed.contains("TODO") and not trimmed.starts_with("--") then
+                let col be trimmed.find("TODO")
+                if col >= 0 then
+                    let r be Range.make(line_num, col, line_num, col + 4)
+                    let d be Diagnostic.hint(r, "TODO item in code")
+                    d.set_code("TODO", "orren-linter")
+                    list.add(d)
+                end
+            end
+            if trimmed.starts_with("import") and trimmed.contains("...") then
+                let r be Range.make(line_num, 0, line_num, trimmed.length)
+                let d be Diagnostic.warning(r, "Wildcard import detected; consider explicit imports")
+                d.set_code("WILDCARD_IMPORT", "orren-linter")
+                d.add_tag(DiagnosticTag.UNNECESSARY)
+                list.add(d)
+            end
+            line_num = line_num + 1
+        end
+        return list
+    end
+
+    -- Collects diagnostics from the linter for a document.
+    fn collect_from_linter(self, uri: String) -> DiagnosticList do
+        let list be DiagnosticList.make(uri, 0)
+        let content be self.document_store.get_content(uri)
+        if content.length == 0 then
+            return list
+        end
+        let lines be content.split_lines()
+        let line_num be 0
+        for line in lines do
+            let trimmed be line.strip()
+            if trimmed.length == 0 then
+                line_num = line_num + 1
+                continue
+            end
+            if trimmed.length > 120 then
+                let r be Range.make(line_num, 80, line_num, trimmed.length)
+                let d be Diagnostic.warning(r, "Line exceeds 120 characters (current: " + String.from_int(trimmed.length) + ")")
+                d.set_code("LINE_LENGTH", "orren-linter")
+                list.add(d)
+            end
+            if trimmed.starts_with("fn ") and not trimmed.contains(" -> ") then
+                if not trimmed.contains(" do") then
+                    let r be Range.make(line_num, 0, line_num, trimmed.length)
+                    let d be Diagnostic.error(r, "Function declaration missing 'do' keyword")
+                    d.set_code("SYNTAX_ERROR", "orren-compiler")
+                    list.add(d)
+                end
+            end
+            line_num = line_num + 1
+        end
+        return list
+    end
+
+    -- Merges multiple diagnostic lists into one, deduplicating by range and message.
+    fn merge(self, lists: List<DiagnosticList>) -> DiagnosticList do
+        if lists.length == 0 then
+            return DiagnosticList.new()
+        end
+        let merged be DiagnosticList.make(lists.get(0).uri, lists.get(0).version)
+        let seen be List<String>.new()
+        for list in lists do
+            for d in list.diagnostics do
+                let key be String.from_int(d.start_line) + ":" + String.from_int(d.start_char) + ":" + d.message
+                if not seen.contains(key) then
+                    seen.append(key)
+                    merged.add(d)
+                end
+            end
+        end
+        return merged
+    end
+
+    -- Schedules diagnostics for a document with debouncing.
+    fn schedule(self, uri: String) do
+        let pending_list be self.merge_diagnostics(uri)
+        self.pending.set(uri, pending_list)
+    end
+
+    -- Collects and merges all diagnostics for a given URI.
+    fn merge_diagnostics(self, uri: String) -> DiagnosticList do
+        let lists be List<DiagnosticList>.new()
+        let compiler_diags be self.collect_from_compiler(uri)
+        lists.append(compiler_diags)
+        let linter_diags be self.collect_from_linter(uri)
+        lists.append(linter_diags)
+        let existing be self.pending.get(uri)
+        if existing != nothing then
+            lists.append(existing)
+        end
+        return self.merge(lists)
+    end
+
+    -- Publishes all pending diagnostics that have exceeded the debounce interval.
+    fn flush_pending(self) -> List<String> do
+        let notifications be List<String>.new()
+        let now be Time.now()
+        let uris be self.pending.keys()
+        for uri in uris do
+            let last_time be self.last_publish_times.get(uri)
+            if last_time == nothing then
+                last_time = 0
+            end
+            if now - last_time >= self.debounce_ms then
+                let diags be self.pending.get(uri)
+                if diags != nothing then
+                    let json be diags.to_notification_json()
+                    notifications.append(json)
+                    self.published.set(uri, diags)
+                    self.last_publish_times.set(uri, now)
+                    self.pending.remove(uri)
+                end
+            end
+        end
+        return notifications
+    end
+
+    -- Immediately publishes diagnostics for a specific document.
+    fn publish_now(self, uri: String) -> String do
+        let diags be self.merge_diagnostics(uri)
+        diags.version = self.get_document_version(uri)
+        self.pending.remove(uri)
+        self.published.set(uri, diags)
+        self.last_publish_times.set(uri, Time.now())
+        return diags.to_notification_json()
+    end
+
+    -- Clears all diagnostics for a specific document.
+    fn clear_for_document(self, uri: String) -> String do
+        let empty_list be DiagnosticList.make(uri, 0)
+        self.pending.remove(uri)
+        self.published.set(uri, empty_list)
+        return empty_list.to_notification_json()
+    end
+
+    -- Returns the document version for a URI.
+    fn get_document_version(self, uri: String) -> Int do
+        let doc be self.document_store.get(uri)
+        if doc == nothing then
+            return 0
+        end
+        return doc.version
+    end
+
+    -- Checks if there are pending diagnostics for any document.
+    fn has_pending(self) -> Bool do
+        return self.pending.size() > 0
+    end
+
+end
+
+-- Helper: converts range components to a JSON range string.
+fn range_to_json(sl: Int, sc: Int, el: Int, ec: Int) -> String do
+    let start be "{\"line\": " + String.from_int(sl) + ", \"character\": " + String.from_int(sc) + "}"
+    let end_pos be "{\"line\": " + String.from_int(el) + ", \"character\": " + String.from_int(ec) + "}"
+    return "{\"start\": " + start + ", \"end\": " + end_pos + "}"
+end
+
+-- Helper: escapes special characters for JSON strings.
+fn escape_json(text: String) -> String do
+    let result be ""
+    let i be 0
+    while i < text.length do
+        let ch be text.at(i)
+        if ch == "\"" then
+            result = result + "\\\""
+        else if ch == "\n" then
+            result = result + "\\n"
+        else if ch == "\t" then
+            result = result + "\\t"
+        else if ch == "\\" then
+            result = result + "\\\\"
+        else
+            result = result + ch
+        end
+        i = i + 1
+    end
+    return result
+end
+
+export {DiagnosticSeverity, DiagnosticTag, severity_to_int, tag_to_int, DiagnosticRelatedInfo, Diagnostic, DiagnosticList, DiagnosticPublisher, range_to_json, escape_json}

@@ -1,0 +1,405 @@
+module orren.core.semantic.model
+
+import orren.primitive::{Float, Int, Bool, String, List}
+import orren.core.language.foundation::{
+  FIRST_LAW,
+  SemanticAttributeType,
+  SemanticDomainType,
+  SyntaxModeType,
+  CognitiveKeywordType,
+  GenomeType,
+  MediationLayerType,
+  StateDimensionType,
+  SemanticAttributes,
+  SemanticDomain,
+  SyntaxMode,
+  CognitiveKeyword,
+  GenomeProfile,
+  MediationLayerConfig,
+  StateDimension,
+  ProvenanceStep,
+  ProvenanceChain
+}
+
+intent "Defines the Orren semantic substrate: the structures that carry
+  meaning-bearing data through the system. Every value, message, and
+  translation artifact in Orren is wrapped in one of these entities,
+  ensuring the First Law is enforced at every layer of computation."
+
+-- =========================================================================
+-- ENUM: SemanticPreservationLevel
+-- =========================================================================
+-- Classifies the degree of meaning preservation after a translation or
+-- mediation operation. FULL means nothing was lost. LOST means the First
+-- Law has been violated and the operation result must be flagged.
+-- =========================================================================
+
+enum SemanticPreservationLevel
+  FULL
+  PARTIAL
+  DEGRADED
+  LOST
+end
+
+-- =========================================================================
+-- ENTITY: SemanticContext
+-- =========================================================================
+-- Describes the contextual envelope in which a semantic value exists.
+-- Context determines how meaning is interpreted. Without context, the same
+-- string can have radically different meanings. The context is part of the
+-- semantic identity of every value.
+-- =========================================================================
+
+entity SemanticContext
+  -- The primary semantic domain this context belongs to.
+  property domain: SemanticDomainType = COGNITIVE
+
+  -- A human-readable description of the scope: who, what, when, where.
+  property scope: String = ""
+
+  -- Temporal context: when this meaning is valid or was generated.
+  property temporal: String = ""
+
+  -- Cultural context: the cultural framework for interpretation.
+  property culture: String = ""
+
+  -- Worldview: the underlying philosophical or conceptual framework.
+  property worldview: String = ""
+
+  -- Determine whether this context is compatible with another.
+  -- Two contexts match if they share the same domain and at least one
+  -- of scope, temporal, culture, or worldview overlaps.
+  fn matches(self, other: SemanticContext) -> Bool do
+    -- Domains must agree for a match.
+    if self.domain != other.domain then return false end
+
+    -- If any contextual dimension is non-empty in both and agrees, match.
+    if self.scope != "" and other.scope != "" then
+      if self.scope == other.scope then return true end
+    end
+
+    if self.temporal != "" and other.temporal != "" then
+      if self.temporal == other.temporal then return true end
+    end
+
+    if self.culture != "" and other.culture != "" then
+      if self.culture == other.culture then return true end
+    end
+
+    if self.worldview != "" and other.worldview != "" then
+      if self.worldview == other.worldview then return true end
+    end
+
+    -- Same domain but no overlapping context dimensions: partial match.
+    return false
+  end
+
+  -- Merge two contexts into a new one. Where both have values, the other's
+  -- value takes precedence (the merging context is updating the base).
+  -- Where only one has a value, that value is preserved.
+  fn merge(self, other: SemanticContext) -> SemanticContext do
+    let result be SemanticContext{}
+    result.domain = other.domain
+    result.scope = if other.scope != "" then other.scope else self.scope end
+    result.temporal = if other.temporal != "" then other.temporal else self.temporal end
+    result.culture = if other.culture != "" then other.culture else self.culture end
+    result.worldview = if other.worldview != "" then other.worldview else self.worldview end
+    return result
+  end
+end
+
+-- =========================================================================
+-- ENTITY: SemanticValue
+-- =========================================================================
+-- The universal wrapper for any piece of meaning-bearing data in Orren.
+-- A SemanticValue is not merely a container; it is a contract that the
+-- enclosed value carries full semantic metadata and can be trusted,
+-- traced, and compared on semantic grounds.
+-- =========================================================================
+
+entity SemanticValue
+  -- The raw value, stored as a String (universal carrier format).
+  -- Concrete types can be encoded into and decoded from this string.
+  property value: String = ""
+
+  -- The eight semantic dimensions attached to this value.
+  property attributes: SemanticAttributes = SemanticAttributes{}
+
+  -- The contextual envelope that determines interpretation.
+  property context: SemanticContext = SemanticContext{}
+
+  -- The primary semantic domain this value belongs to.
+  property domain: SemanticDomainType = COGNITIVE
+
+  -- Shorthand confidence access, mirrored from attributes for convenience.
+  property confidence: Float = 0.0
+
+  -- The full provenance chain documenting this value's history.
+  property provenance: ProvenanceChain = ProvenanceChain{}
+
+  -- Return a copy of this value with confidence set to the given level.
+  -- Updates both the top-level confidence and the attributes confidence.
+  fn with_confidence(self, c: Float) -> SemanticValue do
+    self.confidence = c
+    self.attributes = self.attributes.with_confidence(c)
+    return self
+  end
+
+  -- Return a copy of this value with the domain changed.
+  fn with_domain(self, d: SemanticDomainType) -> SemanticValue do
+    self.domain = d
+    self.context.domain = d
+    return self
+  end
+
+  -- Return a copy of this value with the context replaced entirely.
+  fn with_context(self, ctx: SemanticContext) -> SemanticValue do
+    self.context = ctx
+    return self
+  end
+
+  -- Propagate this value's semantic attributes onto a target value.
+  -- The target receives merged attributes and an extended provenance chain.
+  fn propagate_to(self, target: SemanticValue) -> SemanticValue do
+    target.attributes = self.attributes.propagate(target.attributes)
+    target.provenance = target.provenance.add_step(
+      "SemanticValue.propagate_to",
+      "Merged attributes from source value",
+      current_timestamp()
+    )
+    return target
+  end
+
+  -- Generate a meaning fingerprint: a deterministic string derived from
+  -- the domain, intent, and meaning attributes. This serves as a semantic
+  -- hash for comparison, deduplication, and integrity checking.
+  fn meaning_fingerprint(self) -> String do
+    let domain_str be domain_to_string(self.domain)
+    let intent_str be float_to_string(self.attributes.intent)
+    let meaning_str be float_to_string(self.attributes.meaning)
+    return domain_str + ":" + intent_str + ":" + meaning_str + ":" + self.value
+  end
+end
+
+-- =========================================================================
+-- ENTITY: SemanticEnvelope
+-- =========================================================================
+-- The five-message-dimension envelope carried on every cross-boundary
+-- message in Orren. Before any payload is examined, the envelope is checked
+-- for completeness. An incomplete envelope is a First Law violation.
+-- =========================================================================
+
+entity SemanticEnvelope
+  -- What the sender intends the receiver to understand or do.
+  property intent: String = ""
+
+  -- The core meaning the sender wishes to convey.
+  property meaning: String = ""
+
+  -- The emotional valence or tone of the message.
+  property emotion: String = ""
+
+  -- The contextual framing needed to correctly interpret the message.
+  property context: String = ""
+
+  -- The urgency or importance level of the message.
+  property priority: String = ""
+
+  -- Verify that all five envelope dimensions are non-empty.
+  -- An intact envelope has meaning in every dimension.
+  fn intact(self) -> Bool do
+    if self.intent == "" then return false end
+    if self.meaning == "" then return false end
+    if self.emotion == "" then return false end
+    if self.context == "" then return false end
+    if self.priority == "" then return false end
+    return true
+  end
+
+  -- Merge another envelope into this one. Where the other has non-empty
+  -- values, those values replace the current values. This allows envelope
+  -- enrichment as a message passes through multiple mediation layers.
+  fn merge(self, other: SemanticEnvelope) -> SemanticEnvelope do
+    let result be SemanticEnvelope{}
+    result.intent = if other.intent != "" then other.intent else self.intent end
+    result.meaning = if other.meaning != "" then other.meaning else self.meaning end
+    result.emotion = if other.emotion != "" then other.emotion else self.emotion end
+    result.context = if other.context != "" then other.context else self.context end
+    result.priority = if other.priority != "" then other.priority else self.priority end
+    return result
+  end
+end
+
+-- =========================================================================
+-- ENTITY: MediatedMessage
+-- =========================================================================
+-- The complete cross-boundary message unit in Orren. Combines the semantic
+-- envelope, full attribute metadata, identity information, provenance, and
+-- the actual payload. This is what traverses the mediation pipeline.
+-- =========================================================================
+
+entity MediatedMessage
+  -- The five-dimension semantic envelope.
+  property envelope: SemanticEnvelope = SemanticEnvelope{}
+
+  -- Full semantic attributes for the message as a whole.
+  property attributes: SemanticAttributes = SemanticAttributes{}
+
+  -- A deterministic fingerprint for integrity verification.
+  property fingerprint: String = ""
+
+  -- Identity of the message source.
+  property source_identity: String = ""
+
+  -- Identity of the intended message destination.
+  property destination_identity: String = ""
+
+  -- Provenance chain tracking all mediation steps applied.
+  property provenance: ProvenanceChain = ProvenanceChain{}
+
+  -- The actual payload content.
+  property payload: String = ""
+
+  -- Validate that this message is ready for transmission.
+  -- Requires: intact envelope, intact attributes, non-empty fingerprint.
+  fn validate(self) -> Bool do
+    if not self.envelope.intact() then return false end
+    if not self.attributes.intact() then return false end
+    if self.fingerprint == "" then return false end
+    return true
+  end
+
+  -- Apply a mediation layer result to this message.
+  -- Records the layer type and result in the provenance chain.
+  fn with_layer(self, layer: MediationLayerType, result: String) -> MediatedMessage do
+    self.provenance = self.provenance.add_step(
+      layer_to_string(layer),
+      result,
+      current_timestamp()
+    )
+    return self
+  end
+end
+
+-- =========================================================================
+-- ENTITY: TranslationResult
+-- =========================================================================
+-- Captures the outcome of a translation or transformation operation.
+-- Tracks how well meaning was preserved and which dimensions drifted.
+-- This is the primary mechanism for detecting First Law violations.
+-- =========================================================================
+
+entity TranslationResult
+  -- The original semantic value before translation.
+  property original: SemanticValue = SemanticValue{}
+
+  -- The translated semantic value after transformation.
+  property translated: SemanticValue = SemanticValue{}
+
+  -- The assessed level of meaning preservation.
+  property preservation: SemanticPreservationLevel = FULL
+
+  -- How much confidence was lost during translation, in [0.0, 1.0].
+  property confidence_loss: Float = 0.0
+
+  -- List of dimension names where meaning drifted significantly.
+  property drift_dimensions: List<String> = []
+
+  -- A translation is acceptable if meaning was not completely lost.
+  -- PARTIAL and DEGRADED results are usable; LOST is not.
+  fn is_acceptable(self) -> Bool do
+    if self.preservation == LOST then return false end
+    return true
+  end
+
+  -- Generate a human-readable report of what drifted during translation.
+  -- Lists each drifted dimension and the overall preservation level.
+  fn drift_report(self) -> String do
+    let lines be List<String>{}
+    lines.append("Translation Drift Report")
+    lines.append("========================")
+    lines.append("Preservation: " + preservation_to_string(self.preservation))
+    lines.append("Confidence Loss: " + float_to_string(self.confidence_loss))
+    lines.append("")
+    if self.drift_dimensions.length() == 0 then
+      lines.append("No drift dimensions detected.")
+    else
+      lines.append("Drifted dimensions:")
+      for dim in self.drift_dimensions do
+        lines.append("  - " + dim)
+      end
+    end
+    return join_lines(lines)
+  end
+end
+
+-- =========================================================================
+-- ENTITY: ConstitutionalArticle
+-- =========================================================================
+-- A single article within an Orren agent's constitution. Each article
+-- belongs to a genome and carries an enforcement level that determines
+-- how strictly the article must be obeyed.
+-- =========================================================================
+
+entity ConstitutionalArticle
+  -- Unique identifier for this article, e.g. "COG-001".
+  property article_id: String = ""
+
+  -- The full text of the article as written in the constitution.
+  property text: String = ""
+
+  -- Which genome this article belongs to.
+  property genome: GenomeType = COGNITIVE
+
+  -- Enforcement level: "strict" means mandatory, "advisory" means recommended.
+  property enforcement: String = "strict"
+
+  -- Check whether this article applies to the given genome.
+  fn applies_to(self, genome: GenomeType) -> Bool do
+    return self.genome == genome
+  end
+end
+
+-- =========================================================================
+-- ENTITY: ConstitutionalViolation
+-- =========================================================================
+-- Records a single violation of a constitutional article. Violations are
+-- classified by severity and can be used to track constitutional compliance
+-- over time, trigger remediation, or escalate to oversight processes.
+-- =========================================================================
+
+entity ConstitutionalViolation
+  -- The article that was violated.
+  property article: ConstitutionalArticle = ConstitutionalArticle{}
+
+  -- A human-readable description of what went wrong.
+  property description: String = ""
+
+  -- Severity: "critical" requires immediate action, "warning" needs attention,
+  -- "info" is for documentation and trend analysis.
+  property severity: String = "warning"
+
+  -- Convenience check for critical violations that need immediate handling.
+  fn is_critical(self) -> Bool do
+    return self.severity == "critical"
+  end
+end
+
+-- =========================================================================
+-- EXPORTS
+-- =========================================================================
+-- Every entity and enum defined in this module is exported. The semantic
+-- model is the second layer of the Orren foundation, consumed by all
+-- modules that work with meaning-bearing data.
+-- =========================================================================
+
+export {
+  SemanticPreservationLevel,
+  SemanticContext,
+  SemanticValue,
+  SemanticEnvelope,
+  MediatedMessage,
+  TranslationResult,
+  ConstitutionalArticle,
+  ConstitutionalViolation
+}

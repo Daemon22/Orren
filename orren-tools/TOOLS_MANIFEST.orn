@@ -1,0 +1,233 @@
+module orren_tools.manifest
+
+intent "The Orren Tools SDK Manifest — Complete Registry.
+  This file serves as the registry of all tools, SDK components, and
+  utilities that compose the Orren development ecosystem. Every tool
+  listed here is implemented entirely in the Orren language (.orn files),
+  maintaining the principle that Orren is made entirely of its own codes."
+
+intent "The tools ecosystem is organized into nine major subsystems:
+  Build System, SDK, CLI, Testing, Documentation, Developer Utilities,
+  LSP Server, Package Registry, and CI/CD.
+  Together they provide a complete development experience for creating,
+  building, testing, documenting, and maintaining Orren programs."
+
+-- =========================================================================
+-- CONSTANTS
+-- =========================================================================
+
+const TOOLS_VERSION = "2.0.0"
+const ORREN_MIN_VERSION = "0.1.0"
+const TOTAL_TOOL_FILES = 74
+const TOTAL_LINES = 29281
+const TOTAL_SUBSYSTEMS = 9
+
+-- =========================================================================
+-- SUBSYSTEM 1: BUILD SYSTEM (6 files)
+-- =========================================================================
+-- build/config.orn       — Build configuration: targets, profiles, dependencies,
+--                         feature flags, toolchain settings
+-- build/pipeline.orn     — Build pipeline: DAG task graph, dependency resolution,
+--                         caching, incremental execution
+-- build/artifacts.orn    — Artifact management: linking, archiving, packaging,
+--                         manifests, registries, versioning
+-- build/workspace.orn    — Multi-project workspace management: monorepo support,
+--                         cross-project dependencies, unified build coordination
+-- build/cache.orn        — Content-addressable build cache: SHA-256 hashing,
+--                         semantic-equivalence matching, LRU/LFU/size eviction
+-- build/compdb.orn       — Compilation database: IDE integration, command lookup,
+--                         database merging, stale entry detection
+
+-- =========================================================================
+-- SUBSYSTEM 2: SDK (17 files)
+-- =========================================================================
+-- sdk/formatter/formatter.orn          — Code formatter: indentation, alignment,
+--                                      blank lines, trailing whitespace, comment formatting
+-- sdk/linker/linker.orn                — Module linker: import resolution, circular
+--                                      dependency detection, topological sort, dedup
+-- sdk/linter/linter.orn                — Static analysis linter: 14 rule IDs, First
+--                                      Law compliance, semantic integrity checks
+-- sdk/debugger/debugger.orn            — Source-level debugger: breakpoints, step
+--                                      execution, watches, cognitive state capture
+-- sdk/repl/repl.orn                    — Advanced REPL: multiline, 13 commands,
+--                                      autocomplete, color, cognitive exploration
+-- sdk/profiler/profiler.orn            — Performance profiler: call graphs, flame data,
+--                                      semantic overhead analysis, 5 view modes
+-- sdk/inspector/inspector.orn          — Module inspector: 8-dim semantic, 5-genome
+--                                      compliance, UPMP 15-layer, diff modules
+-- sdk/analyzer/analyzer.orn            — Code analyzer: cyclomatic complexity, coupling,
+--                                      cohesion, architectural insights
+-- sdk/refactor/refactor.orn            — Automated refactoring: extract function, inline,
+--                                      move entity, reorder properties
+-- sdk/completion/completion.orn        — Code completion: keywords, entities, functions,
+--                                      cognitive keywords, context-aware filtering
+-- sdk/rename/rename.orn                — Symbol renaming: cross-module references,
+--                                      conflict detection, dry-run preview
+-- sdk/navigation/navigation.orn        — Code navigation: go-to-definition, find-refs,
+--                                      symbol search, fuzzy matching
+-- sdk/highlight/highlight.orn          — Semantic syntax highlighting: token-level
+--                                      highlights with semantic information
+-- sdk/hover/hover.orn                  — Hover provider: type info, documentation,
+--                                      semantic data, cognitive state on hover
+-- sdk/type_inference/type_inference.orn — Type inference: constraint graphs, confidence
+--                                      levels, bidirectional inference
+-- sdk/semantic_tokens/semantic_tokens.orn — LSP semantic tokens: delta encoding,
+--                                      token legend, incremental updates
+-- sdk/call_hierarchy/call_hierarchy.orn  — Call hierarchy: call graph building,
+--                                      incoming/outgoing calls, recursive detection
+
+-- =========================================================================
+-- SUBSYSTEM 3: CLI (9 files)
+-- =========================================================================
+-- cli/scaffold/scaffold.orn  — Project scaffolding: 5 templates (bare, library,
+--                            agent, SIRE, SDK extension), directory generation
+-- cli/deps/dependency_manager.orn — Dependency management: semver, lock files,
+--                                  registry support, conflict detection
+-- cli/config/config_manager.orn   — Configuration: 5-level cascade (default, user,
+--                                  project, environment, CLI), schema validation
+-- cli/publish/publish.orn       — Package publishing: authentication, version
+--                                  validation, manifest generation, upload
+-- cli/search/search.orn         — Package search: registry search with scoring,
+--                                  sorting, pagination, caching
+-- cli/info/info.orn             — System/project info: toolchain versions, project
+--                                  stats, environment details
+-- cli/clean/clean.orn           — Clean artifacts: build artifacts, cache, docs,
+--                                  test outputs, coverage data
+-- cli/run/run_runner.orn        — Enhanced runner: watch mode, hot-reload,
+--                                  environment management, incremental recompilation
+-- cli/check/check.orn           — Quick check: syntax, imports, types, semantic
+--                                  check without full compilation
+
+-- =========================================================================
+-- SUBSYSTEM 4: TESTING (10 files)
+-- =========================================================================
+-- testing/runner/test_runner.orn       — Test runner: discovery, parallelism, retries,
+--                                       timeouts, semantic integrity checking
+-- testing/assertions/assertions.orn    — Assertions: 15 types including semantic,
+--                                       cognitive, provenance, First Law assertions
+-- testing/benchmarks/benchmarks.orn    — Benchmarks: statistical analysis, P95/P99,
+--                                       outlier rejection, semantic overhead
+-- testing/fuzzing/fuzzer.orn            — Fuzzing: mutation, corpus management,
+--                                       First Law breach detection
+-- testing/coverage/coverage.orn         — Coverage: entity/function/branch/semantic
+--                                       path levels, merge, diff
+-- testing/properties/property_testing.orn — Property testing: random generation,
+--                                       shrinking, reproducibility
+-- testing/mocking/mocking.orn           — Mocking: mock/stub/spy, expectations,
+--                                       verification modes
+-- testing/fixtures/fixtures.orn         — Fixtures: scoped lifecycle, dependency
+--                                       resolution, lazy initialization
+-- testing/reporters/reporters.orn       — Reporters: TAP, JUnit XML, pretty text,
+--                                       JSON, semantic report formats
+-- testing/snippets/snippets.orn         — Doc testing: extract examples from source,
+--                                       compile and verify output
+
+-- =========================================================================
+-- SUBSYSTEM 5: DOCUMENTATION (6 files)
+-- =========================================================================
+-- docs/generator/doc_generator.orn      — Doc extractor: parse .orn files for
+--                                        intents, entities, functions, cross-refs
+-- docs/markdown/markdown_renderer.orn  — Markdown renderer: TOC, tables, code
+--                                        blocks, semantic tables, links
+-- docs/html/html_renderer.orn          — HTML renderer: semantic styling, search
+--                                        index, navigation, CSS/JS
+-- docs/latex/latex_renderer.orn        — LaTeX renderer: publication-quality PDF
+--                                        output, code listings, packages
+-- docs/search_index/search_index.orn   — Search index: full-text search, inverted
+--                                        word index, fuzzy matching, TF scoring
+-- docs/examples/extractor.orn           — Example extractor: scan for code examples,
+--                                        deduplicate, verify compilation
+
+-- =========================================================================
+-- SUBSYSTEM 6: DEVELOPER UTILITIES (15 files)
+-- =========================================================================
+-- tools/migrate/migrator.orn                    — Migration: version upgrades, deprecated
+--                                               pattern detection, automated fixes
+-- tools/lint_rules/standard_rules.orn            — Lint rules: 10 built-in rules, 7
+--                                               categories, registry management
+-- tools/ast_viewer/ast_viewer.orn                — AST viewer: 4 output formats, tree
+--                                               search, subtree extraction
+-- tools/bytecode_disasm/disassembler.orn        — Disassembler: 30+ opcodes, semantic
+--                                               annotation, function boundary detection
+-- tools/semantic_inspector/semantic_inspector.orn — Semantic inspector: meaning flow
+--                                               tracing, 7 loss types, First Law checks
+-- tools/dep_graph/dep_graph.orn                  — Dependency graph: DOT/Mermaid/text/JSON
+--                                               rendering, Tarjan SCC cycle detection
+-- tools/dead_code_detector/dead_code.orn         — Dead code detector: unused entities,
+--                                               functions, imports, confidence levels
+-- tools/api_extractor/api_extractor.orn          — API extractor: public API surface,
+--                                               cognitive verbs, breaking change detection
+-- tools/version_bumper/version_bumper.orn        — Version bumper: semver, change
+--                                               analysis, changelog entry generation
+-- tools/changelog/changelog.orn                  — Changelog: KEEP_A_CHANGELOG, Markdown,
+--                                               semantic formats, breaking change detection
+-- tools/code_metrics/code_metrics.orn            — Code metrics: complexity, coupling,
+--                                               cohesion, A-F grades, trend analysis
+-- tools/license_checker/license_checker.orn      — License checker: SPDX parsing,
+--                                               compatibility matrix, compliance reports
+-- tools/compat_checker/compat_checker.orn        — Compat checker: API surface diff,
+--                                               breaking/soft change detection
+-- tools/perf_analyzer/perf_analyzer.orn          — Perf analyzer: regression detection,
+--                                               confidence intervals, severity levels
+-- tools/security_scanner/security_scanner.orn    — Security scanner: 6 rule patterns,
+--                                               semantic confusion detection
+
+-- =========================================================================
+-- SUBSYSTEM 7: LSP SERVER (4 files)
+-- =========================================================================
+-- lsp/server/server.orn        — LSP server: JSON-RPC protocol, request dispatch,
+--                               server lifecycle, capability negotiation
+-- lsp/protocol/protocol.orn    — LSP protocol types: messages, positions, ranges,
+--                               initialization, all core LSP types
+-- lsp/documents/documents.orn  — Document store: open/close documents, content
+--                               changes (full + incremental), version tracking
+-- lsp/diagnostics/diagnostics.orn — Diagnostics: error/warning collection from
+--                               compiler and linter, debounce publishing
+
+-- =========================================================================
+-- SUBSYSTEM 8: PACKAGE REGISTRY (4 files)
+-- =========================================================================
+-- registry/client/client.orn  — Registry client: HTTP-like communication, auth,
+--                               search, fetch, upload, version listing
+-- registry/index/index.orn    — Local index: caching, offline access, freshness
+--                               tracking, tag-based search, prune stale
+-- registry/publish/publish.orn — Publishing: validation (7 checks), checksums,
+--                               retry, post-publish verification
+-- registry/auth/auth.orn      — Authentication: multi-token-type, permissions,
+--                               refresh, session management, scope
+
+-- =========================================================================
+-- SUBSYSTEM 9: CI/CD (3 files)
+-- =========================================================================
+-- ci/pipeline/pipeline.orn  — CI pipeline: DAG stage dependencies, sequential
+--                             and parallel execution, failure handling, logs
+-- ci/runners/runners.orn     — CI runners: registration, job assignment, health
+--                             monitoring, lifecycle management
+-- ci/artifacts/artifacts.orn — CI artifacts: store, retrieve, retention policies
+--                             (7/30/90 days, latest-N), checksums, index
+
+-- =========================================================================
+-- ARCHITECTURE LAYERS
+-- =========================================================================
+--   Layer 0: orren.core.language.foundation (primitives, First Law)
+--   Layer 1: orren.compiler.*, orren.parser.*, orren.runtime.*
+--   Layer 2: Build System (config, pipeline, artifacts, workspace, cache, compdb)
+--   Layer 3: SDK Core (formatter, linker, linter, debugger, repl, profiler, inspector)
+--   Layer 4: SDK Extended (analyzer, refactor, completion, rename, navigation,
+--             highlight, hover, type_inference, semantic_tokens, call_hierarchy)
+--   Layer 5: CLI (scaffold, deps, config, publish, search, info, clean, run, check)
+--   Layer 6: Testing (runner, assertions, benchmarks, fuzzing, coverage,
+--             properties, mocking, fixtures, reporters, snippets)
+--   Layer 7: Documentation (generator, markdown, html, latex, search_index, examples)
+--   Layer 8: Developer Utilities (migrate, lint_rules, ast_viewer, disasm,
+--             semantic_inspector, dep_graph, dead_code, api_extractor,
+--             version_bumper, changelog, code_metrics, license_checker,
+--             compat_checker, perf_analyzer, security_scanner)
+--   Layer 9: Infrastructure (LSP server, protocol, documents, diagnostics)
+--   Layer 10: Ecosystem (registry client/index/publish/auth, CI pipeline/runners/artifacts)
+--
+-- Each layer depends only on layers below it, never above.
+-- This ensures the toolchain can be bootstrapped incrementally.
+-- =========================================================================
+
+export { TOOLS_VERSION, ORREN_MIN_VERSION, TOTAL_TOOL_FILES, TOTAL_LINES, TOTAL_SUBSYSTEMS }

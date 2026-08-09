@@ -1,0 +1,363 @@
+-- orren_tools.build.pipeline
+-- Build pipeline with DAG task graph, dependency resolution, caching, and incremental execution.
+-- Supports topological ordering, cache hits, and up-to-date skipping for fast rebuilds.
+
+import orren.core.language.foundation::{String, Int, Bool, List, Map, Result, Ok, Err, None}
+import orren_tools.build.config::{BuildConfig, BuildProfile}
+
+module orren_tools.build.pipeline
+
+-- Current status of a build task within the pipeline.
+enum TaskStatus
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CACHED
+  SKIPPED
+end
+
+-- Classification of build task kinds for scheduling and reporting.
+enum TaskKind
+  COMPILE
+  LINK
+  LINT
+  TEST
+  PACKAGE
+  GENERATE
+end
+
+-- Unique identifier for a task, combining a string ID with its kind.
+entity TaskId
+  property id_string: String = ""
+  property kind: TaskKind = TaskKind.COMPILE
+
+  -- Create a new task ID from a string and kind.
+  fn create(id_str: String, kind: TaskKind) -> TaskId do
+    let tid be TaskId.new()
+    tid.id_string = id_str
+    tid.kind = kind
+    return tid
+  end
+
+  -- Return a display-friendly string for this task ID.
+  fn display(self) -> String do
+    return "[" + self.kind.to_string() + "] " + self.id_string
+  end
+
+  -- Check equality with another TaskId.
+  fn equals(self, other: TaskId) -> Bool do
+    return self.id_string == other.id_string and self.kind == other.kind
+  end
+end
+
+-- A single build task with inputs, outputs, dependencies, and timing.
+entity BuildTask
+  property id: TaskId = TaskId.new()
+  property name: String = ""
+  property dependencies: List<TaskId> = List<TaskId>.new()
+  property inputs: List<String> = List<String>.new()
+  property outputs: List<String> = List<String>.new()
+  property status: TaskStatus = TaskStatus.PENDING
+  property duration_ns: Int = 0
+  property cache_hit: Bool = false
+
+  -- Create a new build task with a given ID and name.
+  fn create(tid: TaskId, task_name: String) -> BuildTask do
+    let task be BuildTask.new()
+    task.id = tid
+    task.name = task_name
+    return task
+  end
+
+  -- Add a dependency to this task by TaskId.
+  fn add_dep(self, dep_id: TaskId) do
+    self.dependencies.append(dep_id)
+  end
+
+  -- Add an input file path to this task.
+  fn add_input(self, path: String) do
+    self.inputs.append(path)
+  end
+
+  -- Add an output file path produced by this task.
+  fn add_output(self, path: String) do
+    self.outputs.append(path)
+  end
+
+  -- Mark this task as having started running.
+  fn mark_running(self) do
+    self.status = TaskStatus.RUNNING
+  end
+
+  -- Mark this task as completed with a duration.
+  fn mark_completed(self, elapsed_ns: Int) do
+    self.status = TaskStatus.COMPLETED
+    self.duration_ns = elapsed_ns
+  end
+
+  -- Mark this task as failed.
+  fn mark_failed(self) do
+    self.status = TaskStatus.FAILED
+  end
+
+  -- Mark this task as cached, skipping real execution.
+  fn mark_cached(self) do
+    self.status = TaskStatus.CACHED
+    self.cache_hit = true
+  end
+
+  -- Mark this task as skipped because it is up to date.
+  fn mark_skipped(self) do
+    self.status = TaskStatus.SKIPPED
+  end
+
+  -- Return true if the task is in a terminal state.
+  fn is_finished(self) -> Bool do
+    match self.status with
+      TaskStatus.COMPLETED then return true
+      TaskStatus.FAILED then return true
+      TaskStatus.CACHED then return true
+      TaskStatus.SKIPPED then return true
+    end
+    return false
+  end
+end
+
+-- Cache store for intermediate build results, keyed by task ID strings.
+entity CacheStore
+  property entries: Map<String, List<String>> = Map<String, List<String>>.new()
+  property max_size: Int = 1024
+  property hit_count: Int = 0
+  property miss_count: Int = 0
+
+  -- Look up cached outputs for a task ID string.
+  fn lookup(self, key: String) -> Result<List<String>, String> do
+    let entry be self.entries.get(key)
+    if entry == None then
+      self.miss_count = self.miss_count + 1
+      return Err("cache miss: " + key)
+    end
+    self.hit_count = self.hit_count + 1
+    return Ok(entry)
+  end
+
+  -- Store outputs for a task ID string in the cache.
+  fn store(self, key: String, outputs: List<String>) do
+    if self.entries.size() >= self.max_size then
+      -- evict the oldest entry to make room
+      let mut first_key be ""
+      for entry in self.entries do
+        first_key = entry.key
+        break
+      end
+      if first_key != "" then
+        self.entries.remove(first_key)
+      end
+    end
+    self.entries.set(key, outputs)
+  end
+
+  -- Invalidate all cache entries, resetting counters.
+  fn invalidate(self) do
+    self.entries.clear()
+    self.hit_count = 0
+    self.miss_count = 0
+  end
+
+  -- Return the cache hit rate as a value between 0 and 100.
+  fn hit_rate(self) -> Int do
+    let total be self.hit_count + self.miss_count
+    if total == 0 then
+      return 0
+    end
+    return (self.hit_count * 100) / total
+  end
+end
+
+-- Directed acyclic graph of build tasks and their dependency edges.
+entity TaskGraph
+  property tasks: Map<String, BuildTask> = Map<String, BuildTask>.new()
+  property edges: List<(String, String)> = List<(String, String)>.new()
+  property roots: List<String> = List<String>.new()
+
+  -- Add a task to the graph by its ID string key.
+  fn add_task(self, task: BuildTask) do
+    let key be task.id.id_string
+    self.tasks.set(key, task)
+    if task.dependencies.length() == 0 then
+      self.roots.append(key)
+    end
+  end
+
+  -- Add a directed edge from one task to another.
+  fn add_edge(self, from: String, to: String) do
+    self.edges.append((from, to))
+  end
+
+  -- Perform a topological sort using Kahn's algorithm.
+  -- Returns an ordered list of task ID strings.
+  fn topological_sort(self) -> Result<List<String>, String> do
+    let mut in_degree be Map<String, Int>.new()
+    let mut adj be Map<String, List<String>>.new()
+    -- Initialize in-degree and adjacency list.
+    for entry in self.tasks do
+      in_degree.set(entry.key, 0)
+      adj.set(entry.key, List<String>.new())
+    end
+    for (src, dst) in self.edges do
+      let current be in_degree.get(dst)
+      if current != None then
+        in_degree.set(dst, current + 1)
+      end
+      let neighbors be adj.get(src)
+      if neighbors != None then
+        neighbors.append(dst)
+      end
+    end
+    -- Collect all nodes with zero in-degree.
+    let mut queue be List<String>.new()
+    for entry in in_degree do
+      if entry.value == 0 then
+        queue.append(entry.key)
+      end
+    end
+    let mut sorted be List<String>.new()
+    while queue.length() > 0 do
+      let node be queue.remove_at(0)
+      sorted.append(node)
+      let neighbors be adj.get(node)
+      if neighbors != None then
+        for neighbor in neighbors do
+          let deg be in_degree.get(neighbor)
+          if deg != None then
+            let new_deg be deg - 1
+            in_degree.set(neighbor, new_deg)
+            if new_deg == 0 then
+              queue.append(neighbor)
+            end
+          end
+        end
+      end
+    end
+    if sorted.length() != self.tasks.size() then
+      return Err("cycle detected in build task graph")
+    end
+    return Ok(sorted)
+  end
+
+  -- Get a task by its ID string key.
+  fn get_task(self, key: String) -> Result<BuildTask, String> do
+    let task be self.tasks.get(key)
+    if task == None then
+      return Err("task not found: " + key)
+    end
+    return Ok(task)
+  end
+end
+
+-- The complete build pipeline orchestrating task execution and caching.
+entity BuildPipeline
+  property config: BuildConfig = BuildConfig.create_default()
+  property graph: TaskGraph = TaskGraph.new()
+  property cache: CacheStore = CacheStore.new()
+  property stages_completed: List<String> = List<String>.new()
+  property total_time_ns: Int = 0
+
+  -- Add a build task to the pipeline.
+  fn add_task(self, task: BuildTask) do
+    self.graph.add_task(task)
+  end
+
+  -- Resolve dependency order using topological sort.
+  fn resolve_order(self) -> Result<List<String>, String> do
+    return self.graph.topological_sort()
+  end
+
+  -- Check if a task's outputs are already cached.
+  fn is_cached(self, task_key: String) -> Bool do
+    let result be self.cache.lookup(task_key)
+    match result with
+      Ok(_) then return true
+      Err(_) then return false
+    end
+  end
+
+  -- Execute the full pipeline incrementally, skipping cached or up-to-date tasks.
+  fn execute(self) -> PipelineResult do
+    let start_time be 0
+    let order_result be self.resolve_order()
+    match order_result with
+      Err(msg) then
+        let result be PipelineResult.new()
+        result.success = false
+        result.errors.append(msg)
+        return result
+      Ok(_) then
+        -- proceed
+    end
+    let order be order_result.unwrap()
+    let mut all_success be true
+    for task_key in order do
+      let task_result be self.graph.get_task(task_key)
+      match task_result with
+        Err(msg) then
+          all_success = false
+          break
+        Ok(task) then
+          if self.is_cached(task_key) then
+            task.mark_cached()
+            self.stages_completed.append(task_key)
+          else
+            task.mark_running()
+            -- Simulate execution; in production, invoke the real task.
+            let elapsed be 1000
+            task.mark_completed(elapsed)
+            self.cache.store(task_key, task.outputs)
+            self.stages_completed.append(task_key)
+            self.total_time_ns = self.total_time_ns + elapsed
+          end
+      end
+    end
+    let result be PipelineResult.new()
+    result.success = all_success
+    result.stages_completed = self.stages_completed
+    result.total_time_ns = self.total_time_ns
+    return result
+  end
+
+  -- Reset the pipeline state for a fresh build.
+  fn reset(self) do
+    self.cache.invalidate()
+    self.stages_completed.clear()
+    self.total_time_ns = 0
+  end
+end
+
+-- Result summary of a completed or failed pipeline execution.
+entity PipelineResult
+  property success: Bool = false
+  property stages_completed: List<String> = List<String>.new()
+  property total_time_ns: Int = 0
+  property artifacts_produced: List<String> = List<String>.new()
+  property errors: List<String> = List<String>.new()
+
+  -- Return a human-readable summary of the pipeline result.
+  fn summary(self) -> String do
+    let status be ""
+    if self.success then
+      status = "SUCCESS"
+    else
+      status = "FAILED"
+    end
+    let msg be "Pipeline " + status + ": " + self.stages_completed.length().to_string()
+    msg = msg + " stages in " + self.total_time_ns.to_string() + "ns"
+    if self.errors.length() > 0 then
+      msg = msg + " (" + self.errors.length().to_string() + " errors)"
+    end
+    return msg
+  end
+end
+
+export { TaskStatus, TaskKind, TaskId, BuildTask, CacheStore, TaskGraph,
+         BuildPipeline, PipelineResult }

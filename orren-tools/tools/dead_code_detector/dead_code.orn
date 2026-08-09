@@ -1,0 +1,395 @@
+module orren_tools.tools.dead_code
+
+import orren.core.language.foundation::{String, Int, Bool, List, Map}
+
+intent "Detect unused entities, functions, properties, and imports in Orren code"
+
+-- Classification of dead code types
+enum DeadCodeKind
+  UNUSED_ENTITY
+  UNUSED_FUNCTION
+  UNUSED_PROPERTY
+  UNUSED_IMPORT
+  UNUSED_ENUM
+  UNREACHABLE_CODE
+  UNUSED_PARAMETER
+end
+
+-- Confidence level for a dead code finding
+enum Confidence
+  HIGH
+  MEDIUM
+  LOW
+end
+
+-- A single dead code finding with location and suggestion
+entity DeadCodeFinding
+  property kind: DeadCodeKind = DeadCodeKind.UNUSED_ENTITY
+  property confidence: Confidence = Confidence.MEDIUM
+  property name: String = ""
+  property file: String = ""
+  property line: Int = 0
+  property references_count: Int = 0
+  property suggestion: String = ""
+end
+
+-- Aggregated dead code analysis report
+entity DeadCodeReport
+  property findings: List<DeadCodeFinding> = []
+  property total_unused: Int = 0
+  property high_confidence_count: Int = 0
+  property files_analyzed: Int = 0
+end
+
+-- Configuration for the dead code detector
+entity DetectorConfig
+  property ignore_patterns: List<String> = []
+  property min_confidence: Confidence = Confidence.LOW
+  property check_unused_imports: Bool = true
+  property check_unused_entities: Bool = true
+  property check_unused_functions: Bool = true
+  property check_unused_properties: Bool = true
+  property check_unused_enums: Bool = true
+  property check_unused_parameters: Bool = true
+  property check_unreachable_code: Bool = true
+  property exclude_public_symbols: Bool = false
+  property entry_points: List<String> = []
+end
+
+-- Tracks a single symbol definition in the codebase
+entity SymbolEntry
+  property name: String = ""
+  property kind: DeadCodeKind = DeadCodeKind.UNUSED_ENTITY
+  property file: String = ""
+  property line: Int = 0
+  property is_exported: Bool = false
+  property is_public: Bool = false
+  property references: List<String> = []
+end
+
+-- Main dead code detector engine
+entity DeadCodeDetector
+  property config: DetectorConfig = DetectorConfig()
+  property symbol_index: Map<String, SymbolEntry> = {}
+  property findings: List<DeadCodeFinding> = []
+
+  -- Index all symbol definitions found across source files
+  fn index_definitions(self, files: Map<String, List<String>>) -> Unit do
+    self.symbol_index = Map<String, SymbolEntry>()
+    for file_path in files.keys() do
+      if self.is_ignored(file_path) then
+        continue
+      end
+      let lines be files.get(file_path).unwrap()
+      let idx be 0
+      while idx < lines.len() do
+        let line be lines.get(idx)
+        let sym be self.parse_definition(line, file_path, idx + 1)
+        if sym.name != "" then
+          self.symbol_index.set(sym.name, sym)
+        end
+        idx = idx + 1
+      end
+    end
+  end
+
+  -- Check if a file path matches any ignore pattern
+  fn is_ignored(self, file_path: String) -> Bool do
+    for pattern in self.config.ignore_patterns do
+      if file_path.contains(pattern) then
+        return true
+      end
+    end
+    return false
+  end
+
+  -- Parse a single line for entity, function, enum, or import definitions
+  fn parse_definition(self, line: String, file: String, line_num: Int) -> SymbolEntry do
+    let entry be SymbolEntry()
+    entry.file = file
+    entry.line = line_num
+    let trimmed be line.trim()
+    if trimmed.starts_with("entity ") then
+      let name be self.extract_name_after(trimmed, "entity ")
+      entry.name = name
+      entry.kind = DeadCodeKind.UNUSED_ENTITY
+    else
+      if trimmed.starts_with("fn ") then
+        let name be self.extract_name_after(trimmed, "fn ")
+        entry.name = name
+        entry.kind = DeadCodeKind.UNUSED_FUNCTION
+      else
+        if trimmed.starts_with("enum ") then
+          let name be self.extract_name_after(trimmed, "enum ")
+          entry.name = name
+          entry.kind = DeadCodeKind.UNUSED_ENUM
+        else
+          if trimmed.starts_with("import ") then
+            let name be self.extract_import_name(trimmed)
+            entry.name = name
+            entry.kind = DeadCodeKind.UNUSED_IMPORT
+          end
+        end
+      end
+    end
+    return entry
+  end
+
+  -- Extract identifier name after a keyword prefix
+  fn extract_name_after(self, line: String, prefix: String) -> String do
+    let rest be line.slice(prefix.len())
+    let parts be rest.split(" ")
+    let raw be parts.get(0)
+    let clean be raw.replace("(", "").replace(")", "")
+    return clean
+  end
+
+  -- Extract the module path from an import line
+  fn extract_import_name(self, line: String) -> String do
+    let rest be line.slice("import ".len())
+    if rest.contains("::") then
+      let parts be rest.split("::")
+      return parts.get(0)
+    end
+    let parts be rest.split(" ")
+    return parts.get(0)
+  end
+
+  -- Find all references to indexed symbols across all source files
+  fn find_all_references(self, files: Map<String, List<String>>) -> Unit do
+    for file_path in files.keys() do
+      let lines be files.get(file_path).unwrap()
+      let idx be 0
+      while idx < lines.len() do
+        let line be lines.get(idx)
+        for sym_name in self.symbol_index.keys() do
+          if line.contains(sym_name) then
+            let sym be self.symbol_index.get(sym_name).unwrap()
+            -- Skip the definition line itself
+            if not (line.starts_with("entity " + sym_name) or line.starts_with("fn " + sym_name) or line.starts_with("enum " + sym_name)) then
+              sym.references.append(file_path + ":" + (idx + 1 as String))
+            end
+          end
+        end
+        idx = idx + 1
+      end
+    end
+  end
+
+  -- Analyze all indexed symbols and produce dead code findings
+  fn analyze(self) -> List<DeadCodeFinding> do
+    self.findings = List<DeadCodeFinding>()
+    for sym_name in self.symbol_index.keys() do
+      let sym be self.symbol_index.get(sym_name).unwrap()
+      if self.config.exclude_public_symbols and sym.is_exported then
+        continue
+      end
+      if self.config.entry_points.contains(sym_name) then
+        continue
+      end
+      if not self.is_kind_enabled(sym.kind) then
+        continue
+      end
+      if sym.references.len() == 0 then
+        let finding be DeadCodeFinding()
+        finding.kind = sym.kind
+        finding.name = sym_name
+        finding.file = sym.file
+        finding.line = sym.line
+        finding.references_count = 0
+        finding.confidence = self.assess_confidence(sym)
+        finding.suggestion = self.generate_suggestion(sym)
+        if self.meets_confidence_threshold(finding.confidence) then
+          self.findings.append(finding)
+        end
+      end
+    end
+    return self.findings
+  end
+
+  -- Check if a given dead code kind is enabled in the config
+  fn is_kind_enabled(self, kind: DeadCodeKind) -> Bool do
+    match kind with
+      DeadCodeKind.UNUSED_ENTITY do return self.config.check_unused_entities end
+      DeadCodeKind.UNUSED_FUNCTION do return self.config.check_unused_functions end
+      DeadCodeKind.UNUSED_PROPERTY do return self.config.check_unused_properties end
+      DeadCodeKind.UNUSED_IMPORT do return self.config.check_unused_imports end
+      DeadCodeKind.UNUSED_ENUM do return self.config.check_unused_enums end
+      DeadCodeKind.UNUSED_PARAMETER do return self.config.check_unused_parameters end
+      DeadCodeKind.UNREACHABLE_CODE do return self.config.check_unreachable_code end
+    end
+  end
+
+  -- Assess confidence of a dead code finding based on symbol context
+  fn assess_confidence(self, sym: SymbolEntry) -> Confidence do
+    if sym.is_exported then
+      return Confidence.MEDIUM
+    end
+    if sym.kind == DeadCodeKind.UNUSED_IMPORT then
+      return Confidence.HIGH
+    end
+    if sym.kind == DeadCodeKind.UNUSED_FUNCTION or sym.kind == DeadCodeKind.UNUSED_ENTITY then
+      return Confidence.HIGH
+    end
+    if sym.kind == DeadCodeKind.UNUSED_ENUM then
+      return Confidence.MEDIUM
+    end
+    return Confidence.LOW
+  end
+
+  -- Check if a finding meets the minimum confidence threshold
+  fn meets_confidence_threshold(self, conf: Confidence) -> Bool do
+    match self.config.min_confidence with
+      Confidence.HIGH do return conf == Confidence.HIGH end
+      Confidence.MEDIUM do return conf == Confidence.HIGH or conf == Confidence.MEDIUM end
+      Confidence.LOW do return true end
+    end
+  end
+
+  -- Generate a human-readable suggestion for a dead code symbol
+  fn generate_suggestion(self, sym: SymbolEntry) -> String do
+    match sym.kind with
+      DeadCodeKind.UNUSED_IMPORT do
+        return "Remove unused import: " + sym.name + " in " + sym.file
+      end
+      DeadCodeKind.UNUSED_ENTITY do
+        return "Entity '" + sym.name + "' is never instantiated. Consider removing it."
+      end
+      DeadCodeKind.UNUSED_FUNCTION do
+        return "Function '" + sym.name + "' is never called. Consider removing it."
+      end
+      DeadCodeKind.UNUSED_ENUM do
+        return "Enum '" + sym.name + "' has no references. Verify before removing."
+      end
+      DeadCodeKind.UNUSED_PROPERTY do
+        return "Property is never read. Consider removing it from the entity."
+      end
+      DeadCodeKind.UNUSED_PARAMETER do
+        return "Parameter is never used in the function body."
+      end
+      DeadCodeKind.UNREACHABLE_CODE do
+        return "Code after return/break is unreachable. Remove dead statements."
+      end
+    end
+  end
+
+  -- Detect unused properties within entities from the source files
+  fn detect_unused_properties(self, files: Map<String, List<String>>) -> List<DeadCodeFinding> do
+    let prop_findings be List<DeadCodeFinding>()
+    let entity_props be Map<String, List<String>>()
+    -- First pass: collect all property names per entity
+    for file_path in files.keys() do
+      let lines be files.get(file_path).unwrap()
+      let line_idx be 0
+      while line_idx < lines.len() do
+        let line be lines.get(line_idx)
+        if line.trim().starts_with("property ") then
+          let parts be line.trim().split(" ")
+          let prop_name be parts.get(1).replace(":", "")
+          let entity_name be self.current_entity_name(lines, line_idx)
+          if entity_name != "" then
+            let full_name be entity_name + "." + prop_name
+            if not entity_props.contains(full_name) then
+              entity_props.set(full_name, List<String>())
+            end
+            let refs be entity_props.get(full_name).unwrap()
+            refs.append(file_path + ":" + (line_idx + 1 as String))
+          end
+        end
+        line_idx = line_idx + 1
+      end
+    end
+    -- Second pass: count references to each property
+    for full_name in entity_props.keys() do
+      let ref_count be 0
+      let defs be entity_props.get(full_name).unwrap()
+      for file_path in files.keys() do
+        let lines be files.get(file_path).unwrap()
+        for line in lines do
+          if line.contains(full_name) then
+            ref_count = ref_count + 1
+          end
+        end
+      end
+      -- Subtract the definition itself
+      let total_refs be ref_count - defs.len()
+      if total_refs == 0 then
+        let finding be DeadCodeFinding()
+        finding.kind = DeadCodeKind.UNUSED_PROPERTY
+        finding.confidence = Confidence.MEDIUM
+        finding.name = full_name
+        finding.references_count = 0
+        finding.suggestion = "Property '" + full_name + "' is never accessed outside its definition."
+        prop_findings.append(finding)
+      end
+    end
+    return prop_findings
+  end
+
+  -- Determine which entity we are inside given a line index
+  fn current_entity_name(self, lines: List<String>, line_idx: Int) -> String do
+    let idx be line_idx - 1
+    while idx >= 0 do
+      let line be lines.get(idx).trim()
+      if line.starts_with("entity ") then
+        let parts be line.split(" ")
+        return parts.get(1)
+      end
+      if line.starts_with("fn ") or line.starts_with("enum ") then
+        return ""
+      end
+      idx = idx - 1
+    end
+    return ""
+  end
+
+  -- Produce a formatted dead code report from current findings
+  fn generate_report(self, files_count: Int) -> DeadCodeReport do
+    let report be DeadCodeReport()
+    report.findings = self.findings
+    report.total_unused = self.findings.len()
+    report.files_analyzed = files_count
+    let high_count be 0
+    for f in self.findings do
+      if f.confidence == Confidence.HIGH then
+        high_count = high_count + 1
+      end
+    end
+    report.high_confidence_count = high_count
+    return report
+  end
+
+  -- Format the report as a human-readable string
+  fn format_report(self, report: DeadCodeReport) -> String do
+    let buf be "Dead Code Analysis Report"
+    buf = buf + "\nFiles analyzed: " + (report.files_analyzed as String)
+    buf = buf + "\nTotal unused symbols: " + (report.total_unused as String)
+    buf = buf + "\nHigh confidence: " + (report.high_confidence_count as String)
+    buf = buf + "\n---"
+    for f in report.findings do
+      buf = buf + "\n  [" + (f.confidence as String) + "] " + (f.kind as String)
+      buf = buf + "\n    Name: " + f.name
+      buf = buf + "\n    Location: " + f.file + ":" + (f.line as String)
+      buf = buf + "\n    Suggestion: " + f.suggestion
+    end
+    return buf
+  end
+
+  -- Run the full dead code detection pipeline
+  fn run(self, files: Map<String, List<String>>) -> DeadCodeReport do
+    self.index_definitions(files)
+    self.find_all_references(files)
+    self.analyze()
+    -- Also detect unused properties
+    let prop_findings be self.detect_unused_properties(files)
+    for pf in prop_findings do
+      if self.meets_confidence_threshold(pf.confidence) then
+        self.findings.append(pf)
+      end
+    end
+    let report be self.generate_report(files.keys().len())
+    return report
+  end
+end
+
+export { DeadCodeKind, Confidence, DeadCodeFinding, DeadCodeReport, DetectorConfig, SymbolEntry, DeadCodeDetector }

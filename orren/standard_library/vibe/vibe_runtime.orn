@@ -1,0 +1,392 @@
+module orren.vibe
+
+import from orren.core.language.foundation::{*}
+
+intent "Provide VIBE workflow primitives for creative and engineering tasks"
+intent "Implement the five-stage VIBE cycle: Express, Sketch, Craft, Verify, Refine"
+intent "Enable task tracking, stage transitions, and quality metrics"
+
+const VIBE_VERSION = "1.0.0"
+const STAGE_EXPRESS = "express"
+const STAGE_SKETCH = "sketch"
+const STAGE_CRAFT = "craft"
+const STAGE_VERIFY = "verify"
+const STAGE_REFINE = "refine"
+const STAGE_ORDER = ["express", "sketch", "craft", "verify", "refine"]
+const MAX_ITERATIONS = 10
+const QUALITY_THRESHOLD = 0.8
+const DEFAULT_PRIORITY = 5
+
+entity VibeTask
+    property task_id : String = ""
+    property description : String = ""
+    property stage : String = STAGE_EXPRESS
+    property priority : Int = DEFAULT_PRIORITY
+    property created_at : String = ""
+    property updated_at : String = ""
+    property status : String = "pending"
+    property artifacts : List<Map<String, String>> = []
+    property quality_scores : Map<String, Float> = {}
+    property iteration_count : Int = 0
+    property metadata : Map<String, String> = {}
+
+    fn new(task_id : String, description : String) -> VibeTask
+        let task : VibeTask = VibeTask()
+        task.task_id = task_id
+        task.description = description
+        task.stage = STAGE_EXPRESS
+        task.priority = DEFAULT_PRIORITY
+        task.created_at = "now"
+        task.updated_at = "now"
+        task.status = "pending"
+        task.artifacts = []
+        task.quality_scores = {}
+        task.iteration_count = 0
+        task.metadata = {}
+        return task
+    end
+
+    fn advance() -> VibeTask
+        intent "Move to the next VIBE stage"
+        let updated : VibeTask = self
+        let current_index : Int = 0
+        let i : Int = 0
+        for stage in STAGE_ORDER do
+            if stage == self.stage
+                current_index = i
+            end
+            i = i + 1
+        end
+        let next_index : Int = current_index + 1
+        if next_index < ListOps.length(STAGE_ORDER)
+            updated.stage = STAGE_ORDER[next_index]
+        end
+        updated.updated_at = "now"
+        return updated
+    end
+
+    fn set_stage(stage : String) -> VibeTask
+        let updated : VibeTask = self
+        updated.stage = stage
+        updated.updated_at = "now"
+        return updated
+    end
+
+    fn add_artifact(name : String, content : String, kind : String) -> VibeTask
+        let updated : VibeTask = self
+        let artifact : Map<String, String> = {}
+        artifact["name"] = name
+        artifact["content"] = content
+        artifact["kind"] = kind
+        artifact["stage"] = self.stage
+        artifact["created_at"] = "now"
+        updated.artifacts = ListOps.append(updated.artifacts, artifact)
+        updated.updated_at = "now"
+        return updated
+    end
+
+    fn set_quality_score(dimension : String, score : Float) -> VibeTask
+        let updated : VibeTask = self
+        updated.quality_scores[dimension] = score
+        updated.updated_at = "now"
+        return updated
+    end
+
+    fn average_quality() -> Float
+        let total : Float = 0.0
+        let count : Int = 0
+        for dim in self.quality_scores do
+            let score : Float = self.quality_scores[dim]
+            total = total + score
+            count = count + 1
+        end
+        if count == 0
+            return 0.0
+        end
+        return total / count
+    end
+
+    fn passes_threshold(threshold : Float) -> Bool
+        let avg : Float = self.average_quality()
+        if avg >= threshold
+            return true
+        else
+            return false
+        end
+    end
+
+    fn increment_iteration() -> VibeTask
+        let updated : VibeTask = self
+        updated.iteration_count = updated.iteration_count + 1
+        updated.updated_at = "now"
+        return updated
+    end
+
+    fn can_iterate() -> Bool
+        if self.iteration_count >= MAX_ITERATIONS
+            return false
+        else
+            return true
+        end
+    end
+
+    fn set_status(status : String) -> VibeTask
+        let updated : VibeTask = self
+        updated.status = status
+        updated.updated_at = "now"
+        return updated
+    end
+
+    fn artifact_count() -> Int
+        return ListOps.length(self.artifacts)
+    end
+
+    fn get_artifacts_by_stage(stage : String) -> List<Map<String, String>>
+        let filtered : List<Map<String, String>> = []
+        for artifact in self.artifacts do
+            let artifact_stage : String = artifact["stage"]
+            if artifact_stage == stage
+                filtered = ListOps.append(filtered, artifact)
+            end
+        end
+        return filtered
+    end
+
+    fn is_complete() -> Bool
+        if self.stage == STAGE_REFINE
+            if self.status == "complete"
+                return true
+            end
+        end
+        return false
+    end
+
+    fn summary() -> Map<String, String>
+        let s : Map<String, String> = {}
+        s["task_id"] = self.task_id
+        s["description"] = self.description
+        s["stage"] = self.stage
+        s["status"] = self.status
+        s["priority"] = "" + self.priority
+        s["iterations"] = "" + self.iteration_count
+        s["artifact_count"] = "" + self.artifact_count()
+        s["avg_quality"] = "" + self.average_quality()
+        return s
+    end
+
+    fn to_string() -> String
+        return "VibeTask(" + self.task_id + ", stage=" + self.stage + ", status=" + self.status + ")"
+    end
+end
+
+entity VibePipeline
+    property tasks : List<VibeTask> = []
+    property global_metrics : Map<String, Float> = {}
+    property pipeline_id : String = ""
+
+    fn new(pipeline_id : String) -> VibePipeline
+        let p : VibePipeline = VibePipeline()
+        p.pipeline_id = pipeline_id
+        p.tasks = []
+        p.global_metrics = {}
+        return p
+    end
+
+    fn add_task(task : VibeTask) -> VibePipeline
+        let updated : VibePipeline = self
+        updated.tasks = ListOps.append(updated.tasks, task)
+        return updated
+    end
+
+    fn express(task_id : String, description : String, raw_intent : String) -> VibeTask
+        intent "VIBE Express stage: capture intent and raw requirements"
+        let task : VibeTask = VibeTask.new(task_id, description)
+        task = task.add_artifact("raw_intent", raw_intent, "intent")
+        task = task.add_artifact("expression", description, "expression")
+        task = task.set_quality_score("clarity", 0.8)
+        task = task.set_quality_score("completeness", 0.7)
+        task = task.set_stage(STAGE_EXPRESS)
+        task = task.set_status("expressed")
+        return task
+    end
+
+    fn sketch(task : VibeTask, outline : String, components : List<String>) -> VibeTask
+        intent "VIBE Sketch stage: create structural outline and component list"
+        let sketched : VibeTask = task.advance()
+        sketched = sketched.add_artifact("outline", outline, "outline")
+        let comp_str : String = ""
+        for c in components do
+            if comp_str == ""
+                comp_str = c
+            else
+                comp_str = comp_str + ", " + c
+            end
+        end
+        sketched = sketched.add_artifact("components", comp_str, "component_list")
+        sketched = sketched.set_quality_score("structure", 0.75)
+        sketched = sketched.set_quality_score("coverage", 0.8)
+        sketched = sketched.set_status("sketched")
+        return sketched
+    end
+
+    fn craft(task : VibeTask, implementation : String) -> VibeTask
+        intent "VIBE Craft stage: produce the actual implementation"
+        let crafted : VibeTask = task.advance()
+        crafted = crafted.add_artifact("implementation", implementation, "code")
+        crafted = crafted.set_quality_score("correctness", 0.85)
+        crafted = crafted.set_quality_score("style", 0.8)
+        crafted = crafted.set_quality_score("completeness", 0.9)
+        crafted = crafted.set_status("crafted")
+        return crafted
+    end
+
+    fn verify(task : VibeTask, test_results : String, issues : List<String>) -> VibeTask
+        intent "VIBE Verify stage: validate correctness and identify issues"
+        let verified : VibeTask = task.advance()
+        verified = verified.add_artifact("test_results", test_results, "verification")
+        let issue_str : String = ""
+        for issue in issues do
+            if issue_str == ""
+                issue_str = issue
+            else
+                issue_str = issue_str + "; " + issue
+            end
+        end
+        verified = verified.add_artifact("issues", issue_str, "issue_list")
+        let issue_count : Int = ListOps.length(issues)
+        let pass_score : Float = 1.0
+        if issue_count > 0
+            pass_score = 0.7
+        end
+        if issue_count > 3
+            pass_score = 0.4
+        end
+        verified = verified.set_quality_score("verification", pass_score)
+        verified = verified.set_quality_score("test_coverage", 0.85)
+        verified = verified.set_status("verified")
+        return verified
+    end
+
+    fn refine(task : VibeTask, refinements : String) -> VibeTask
+        intent "VIBE Refine stage: improve quality based on verification feedback"
+        let refined : VibeTask = task.advance()
+        refined = refined.add_artifact("refinements", refinements, "refinement")
+        refined = refined.set_quality_score("polish", 0.9)
+        refined = refined.set_quality_score("final_quality", 0.92)
+        refined = refined.set_status("refined")
+        if refined.passes_threshold(QUALITY_THRESHOLD)
+            refined = refined.set_status("complete")
+        end
+        return refined
+    end
+
+    fn run_full_cycle(task_id : String, description : String, raw_intent : String) -> VibeTask
+        intent "Execute the complete VIBE cycle on a task"
+        let task : VibeTask = self.express(task_id, description, raw_intent)
+
+        let outline : String = "Outline for: " + description
+        let components : List<String> = ["component_a", "component_b", "component_c"]
+        task = self.sketch(task, outline, components)
+
+        let implementation : String = "Implementation of: " + description
+        task = self.craft(task, implementation)
+
+        let test_results : String = "Tests passed for: " + description
+        let issues : List<String> = []
+        task = self.verify(task, test_results, issues)
+
+        let refinements : String = "Final polish for: " + description
+        task = self.refine(task, refinements)
+
+        self.tasks = ListOps.append(self.tasks, task)
+
+        self.global_metrics["tasks_completed"] = self.global_metrics["tasks_completed"] + 1.0
+        self.global_metrics["total_quality"] = self.global_metrics["total_quality"] + task.average_quality()
+
+        return task
+    end
+
+    fn task_count() -> Int
+        return ListOps.length(self.tasks)
+    end
+
+    fn get_task(task_id : String) -> VibeTask
+        for task in self.tasks do
+            if task.task_id == task_id
+                return task
+            end
+        end
+        let empty : VibeTask = VibeTask.new("", "")
+        return empty
+    end
+
+    fn tasks_by_stage(stage : String) -> List<VibeTask>
+        let filtered : List<VibeTask> = []
+        for task in self.tasks do
+            if task.stage == stage
+                filtered = ListOps.append(filtered, task)
+            end
+        end
+        return filtered
+    end
+
+    fn overall_quality() -> Float
+        let total_quality : Float = self.global_metrics["total_quality"]
+        let completed : Float = self.global_metrics["tasks_completed"]
+        if completed == 0.0
+            return 0.0
+        end
+        return total_quality / completed
+    end
+
+    fn to_string() -> String
+        let tc : Int = self.task_count()
+        return "VibePipeline(" + self.pipeline_id + ", tasks=" + tc + ")"
+    end
+end
+
+entity VibeStageMetrics
+    property stage : String = ""
+    property entry_count : Int = 0
+    property exit_count : Int = 0
+    property avg_duration : Float = 0.0
+    property avg_quality : Float = 0.0
+    property rework_count : Int = 0
+
+    fn new(stage : String) -> VibeStageMetrics
+        let m : VibeStageMetrics = VibeStageMetrics()
+        m.stage = stage
+        return m
+    end
+
+    fn record_entry()
+        self.entry_count = self.entry_count + 1
+    end
+
+    fn record_exit(quality : Float)
+        self.exit_count = self.exit_count + 1
+        let total : Float = self.avg_quality * (self.exit_count - 1)
+        let new_total : Float = total + quality
+        self.avg_quality = new_total / self.exit_count
+    end
+
+    fn record_rework()
+        self.rework_count = self.rework_count + 1
+    end
+
+    fn completion_rate() -> Float
+        if self.entry_count == 0
+            return 0.0
+        end
+        let rate : Float = self.exit_count / self.entry_count
+        return rate
+    end
+
+    fn to_string() -> String
+        return "VibeStageMetrics(stage=" + self.stage + ", entries=" + self.entry_count + ", exits=" + self.exit_count + ")"
+    end
+end
+
+export VibeTask
+export VibePipeline
+export VibeStageMetrics

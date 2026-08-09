@@ -1,0 +1,384 @@
+-- compat_checker.orn - Backward compatibility checking between module versions
+-- Part of the Orren Developer Utilities suite
+
+import orren.core.language.foundation::{String, Int, List, Map, Bool}
+import orren.core.language.foundation::{Regex, File, FileReader}
+
+module orren_tools.tools.compat_checker
+
+-- Kinds of changes detected between API versions
+enum CompatChangeKind
+    REMOVED_EXPORT
+    CHANGED_SIGNATURE
+    RENAMED_ENTITY
+    CHANGED_TYPE
+    ADDED_REQUIRED_PARAM
+    REMOVED_ENUM_VARIANT
+    CHANGED_SEMANTIC
+end
+
+-- Severity level of the compatibility change
+enum CompatLevel
+    FULL
+    SOURCE
+    BINARY
+    NONE
+end
+
+-- Helper: CompatLevel to string
+fn level_label(l: CompatLevel) -> String do
+    match l with
+    case CompatLevel.FULL do return "Full" end
+    case CompatLevel.SOURCE do return "Source" end
+    case CompatLevel.BINARY do return "Binary" end
+    case CompatLevel.NONE do return "None" end
+    end
+end
+
+-- Helper: CompatChangeKind to string
+fn kind_label(k: CompatChangeKind) -> String do
+    match k with
+    case CompatChangeKind.REMOVED_EXPORT do return "Removed Export" end
+    case CompatChangeKind.CHANGED_SIGNATURE do return "Changed Signature" end
+    case CompatChangeKind.RENAMED_ENTITY do return "Renamed Entity" end
+    case CompatChangeKind.CHANGED_TYPE do return "Changed Type" end
+    case CompatChangeKind.ADDED_REQUIRED_PARAM do return "Added Required Param" end
+    case CompatChangeKind.REMOVED_ENUM_VARIANT do return "Removed Enum Variant" end
+    case CompatChangeKind.CHANGED_SEMANTIC do return "Changed Semantic" end
+    end
+end
+
+-- Helper to join report lines
+fn join_report(parts: List<String>) -> String do
+    let be result = ""
+    for part in parts do
+        if result == "" then let be result = part
+        else let be result = result + "\n" + part end
+    end
+    return result
+end
+
+-- Single compatibility issue found during comparison
+entity CompatIssue
+    property kind: CompatChangeKind = CompatChangeKind.CHANGED_SIGNATURE
+    property level: CompatLevel = CompatLevel.FULL
+    property old_name: String = ""
+    property new_name: String = ""
+    property description: String = ""
+    property impact: String = ""
+
+    fn is_breaking(self) -> Bool do
+        if self.level == CompatLevel.NONE then return true end
+        return self.kind == CompatChangeKind.REMOVED_EXPORT
+            or self.kind == CompatChangeKind.CHANGED_SIGNATURE
+            or self.kind == CompatChangeKind.CHANGED_TYPE
+            or self.kind == CompatChangeKind.ADDED_REQUIRED_PARAM
+            or self.kind == CompatChangeKind.REMOVED_ENUM_VARIANT
+    end
+
+    fn is_warning(self) -> Bool do return not self.is_breaking() end
+
+    fn migration_hint(self) -> String do
+        match self.kind with
+        case CompatChangeKind.RENAMED_ENTITY do
+            return "Replace '" + self.old_name + "' with '" + self.new_name + "'"
+        end
+        case CompatChangeKind.REMOVED_EXPORT do
+            return "Remove usage of '" + self.old_name + "' or find alternative"
+        end
+        case CompatChangeKind.CHANGED_SIGNATURE do
+            return "Update calls for '" + self.old_name + "': " + self.description
+        end
+        case CompatChangeKind.CHANGED_TYPE do
+            return "Update type for '" + self.old_name + "'"
+        end
+        case CompatChangeKind.ADDED_REQUIRED_PARAM do
+            return "Add new required param for '" + self.old_name + "'"
+        end
+        case CompatChangeKind.REMOVED_ENUM_VARIANT do
+            return "Replace variant '" + self.old_name + "' in match arms"
+        end
+        case CompatChangeKind.CHANGED_SEMANTIC do
+            return "Review behavior: " + self.description
+        end
+        end
+    end
+
+    fn to_string(self) -> String do
+        let be marker = "BREAKING"
+        if self.is_warning() then let be marker = "WARNING" end
+        return "[" + marker + "] [" + level_label(self.level) + "] "
+            + kind_label(self.kind) + ": " + self.old_name + " - " + self.description
+    end
+end
+
+-- Full compatibility report with all issues and summary
+entity CompatReport
+    property issues: List<CompatIssue> = []
+    property level: CompatLevel = CompatLevel.FULL
+    property breaking_count: Int = 0
+    property warning_count: Int = 0
+    property compatible: Bool = true
+
+    fn add_issue(self, issue: CompatIssue) -> CompatReport do
+        self.issues.append(issue)
+        if issue.is_breaking() then
+            let be self.breaking_count = self.breaking_count + 1
+            let be self.compatible = false
+        else
+            let be self.warning_count = self.warning_count + 1
+        end
+        return self
+    end
+
+    fn recalculate(self) -> CompatReport do
+        let be bc = 0
+        let be wc = 0
+        for issue in self.issues do
+            if issue.is_breaking() then let be bc = bc + 1
+            else let be wc = wc + 1 end
+        end
+        self.breaking_count = bc
+        self.warning_count = wc
+        self.compatible = bc == 0
+        if bc > 0 then self.level = CompatLevel.NONE
+        else if wc > 0 then self.level = CompatLevel.SOURCE
+        else self.level = CompatLevel.FULL end
+        return self
+    end
+
+    fn breaking_issues(self) -> List<CompatIssue> do
+        let be result: List<CompatIssue> = []
+        for issue in self.issues do
+            if issue.is_breaking() then result.append(issue) end
+        end
+        return result
+    end
+
+    fn warnings(self) -> List<CompatIssue> do
+        let be result: List<CompatIssue> = []
+        for issue in self.issues do
+            if issue.is_warning() then result.append(issue) end
+        end
+        return result
+    end
+
+    fn summary(self) -> String do
+        let be lines: List<String> = []
+        lines.append("Compatibility Report")
+        lines.append("===================")
+        lines.append("Level: " + level_label(self.level))
+        lines.append("Breaking: " + self.breaking_count.to_string())
+        lines.append("Warnings: " + self.warning_count.to_string())
+        let be verdict = "COMPATIBLE"
+        if not self.compatible then let be verdict = "INCOMPATIBLE" end
+        lines.append("Verdict: " + verdict)
+        if self.breaking_count > 0 then
+            lines.append("")
+            lines.append("Breaking changes:")
+            for issue in self.breaking_issues() do
+                lines.append("  " + issue.to_string())
+                lines.append("    -> " + issue.migration_hint())
+            end
+        end
+        if self.warning_count > 0 then
+            lines.append("")
+            lines.append("Warnings:")
+            for issue in self.warnings() do
+                lines.append("  " + issue.to_string())
+            end
+        end
+        return join_report(lines)
+    end
+end
+
+-- Main compatibility checker comparing two API surfaces
+entity CompatChecker
+    property config: Map<String, String> = {}
+    property old_api: Map<String, String> = {}
+    property new_api: Map<String, String> = {}
+
+    fn new(config: Map<String, String>) -> CompatChecker do
+        let be checker = CompatChecker {}
+        checker.config = config
+        return checker
+    end
+
+    fn load_api(self, source: String, label: String) -> Map<String, String> do
+        let be api: Map<String, String> = {}
+        for line in source.split("\n") do
+            let be t = line.trim()
+            if t.starts_with("fn ") then
+                let be parts = t.split("(")
+                if parts.length() >= 2 then
+                    api.set(parts[0].trim(), t)
+                end
+            end
+            if t.starts_with("entity ") or t.starts_with("enum ") then
+                let be words = t.split(" ")
+                if words.length() >= 2 then
+                    api.set(words[1], t)
+                end
+            end
+        end
+        if label == "old" then self.old_api = api
+        else self.new_api = api end
+        return api
+    end
+
+    fn detect_removed_exports(self) -> List<CompatIssue> do
+        let be issues: List<CompatIssue> = []
+        for key in self.old_api.keys() do
+            if not self.new_api.has(key) then
+                let be issue = CompatIssue {}
+                issue.kind = CompatChangeKind.REMOVED_EXPORT
+                issue.level = CompatLevel.NONE
+                issue.old_name = key
+                issue.description = "Export '" + key + "' was removed"
+                issue.impact = "All code using this export will fail to compile"
+                issues.append(issue)
+            end
+        end
+        return issues
+    end
+
+    fn detect_signature_changes(self) -> List<CompatIssue> do
+        let be issues: List<CompatIssue> = []
+        for key in self.old_api.keys() do
+            if self.new_api.has(key) then
+                let be old_sig = self.old_api.get(key)
+                let be new_sig = self.new_api.get(key)
+                if old_sig != new_sig then
+                    let be issue = CompatIssue {}
+                    issue.kind = CompatChangeKind.CHANGED_SIGNATURE
+                    issue.level = CompatLevel.NONE
+                    issue.old_name = key
+                    issue.description = "Changed from: " + old_sig
+                    issue.impact = "Call sites may need updating"
+                    issues.append(issue)
+                end
+            end
+        end
+        return issues
+    end
+
+    fn extract_fn_params(self, source: String) -> Map<String, Int> do
+        let be result: Map<String, Int> = {}
+        let be pattern = Regex.compile("^fn\s+(\w+)\(([^)]*)\)")
+        for line in source.split("\n") do
+            let be t = line.trim()
+            if pattern.matches(t) then
+                let be m = pattern.capture(t)
+                let be params = m.get(1)
+                let be count = 0
+                if params != "" then count = params.split(",").length() end
+                result.set(m.get(0), count)
+            end
+        end
+        return result
+    end
+
+    fn detect_new_required_params(self, old_source: String,
+                                   new_source: String) -> List<CompatIssue> do
+        let be issues: List<CompatIssue> = []
+        let be old_params = self.extract_fn_params(old_source)
+        let be new_params = self.extract_fn_params(new_source)
+        for name in new_params.keys() do
+            if old_params.has(name) then
+                let be oc = old_params.get(name)
+                let be nc = new_params.get(name)
+                if nc > oc then
+                    let be issue = CompatIssue {}
+                    issue.kind = CompatChangeKind.ADDED_REQUIRED_PARAM
+                    issue.level = CompatLevel.NONE
+                    issue.old_name = name
+                    issue.description = "Params: " + oc.to_string() + " -> " + nc.to_string()
+                    issue.impact = "Call sites will fail without new arguments"
+                    issues.append(issue)
+                end
+            end
+        end
+        return issues
+    end
+
+    fn detect_renamed_entities(self) -> List<CompatIssue> do
+        let be issues: List<CompatIssue> = []
+        let be removed: List<String> = []
+        let be added: List<String> = []
+        for key in self.old_api.keys() do
+            if not self.new_api.has(key) then removed.append(key) end
+        end
+        for key in self.new_api.keys() do
+            if not self.old_api.has(key) then added.append(key) end
+        end
+        for old_name in removed do
+            for new_name in added do
+                if self.likely_rename(old_name, new_name) then
+                    let be issue = CompatIssue {}
+                    issue.kind = CompatChangeKind.RENAMED_ENTITY
+                    issue.level = CompatLevel.SOURCE
+                    issue.old_name = old_name
+                    issue.new_name = new_name
+                    issue.description = "'" + old_name + "' renamed to '" + new_name + "'"
+                    issue.impact = "Update references to use new name"
+                    issues.append(issue)
+                end
+            end
+        end
+        return issues
+    end
+
+    fn likely_rename(self, old_name: String, new_name: String) -> Bool do
+        let be o = old_name.to_lower()
+        let be n = new_name.to_lower()
+        if n.has(o) then return true end
+        if o.has(n) then return true end
+        let be ow = o.split("_")
+        let be nw = n.split("_")
+        let be matches = 0
+        for w1 in ow do
+            for w2 in nw do
+                if w1 == w2 then let be matches = matches + 1 end
+            end
+        end
+        let be min_len = ow.length()
+        if nw.length() < min_len then let be min_len = nw.length() end
+        return min_len > 0 and matches >= min_len
+    end
+
+    fn compare(self, old_source: String, new_source: String) -> CompatReport do
+        let be report = CompatReport {}
+        self.load_api(old_source, "old")
+        self.load_api(new_source, "new")
+        let be removed = self.detect_removed_exports()
+        for issue in removed do report.add_issue(issue) end
+        let be sigs = self.detect_signature_changes()
+        for issue in sigs do report.add_issue(issue) end
+        let be params = self.detect_new_required_params(old_source, new_source)
+        for issue in params do report.add_issue(issue) end
+        let be renames = self.detect_renamed_entities()
+        for issue in renames do report.add_issue(issue) end
+        report.recalculate()
+        return report
+    end
+
+    fn suggest_migration(self, report: CompatReport) -> String do
+        let be lines: List<String> = ["Migration Guide", "==============="]
+        for issue in report.breaking_issues() do
+            lines.append("* " + issue.migration_hint())
+        end
+        for issue in report.warnings() do
+            lines.append("  (opt) " + issue.migration_hint())
+        end
+        if report.compatible then lines.append("No migration needed.") end
+        return join_report(lines)
+    end
+end
+
+export {
+    CompatChangeKind,
+    CompatLevel,
+    CompatIssue,
+    CompatReport,
+    CompatChecker
+}

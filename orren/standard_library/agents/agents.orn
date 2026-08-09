@@ -1,0 +1,761 @@
+module orren.agents
+
+import from orren.core.language.foundation::{*}
+
+intent "Provide intelligence modelling primitives for autonomous agent systems"
+intent "Enable agent creation, messaging, task delegation, and federated reasoning"
+intent "Support multi-agent coordination with roles, states, and capability modelling"
+intent "Implement agent federation for distributed problem solving"
+
+const AGENTS_VERSION = "1.0.0"
+const MAX_MAILBOX_SIZE = 100
+const MAX_TASK_QUEUE_SIZE = 50
+const MAX_KNOWLEDGE_SIZE = 200
+const DEFAULT_REASONING_DEPTH = 3
+const MESSAGE_PRIORITY_LOW = "low"
+const MESSAGE_PRIORITY_NORMAL = "normal"
+const MESSAGE_PRIORITY_HIGH = "high"
+const MESSAGE_PRIORITY_URGENT = "urgent"
+const FEDERATION_MAX_PARTICIPANTS = 10
+const TASK_RESULT_SEPARATOR = "; "
+
+enum AgentRole
+    ORCHESTRATOR
+    WORKER
+    OBSERVER
+    MEDIATOR
+    SPECIALIST
+end
+
+enum AgentState
+    IDLE
+    ACTIVE
+    WAITING
+    COMPLETED
+    FAILED
+end
+
+entity Message
+    property message_id : String = ""
+    property from_agent : String = ""
+    property to_agent : String = ""
+    property content : String = ""
+    property intent : String = ""
+    property priority : String = MESSAGE_PRIORITY_NORMAL
+    property timestamp : String = ""
+
+    fn new(message_id : String, from_agent : String, to_agent : String, content : String, intent : String) -> Message
+        let msg : Message = Message()
+        msg.message_id = message_id
+        msg.from_agent = from_agent
+        msg.to_agent = to_agent
+        msg.content = content
+        msg.intent = intent
+        msg.priority = MESSAGE_PRIORITY_NORMAL
+        msg.timestamp = "now"
+        return msg
+    end
+
+    fn set_priority(priority : String) -> Message
+        let updated : Message = self
+        updated.priority = priority
+        return updated
+    end
+
+    fn priority_value() -> Int
+        intent "Convert priority string to numeric value for sorting"
+        let val : Int = 0
+        match self.priority with
+            MESSAGE_PRIORITY_LOW then
+                val = 1
+            MESSAGE_PRIORITY_NORMAL then
+                val = 2
+            MESSAGE_PRIORITY_HIGH then
+                val = 3
+            MESSAGE_PRIORITY_URGENT then
+                val = 4
+        end
+        return val
+    end
+
+    fn is_urgent() -> Bool
+        if self.priority == MESSAGE_PRIORITY_URGENT
+            return true
+        end
+        return false
+    end
+
+    fn summary() -> String
+        return "[" + self.priority + "] " + self.from_agent + " -> " + self.to_agent + ": " + self.content
+    end
+
+    fn to_string() -> String
+        return "Message(" + self.message_id + ", " + self.from_agent + " -> " + self.to_agent + ", priority=" + self.priority + ", intent=" + self.intent + ")"
+    end
+end
+
+entity Task
+    property task_id : String = ""
+    property description : String = ""
+    property assignee : String = ""
+    property status : AgentState = AgentState.IDLE
+    property result : String = ""
+
+    fn new(task_id : String, description : String) -> Task
+        let task : Task = Task()
+        task.task_id = task_id
+        task.description = description
+        task.assignee = ""
+        task.status = AgentState.IDLE
+        task.result = ""
+        return task
+    end
+
+    fn assign(agent_id : String) -> Task
+        let updated : Task = self
+        updated.assignee = agent_id
+        updated.status = AgentState.ACTIVE
+        return updated
+    end
+
+    fn complete(result : String) -> Task
+        let updated : Task = self
+        updated.result = result
+        updated.status = AgentState.COMPLETED
+        return updated
+    end
+
+    fn fail(reason : String) -> Task
+        let updated : Task = self
+        updated.result = reason
+        updated.status = AgentState.FAILED
+        return updated
+    end
+
+    fn is_assigned() -> Bool
+        if self.assignee != ""
+            return true
+        end
+        return false
+    end
+
+    fn is_complete() -> Bool
+        if self.status == AgentState.COMPLETED
+            return true
+        end
+        return false
+    end
+
+    fn is_failed() -> Bool
+        if self.status == AgentState.FAILED
+            return true
+        end
+        return false
+    end
+
+    fn status_string() -> String
+        let s : String = ""
+        match self.status with
+            AgentState.IDLE then
+                s = "IDLE"
+            AgentState.ACTIVE then
+                s = "ACTIVE"
+            AgentState.WAITING then
+                s = "WAITING"
+            AgentState.COMPLETED then
+                s = "COMPLETED"
+            AgentState.FAILED then
+                s = "FAILED"
+        end
+        return s
+    end
+
+    fn to_string() -> String
+        let status_str : String = self.status_string()
+        return "Task(" + self.task_id + ", status=" + status_str + ", assignee=" + self.assignee + ")"
+    end
+end
+
+entity AgentCapabilities
+    property can_reason : Bool = false
+    property can_perceive : Bool = false
+    property can_plan : Bool = false
+    property can_communicate : Bool = false
+    property can_learn : Bool = false
+
+    fn new() -> AgentCapabilities
+        let caps : AgentCapabilities = AgentCapabilities()
+        caps.can_reason = false
+        caps.can_perceive = false
+        caps.can_plan = false
+        caps.can_communicate = false
+        caps.can_learn = false
+        return caps
+    end
+
+    fn all_capabilities() -> List<String>
+        let caps : List<String> = []
+        if self.can_reason
+            caps = ListOps.append(caps, "reason")
+        end
+        if self.can_perceive
+            caps = ListOps.append(caps, "perceive")
+        end
+        if self.can_plan
+            caps = ListOps.append(caps, "plan")
+        end
+        if self.can_communicate
+            caps = ListOps.append(caps, "communicate")
+        end
+        if self.can_learn
+            caps = ListOps.append(caps, "learn")
+        end
+        return caps
+    end
+
+    fn enable_reason() -> AgentCapabilities
+        let updated : AgentCapabilities = self
+        updated.can_reason = true
+        return updated
+    end
+
+    fn enable_perceive() -> AgentCapabilities
+        let updated : AgentCapabilities = self
+        updated.can_perceive = true
+        return updated
+    end
+
+    fn enable_plan() -> AgentCapabilities
+        let updated : AgentCapabilities = self
+        updated.can_plan = true
+        return updated
+    end
+
+    fn enable_communicate() -> AgentCapabilities
+        let updated : AgentCapabilities = self
+        updated.can_communicate = true
+        return updated
+    end
+
+    fn enable_learn() -> AgentCapabilities
+        let updated : AgentCapabilities = self
+        updated.can_learn = true
+        return updated
+    end
+
+    fn has_capability(cap_name : String) -> Bool
+        if cap_name == "reason"
+            return self.can_reason
+        end
+        if cap_name == "perceive"
+            return self.can_perceive
+        end
+        if cap_name == "plan"
+            return self.can_plan
+        end
+        if cap_name == "communicate"
+            return self.can_communicate
+        end
+        if cap_name == "learn"
+            return self.can_learn
+        end
+        return false
+    end
+
+    fn count() -> Int
+        return ListOps.length(self.all_capabilities())
+    end
+
+    fn to_string() -> String
+        let c : Int = self.count()
+        return "AgentCapabilities(" + c + " capabilities enabled)"
+    end
+end
+
+entity Agent
+    property agent_id : String = ""
+    property name : String = ""
+    property role : AgentRole = AgentRole.WORKER
+    property state : AgentState = AgentState.IDLE
+    property capabilities : AgentCapabilities = AgentCapabilities.new()
+    property mailbox : List<Message> = []
+    property task_queue : List<Task> = []
+    property knowledge : List<String> = []
+
+    fn create(id : String, name : String, role : AgentRole) -> Agent
+        intent "Create a new agent with the given identity and role"
+        let agent : Agent = Agent()
+        agent.agent_id = id
+        agent.name = name
+        agent.role = role
+        agent.state = AgentState.IDLE
+        agent.capabilities = AgentCapabilities.new()
+        agent.mailbox = []
+        agent.task_queue = []
+        agent.knowledge = []
+        if role == AgentRole.ORCHESTRATOR
+            agent.capabilities = agent.capabilities.enable_reason()
+            agent.capabilities = agent.capabilities.enable_plan()
+            agent.capabilities = agent.capabilities.enable_communicate()
+        end
+        if role == AgentRole.SPECIALIST
+            agent.capabilities = agent.capabilities.enable_reason()
+            agent.capabilities = agent.capabilities.enable_learn()
+        end
+        if role == AgentRole.OBSERVER
+            agent.capabilities = agent.capabilities.enable_perceive()
+            agent.capabilities = agent.capabilities.enable_communicate()
+        end
+        if role == AgentRole.MEDIATOR
+            agent.capabilities = agent.capabilities.enable_communicate()
+            agent.capabilities = agent.capabilities.enable_reason()
+        end
+        if role == AgentRole.WORKER
+            agent.capabilities = agent.capabilities.enable_reason()
+            agent.capabilities = agent.capabilities.enable_perceive()
+        end
+        return agent
+    end
+
+    fn receive_message(msg : Message)
+        intent "Add a message to this agent's mailbox"
+        if ListOps.length(self.mailbox) < MAX_MAILBOX_SIZE
+            self.mailbox = ListOps.append(self.mailbox, msg)
+        end
+        if self.state == AgentState.IDLE
+            self.state = AgentState.ACTIVE
+        end
+    end
+
+    fn send_message(to : String, content : String, intent : String) -> Message
+        intent "Create a message from this agent to another"
+        let msg_id : String = self.agent_id + "_msg_" + ListOps.length(self.mailbox)
+        let msg : Message = Message.new(msg_id, self.agent_id, to, content, intent)
+        return msg
+    end
+
+    fn read_mailbox() -> List<Message>
+        let messages : List<Message> = self.mailbox
+        self.mailbox = []
+        return messages
+    end
+
+    fn mailbox_count() -> Int
+        return ListOps.length(self.mailbox)
+    end
+
+    fn assign_task(task : Task)
+        intent "Add a task to this agent's task queue"
+        let assigned : Task = task.assign(self.agent_id)
+        if ListOps.length(self.task_queue) < MAX_TASK_QUEUE_SIZE
+            self.task_queue = ListOps.append(self.task_queue, assigned)
+        end
+        self.state = AgentState.ACTIVE
+    end
+
+    fn complete_task(task_id : String, result : String)
+        intent "Mark a task as completed with the given result"
+        let i : Int = 0
+        for i = 0 to ListOps.length(self.task_queue) - 1 do
+            let task : Task = self.task_queue[i]
+            if task.task_id == task_id
+                let completed : Task = task.complete(result)
+                self.task_queue[i] = completed
+            end
+        end
+        self.learn("Completed task " + task_id + ": " + result)
+    end
+
+    fn fail_task(task_id : String, reason : String)
+        intent "Mark a task as failed with the given reason"
+        let i : Int = 0
+        for i = 0 to ListOps.length(self.task_queue) - 1 do
+            let task : Task = self.task_queue[i]
+            if task.task_id == task_id
+                let failed : Task = task.fail(reason)
+                self.task_queue[i] = failed
+            end
+        end
+    end
+
+    fn process_next_task() -> Optional<Task>
+        intent "Get the next pending task from the queue"
+        let i : Int = 0
+        for i = 0 to ListOps.length(self.task_queue) - 1 do
+            let task : Task = self.task_queue[i]
+            if task.status == AgentState.ACTIVE
+                return Optional.some(task)
+            end
+        end
+        return Optional.none()
+    end
+
+    fn task_count() -> Int
+        return ListOps.length(self.task_queue)
+    end
+
+    fn reason_about(topic : String) -> Map<String, String>
+        intent "Produce reasoning output about a topic using knowledge base"
+        let result : Map<String, String> = {}
+        result["agent"] = self.agent_id
+        result["topic"] = topic
+        result["reasoning_type"] = "analysis"
+        let relevant : List<String> = self.recall(topic)
+        let rel_count : Int = ListOps.length(relevant)
+        result["knowledge_sources"] = "" + rel_count
+        if rel_count > 0
+            let combined : String = ""
+            for item in relevant do
+                if combined == ""
+                    combined = item
+                else
+                    combined = combined + TASK_RESULT_SEPARATOR + item
+                end
+            end
+            result["evidence"] = combined
+            result["confidence"] = "0.7"
+        else
+            result["evidence"] = "No prior knowledge found"
+            result["confidence"] = "0.3"
+        end
+        result["role_context"] = self.role_string()
+        return result
+    end
+
+    fn perceive(input : String) -> Map<String, String>
+        intent "Process input through perception and extract structured observations"
+        let result : Map<String, String> = {}
+        result["agent"] = self.agent_id
+        result["raw_input"] = input
+        result["input_length"] = "" + StringOps.length(input)
+        let words : List<String> = StringOps.split(input, " ")
+        result["word_count"] = "" + ListOps.length(words)
+        let input_lower : String = StringOps.lowercase(input)
+        if StringOps.contains(input_lower, "error")
+            result["detected_sentiment"] = "negative"
+        end
+        if StringOps.contains(input_lower, "success")
+            result["detected_sentiment"] = "positive"
+        end
+        if result["detected_sentiment"] == ""
+            result["detected_sentiment"] = "neutral"
+        end
+        result["perception_confidence"] = "0.6"
+        result["processed_at"] = "now"
+        return result
+    end
+
+    fn plan(goal : String) -> List<String>
+        intent "Generate a plan of steps to achieve the stated goal"
+        let steps : List<String> = []
+        steps = ListOps.append(steps, "Analyze goal: " + goal)
+        steps = ListOps.append(steps, "Gather relevant knowledge")
+        let relevant : List<String> = self.recall(goal)
+        let rel_count : Int = ListOps.length(relevant)
+        if rel_count > 0
+            steps = ListOps.append(steps, "Review " + rel_count + " relevant knowledge items")
+        end
+        steps = ListOps.append(steps, "Identify required capabilities")
+        steps = ListOps.append(steps, "Execute primary action")
+        steps = ListOps.append(steps, "Verify outcome against goal: " + goal)
+        steps = ListOps.append(steps, "Refine and iterate if needed")
+        if self.capabilities.can_communicate
+            steps = ListOps.append(steps, "Report results to federation")
+        end
+        return steps
+    end
+
+    fn learn(experience : String)
+        intent "Store an experience in the agent's knowledge base"
+        if ListOps.length(self.knowledge) < MAX_KNOWLEDGE_SIZE
+            self.knowledge = ListOps.append(self.knowledge, experience)
+        end
+    end
+
+    fn recall(query : String) -> List<String>
+        intent "Search knowledge base for items relevant to the query"
+        let results : List<String> = []
+        let query_lower : String = StringOps.lowercase(query)
+        for item in self.knowledge do
+            let item_lower : String = StringOps.lowercase(item)
+            if StringOps.contains(item_lower, query_lower)
+                results = ListOps.append(results, item)
+            end
+        end
+        return results
+    end
+
+    fn knowledge_count() -> Int
+        return ListOps.length(self.knowledge)
+    end
+
+    fn role_string() -> String
+        let r : String = ""
+        match self.role with
+            AgentRole.ORCHESTRATOR then
+                r = "ORCHESTRATOR"
+            AgentRole.WORKER then
+                r = "WORKER"
+            AgentRole.OBSERVER then
+                r = "OBSERVER"
+            AgentRole.MEDIATOR then
+                r = "MEDIATOR"
+            AgentRole.SPECIALIST then
+                r = "SPECIALIST"
+        end
+        return r
+    end
+
+    fn state_string() -> String
+        let s : String = ""
+        match self.state with
+            AgentState.IDLE then
+                s = "IDLE"
+            AgentState.ACTIVE then
+                s = "ACTIVE"
+            AgentState.WAITING then
+                s = "WAITING"
+            AgentState.COMPLETED then
+                s = "COMPLETED"
+            AgentState.FAILED then
+                s = "FAILED"
+        end
+        return s
+    end
+
+    fn status_report() -> Map<String, String>
+        intent "Produce a full status report for this agent"
+        let report : Map<String, String> = {}
+        report["agent_id"] = self.agent_id
+        report["name"] = self.name
+        report["role"] = self.role_string()
+        report["state"] = self.state_string()
+        report["mailbox_count"] = "" + self.mailbox_count()
+        report["task_count"] = "" + self.task_count()
+        report["knowledge_count"] = "" + self.knowledge_count()
+        report["capabilities"] = "" + self.capabilities.count()
+        let pending : Int = 0
+        let completed : Int = 0
+        let failed : Int = 0
+        for task in self.task_queue do
+            if task.status == AgentState.ACTIVE
+                pending = pending + 1
+            end
+            if task.status == AgentState.COMPLETED
+                completed = completed + 1
+            end
+            if task.status == AgentState.FAILED
+                failed = failed + 1
+            end
+        end
+        report["pending_tasks"] = "" + pending
+        report["completed_tasks"] = "" + completed
+        report["failed_tasks"] = "" + failed
+        return report
+    end
+
+    fn to_string() -> String
+        let role_str : String = self.role_string()
+        let state_str : String = self.state_string()
+        return "Agent(" + self.agent_id + ", name=" + self.name + ", role=" + role_str + ", state=" + state_str + ")"
+    end
+end
+
+entity AgentFederation
+    property agents : Map<String, Agent> = {}
+    property communication_log : List<Message> = []
+
+    fn init() -> AgentFederation
+        intent "Initialize an empty agent federation"
+        let fed : AgentFederation = AgentFederation()
+        fed.agents = {}
+        fed.communication_log = []
+        return fed
+    end
+
+    fn register(agent : Agent)
+        intent "Register an agent with the federation"
+        self.agents[agent.agent_id] = agent
+    end
+
+    fn unregister(agent_id : String)
+        intent "Remove an agent from the federation"
+        self.agents[agent_id] = Agent.create("", "", AgentRole.WORKER)
+    end
+
+    fn get_agent(agent_id : String) -> Agent
+        let agent : Agent = self.agents[agent_id]
+        return agent
+    end
+
+    fn agent_count() -> Int
+        let count : Int = 0
+        for id in self.agents do
+            count = count + 1
+        end
+        return count
+    end
+
+    fn assign_task(agent_id : String, task : Task) -> Bool
+        intent "Assign a task to a specific agent in the federation"
+        let agent : Agent = self.agents[agent_id]
+        if agent.agent_id == ""
+            return false
+        end
+        agent.assign_task(task)
+        self.agents[agent_id] = agent
+        return true
+    end
+
+    fn broadcast(from : String, content : String, intent : String) -> List<Message>
+        intent "Send a message from one agent to all others in the federation"
+        let messages : List<Message> = []
+        let msg_counter : Int = 0
+        for agent_id in self.agents do
+            if agent_id != from
+                let msg_id : String = "bc_" + from + "_" + msg_counter
+                let msg : Message = Message.new(msg_id, from, agent_id, content, intent)
+                msg = msg.set_priority(MESSAGE_PRIORITY_NORMAL)
+                let target_agent : Agent = self.agents[agent_id]
+                target_agent.receive_message(msg)
+                self.agents[agent_id] = target_agent
+                messages = ListOps.append(messages, msg)
+                self.communication_log = ListOps.append(self.communication_log, msg)
+                msg_counter = msg_counter + 1
+            end
+        end
+        return messages
+    end
+
+    fn route_message(msg : Message) -> Bool
+        intent "Route a message to its intended recipient within the federation"
+        let target_id : String = msg.to_agent
+        let target : Agent = self.agents[target_id]
+        if target.agent_id == ""
+            return false
+        end
+        target.receive_message(msg)
+        self.agents[target_id] = target
+        self.communication_log = ListOps.append(self.communication_log, msg)
+        return true
+    end
+
+    fn federated_reason(topic : String, participants : List<String>) -> List<Map<String, String>>
+        intent "Collect reasoning from multiple agents on a shared topic"
+        let results : List<Map<String, String>> = []
+        let participant_count : Int = ListOps.length(participants)
+        if participant_count > FEDERATION_MAX_PARTICIPANTS
+            participant_count = FEDERATION_MAX_PARTICIPANTS
+        end
+        let i : Int = 0
+        for i = 0 to participant_count - 1 do
+            let agent_id : String = participants[i]
+            let agent : Agent = self.agents[agent_id]
+            if agent.agent_id != ""
+                if agent.capabilities.can_reason
+                    let reasoning : Map<String, String> = agent.reason_about(topic)
+                    reasoning["federation_topic"] = topic
+                    reasoning["participant_index"] = "" + i
+                    results = ListOps.append(results, reasoning)
+                end
+            end
+        end
+        return results
+    end
+
+    fn list_agents() -> List<String>
+        intent "List all agent IDs in the federation"
+        let ids : List<String> = []
+        for agent_id in self.agents do
+            let agent : Agent = self.agents[agent_id]
+            if agent.agent_id != ""
+                ids = ListOps.append(ids, agent_id)
+            end
+        end
+        return ids
+    end
+
+    fn active_agents() -> List<String>
+        intent "List only agents that are in an active or waiting state"
+        let active : List<String> = []
+        for agent_id in self.agents do
+            let agent : Agent = self.agents[agent_id]
+            if agent.state == AgentState.ACTIVE
+                active = ListOps.append(active, agent_id)
+            end
+            if agent.state == AgentState.WAITING
+                active = ListOps.append(active, agent_id)
+            end
+        end
+        return active
+    end
+
+    fn idle_agents() -> List<String>
+        intent "List agents that are currently idle and available for work"
+        let idle : List<String> = []
+        for agent_id in self.agents do
+            let agent : Agent = self.agents[agent_id]
+            if agent.state == AgentState.IDLE
+                idle = ListOps.append(idle, agent_id)
+            end
+        end
+        return idle
+    end
+
+    fn communication_count() -> Int
+        return ListOps.length(self.communication_log)
+    end
+
+    fn status() -> Map<String, String>
+        intent "Produce a federation-wide status summary"
+        let report : Map<String, String> = {}
+        report["total_agents"] = "" + self.agent_count()
+        let active_list : List<String> = self.active_agents()
+        report["active_agents"] = "" + ListOps.length(active_list)
+        let idle_list : List<String> = self.idle_agents()
+        report["idle_agents"] = "" + ListOps.length(idle_list)
+        report["total_messages"] = "" + self.communication_count()
+        let orchestrators : Int = 0
+        let workers : Int = 0
+        let observers : Int = 0
+        let mediators : Int = 0
+        let specialists : Int = 0
+        for agent_id in self.agents do
+            let agent : Agent = self.agents[agent_id]
+            if agent.agent_id != ""
+                match agent.role with
+                    AgentRole.ORCHESTRATOR then
+                        orchestrators = orchestrators + 1
+                    AgentRole.WORKER then
+                        workers = workers + 1
+                    AgentRole.OBSERVER then
+                        observers = observers + 1
+                    AgentRole.MEDIATOR then
+                        mediators = mediators + 1
+                    AgentRole.SPECIALIST then
+                        specialists = specialists + 1
+                end
+            end
+        end
+        report["orchestrators"] = "" + orchestrators
+        report["workers"] = "" + workers
+        report["observers"] = "" + observers
+        report["mediators"] = "" + mediators
+        report["specialists"] = "" + specialists
+        return report
+    end
+
+    fn to_string() -> String
+        let ac : Int = self.agent_count()
+        let mc : Int = self.communication_count()
+        return "AgentFederation(agents=" + ac + ", messages=" + mc + ")"
+    end
+end
+
+export AgentRole
+export AgentState
+export Message
+export Task
+export AgentCapabilities
+export Agent
+export AgentFederation

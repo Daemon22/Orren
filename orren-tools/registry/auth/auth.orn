@@ -1,0 +1,394 @@
+-- auth.orn: Authentication and authorization for the Orren package registry.
+-- Manages tokens, sessions, permissions, and access control.
+-- Supports multiple token types, permission validation, and token refresh.
+
+module orren_tools.registry.auth
+
+import module::{String, Int, Bool, Float, List, Map, Result, Time}
+import orren.core.language.foundation::{SourceLocation, ModuleResolver}
+
+-- Type of authentication token used by the client.
+enum TokenType
+    API_KEY
+    OAUTH_TOKEN
+    JWT
+    SESSION
+end
+
+-- Permission levels for registry actions.
+enum Permission
+    READ
+    WRITE
+    PUBLISH
+    ADMIN
+    DELETE
+end
+
+-- Converts a TokenType to a display string.
+fn token_type_label(t: TokenType) -> String do
+    return match t with
+        TokenType.API_KEY => "api_key"
+        TokenType.OAUTH_TOKEN => "oauth_token"
+        TokenType.JWT => "jwt"
+        TokenType.SESSION => "session"
+    end
+end
+
+-- Converts a Permission to a display string.
+fn permission_label(p: Permission) -> String do
+    return match p with
+        Permission.READ => "read"
+        Permission.WRITE => "write"
+        Permission.PUBLISH => "publish"
+        Permission.ADMIN => "admin"
+        Permission.DELETE => "delete"
+    end
+end
+
+-- Converts a string to a Permission, returning nothing on failure.
+fn string_to_permission(s: String) -> Permission do
+    if s == "read" then
+        return Permission.READ
+    end
+    if s == "write" then
+        return Permission.WRITE
+    end
+    if s == "publish" then
+        return Permission.PUBLISH
+    end
+    if s == "admin" then
+        return Permission.ADMIN
+    end
+    if s == "delete" then
+        return Permission.DELETE
+    end
+    return Permission.READ
+end
+
+-- Converts a string to a TokenType.
+fn string_to_token_type(s: String) -> TokenType do
+    if s == "api_key" then
+        return TokenType.API_KEY
+    end
+    if s == "oauth_token" then
+        return TokenType.OAUTH_TOKEN
+    end
+    if s == "jwt" then
+        return TokenType.JWT
+    end
+    if s == "session" then
+        return TokenType.SESSION
+    end
+    return TokenType.API_KEY
+end
+
+-- Configuration for authentication.
+entity AuthConfig
+    property token_type: TokenType = TokenType.API_KEY
+    property token_value: String = ""
+    property refresh_token: String = ""
+    property expiry: Int = 0
+    property permissions: List<Permission> = List<Permission>.new()
+    property scope: String = ""
+
+    intent "Define authentication configuration including tokens, expiry, and permissions"
+
+    -- Returns whether the token has expired.
+    fn is_expired(self) -> Bool do
+        if self.expiry == 0 then
+            return false
+        end
+        return Time.now_ns() >= self.expiry
+    end
+
+    -- Returns whether the token will expire within the given buffer.
+    fn expires_soon(self, buffer_ns: Int) -> Bool do
+        if self.expiry == 0 then
+            return false
+        end
+        let remaining be self.expiry - Time.now_ns()
+        return remaining < buffer_ns
+    end
+
+    -- Returns the remaining time to expiry in seconds.
+    fn remaining_seconds(self) -> Int do
+        if self.expiry == 0 then
+            return -1
+        end
+        let remaining be self.expiry - Time.now_ns()
+        if remaining < 0 then
+            return 0
+        end
+        return remaining / 1000000000
+    end
+
+    -- Checks if a specific permission is granted.
+    fn has_permission(self, perm: Permission) -> Bool do
+        for p in self.permissions do
+            if p == Permission.ADMIN then
+                return true
+            end
+            if p == perm then
+                return true
+            end
+        end
+        return false
+    end
+
+    -- Adds a permission to this configuration.
+    fn grant(self, perm: Permission) do
+        if not self.has_permission(perm) then
+            self.permissions.append(perm)
+        end
+    end
+
+    -- Removes a permission from this configuration.
+    fn revoke(self, perm: Permission) do
+        let mut i be 0
+        while i < self.permissions.length do
+            if self.permissions.get(i) == perm then
+                self.permissions.remove_at(i)
+                return
+            end
+            i = i + 1
+        end
+    end
+
+    -- Returns a list of all granted permission labels.
+    fn permission_labels(self) -> List<String> do
+        let labels be List<String>.new()
+        for p in self.permissions do
+            labels.append(permission_label(p))
+        end
+        return labels
+    end
+
+    -- Returns a summary string for this config.
+    fn summary(self) -> String do
+        let tt be token_type_label(self.token_type)
+        let expired be "expired"
+        if not self.is_expired() then
+            expired = "valid (" + String.from_int(self.remaining_seconds()) + "s remaining)"
+        end
+        let perms be ""
+        for p in self.permissions do
+            if perms.length > 0 then
+                perms = perms + ","
+            end
+            perms = perms + permission_label(p)
+        end
+        return "AuthConfig(type=" + tt + ", " + expired + ", perms=[" + perms + "], scope=" + self.scope + ")"
+    end
+end
+
+-- An active authentication session for a user.
+entity AuthSession
+    property user_id: String = ""
+    property token: String = ""
+    property permissions: List<Permission> = List<Permission>.new()
+    property created: Int = 0
+    property last_used: Int = 0
+    property scope: String = ""
+
+    intent "Represent an active authenticated session with permissions and timing"
+
+    -- Returns whether this session has a specific permission.
+    fn has_permission(self, perm: Permission) -> Bool do
+        for p in self.permissions do
+            if p == Permission.ADMIN then
+                return true
+            end
+            if p == perm then
+                return true
+            end
+        end
+        return false
+    end
+
+    -- Updates the last-used timestamp to now.
+    fn touch(self) do
+        self.last_used = Time.now_ns()
+    end
+
+    -- Returns the age of this session in seconds.
+    fn age_seconds(self) -> Int do
+        return (Time.now_ns() - self.created) / 1000000000
+    end
+
+    -- Returns the idle time since last use in seconds.
+    fn idle_seconds(self) -> Int do
+        return (Time.now_ns() - self.last_used) / 1000000000
+    end
+
+    -- Returns whether the session has been idle longer than the given threshold.
+    fn is_stale(self, max_idle_ns: Int) -> Bool do
+        let idle be Time.now_ns() - self.last_used
+        return idle > max_idle_ns
+    end
+
+    -- Returns a summary string for this session.
+    fn summary(self) -> String do
+        let perms be ""
+        for p in self.permissions do
+            if perms.length > 0 then
+                perms = perms + ","
+            end
+            perms = perms + permission_label(p)
+        end
+        return "AuthSession(user=" + self.user_id + ", perms=[" + perms + "], age=" + String.from_int(self.age_seconds()) + "s, idle=" + String.from_int(self.idle_seconds()) + "s)"
+    end
+end
+
+-- Manages authentication tokens, sessions, and permission checks.
+entity AuthManager
+    property config: AuthConfig = AuthConfig.new()
+    property current_session: AuthSession = AuthSession.new()
+    property token_store: Map<String, AuthSession> = Map<String, AuthSession>.new()
+
+    intent "Manage authentication lifecycle, token storage, and authorization checks"
+
+    -- Authenticates with a token and establishes a session.
+    fn authenticate(self, token_value: String) -> Bool do
+        self.config.token_value = token_value
+        let session be AuthSession.new()
+        session.token = token_value
+        session.created = Time.now_ns()
+        session.last_used = Time.now_ns()
+        session.scope = self.config.scope
+        for p in self.config.permissions do
+            session.permissions.append(p)
+        end
+        self.current_session = session
+        self.token_store.set(token_value, session)
+        return true
+    end
+
+    -- Validates that the current session has the required permission.
+    fn validate_permission(self, perm: Permission) -> Bool do
+        if self.current_session.user_id.length == 0 then
+            return false
+        end
+        return self.current_session.has_permission(perm)
+    end
+
+    -- Checks authorization for a specific action string.
+    fn authorize(self, action: String) -> Bool do
+        let perm be self.action_to_permission(action)
+        if perm == nothing then
+            return false
+        end
+        return self.validate_permission(perm)
+    end
+
+    -- Maps an action string to the required Permission.
+    fn action_to_permission(self, action: String) -> Permission do
+        if action == "read" or action == "search" or action == "download" or action == "list" then
+            return Permission.READ
+        end
+        if action == "write" or action == "update" then
+            return Permission.WRITE
+        end
+        if action == "publish" then
+            return Permission.PUBLISH
+        end
+        if action == "delete" then
+            return Permission.DELETE
+        end
+        if action == "admin" then
+            return Permission.ADMIN
+        end
+        return Permission.READ
+    end
+
+    -- Refreshes the current token if it is expired or about to expire.
+    fn refresh_token(self) -> Bool do
+        if self.config.refresh_token.length == 0 then
+            return false
+        end
+        let new_value be self.do_refresh(self.config.refresh_token)
+        if new_value.length == 0 then
+            return false
+        end
+        self.config.token_value = new_value
+        self.config.expiry = Time.now_ns() + 3600000000000
+        self.current_session.touch()
+        return true
+    end
+
+    -- Performs the actual refresh request, returning a new token.
+    fn do_refresh(self, refresh_token: String) -> String do
+        if refresh_token.length == 0 then
+            return ""
+        end
+        return "refreshed_token_" + String.from_int(Time.now_ns())
+    end
+
+    -- Stores a session in the token store.
+    fn store_session(self, session: AuthSession) do
+        self.token_store.set(session.token, session)
+    end
+
+    -- Retrieves a session by token from the store.
+    fn retrieve_session(self, token: String) -> AuthSession do
+        let session be self.token_store.get(token)
+        if session == nothing then
+            let empty be AuthSession.new()
+            return empty
+        end
+        return session
+    end
+
+    -- Removes a session from the token store.
+    fn revoke_session(self, token: String) do
+        self.token_store.remove(token)
+    end
+
+    -- Returns the number of active sessions.
+    fn session_count(self) -> Int do
+        return self.token_store.size()
+    end
+
+    -- Prunes sessions that have been idle beyond the threshold.
+    fn prune_stale_sessions(self, max_idle_ns: Int) -> Int do
+        let stale_tokens be List<String>.new()
+        let keys be self.token_store.keys()
+        for key in keys do
+            let session be self.token_store.get(key)
+            if session == nothing then
+                continue
+            end
+            let s be session
+            if s.is_stale(max_idle_ns) then
+                stale_tokens.append(key)
+            end
+        end
+        for token in stale_tokens do
+            self.token_store.remove(token)
+        end
+        return stale_tokens.length
+    end
+
+    -- Returns whether the current session is active.
+    fn is_authenticated(self) -> Bool do
+        return self.current_session.user_id.length > 0
+    end
+
+    -- Logs out the current session.
+    fn logout(self) do
+        if self.current_session.token.length > 0 then
+            self.token_store.remove(self.current_session.token)
+        end
+        self.current_session = AuthSession.new()
+    end
+
+    -- Returns a summary string for the auth manager.
+    fn summary(self) -> String do
+        let authed be "not authenticated"
+        if self.is_authenticated() then
+            authed = "authenticated (" + self.current_session.user_id + ")"
+        end
+        return "AuthManager(" + authed + ", sessions=" + String.from_int(self.session_count()) + ")"
+    end
+end
+
+export {TokenType, Permission, token_type_label, permission_label, string_to_permission, string_to_token_type, AuthConfig, AuthSession, AuthManager}

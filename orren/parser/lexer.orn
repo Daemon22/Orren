@@ -1,0 +1,742 @@
+module orren.parser.lexer
+
+import orren.primitive::{Float, Int, Bool, String, List}
+import orren.core.language.foundation::{
+  SemanticDomainType,
+  SemanticAttributes,
+  SyntaxModeType
+}
+import orren.core.semantic.model::{*}
+import orren.parser.tokens::{
+  TokenType,
+  Token,
+  TokenStream,
+  token_type_to_string,
+  keyword_token_map,
+  is_keyword_type
+}
+
+intent "The Orren lexical analyzer: transforms raw source text into a
+  stream of semantically annotated tokens. Every token produced carries
+  its semantic domain assignment, ensuring that meaning awareness begins
+  at the very first stage of compilation."
+
+-- =========================================================================
+-- ENTITY: LexicalConfig
+-- =========================================================================
+-- Configuration options for the lexer. Controls syntax mode sensitivity,
+-- comment preservation, and whether semantic domain tracking is active.
+-- These settings allow the lexer to operate in different modes depending
+-- on the compilation context.
+-- =========================================================================
+
+entity LexicalConfig
+  -- The syntax mode this lexer operates in: RAW, SYMBOLIC, or NATURAL.
+  -- Determines how whitespace, identifiers, and operators are handled.
+  property syntax_mode: SyntaxModeType = SYMBOLIC
+
+  -- Whether to preserve comment tokens in the output stream.
+  -- When false, comments are skipped during tokenization entirely.
+  property preserve_comments: Bool = false
+
+  -- Whether to track and assign semantic domains to each token.
+  -- When true, the lexer maps token types to appropriate semantic domains.
+  property track_semantic_domains: Bool = true
+end
+
+-- =========================================================================
+-- ENTITY: LexicalError
+-- =========================================================================
+-- Represents a single lexical error encountered during tokenization.
+-- Carries the error message, source location, and the text near the error
+-- for diagnostic output. Lexical errors halt tokenization and are
+-- reported to the caller.
+-- =========================================================================
+
+entity LexicalError
+  -- Human-readable description of what went wrong.
+  property message: String = ""
+
+  -- The line number where the error was detected.
+  property line: Int = 1
+
+  -- The column number where the error was detected.
+  property column: Int = 1
+
+  -- The source text near the error location for context.
+  property near: String = ""
+
+  -- Produce a formatted error string for reporting.
+  -- Format: "LexicalError at line:column: message [near='...']"
+  fn to_string(self) -> String do
+    let location be "LexicalError at line " + int_to_string(self.line)
+      + ", column " + int_to_string(self.column)
+    let near_text be ""
+    if self.near != "" then
+      near_text = " [near '" + self.near + "']"
+    end
+    return location + ": " + self.message + near_text
+  end
+end
+
+-- =========================================================================
+-- ENTITY: Lexer
+-- =========================================================================
+-- The main lexical analyzer for the Orren language. Consumes source text
+-- character by character, producing a list of semantically annotated tokens.
+-- The lexer handles whitespace, comments, identifiers, keywords, strings,
+-- numbers, operators, and structural punctuation. Each token is assigned a
+-- semantic domain based on its type and meaning context.
+-- =========================================================================
+
+entity Lexer
+  -- The raw source text to be tokenized.
+  property source: String = ""
+
+  -- The configuration controlling lexer behavior.
+  property config: LexicalConfig = LexicalConfig{}
+
+  -- The accumulated list of tokens produced so far.
+  property tokens: List<Token> = []
+
+  -- The current line number, one-based. Starts at 1.
+  property line: Int = 1
+
+  -- The current column number, one-based. Starts at 1.
+  property column: Int = 1
+
+  -- The current position in the source string, zero-based.
+  -- Points to the next character to be read.
+  property position: Int = 0
+
+  -- Initialize a new lexer with the given source text and configuration.
+  -- Resets all state and prepares for tokenization.
+  fn init(self, source: String, config: LexicalConfig) -> Lexer do
+    self.source = source
+    self.config = config
+    self.tokens = []
+    self.line = 1
+    self.column = 1
+    self.position = 0
+    return self
+  end
+
+  -- Main tokenization loop. Repeatedly scans tokens from the source until
+  -- the end is reached. Skips whitespace and comments between tokens.
+  -- Appends an EOF token at the end of the stream.
+  fn tokenize(self) -> List<Token> do
+    while not self.is_at_end() do
+      -- Skip whitespace between tokens.
+      if self.is_whitespace(self.peek()) then
+        self.advance_char()
+        continue
+      end
+      -- Attempt to skip a comment; if found, continue to next token.
+      if self.skip_comment() then
+        continue
+      end
+      -- Scan the next token from the current position.
+      let token be self.scan_token()
+      -- Assign semantic domain if tracking is enabled.
+      if self.config.track_semantic_domains then
+        token = self.assign_semantic_domain(token)
+      end
+      self.tokens.append(token)
+    end
+    -- Append EOF token to mark the end of the stream.
+    let eof be Token{}
+    eof.type = EOF
+    eof.lexeme = ""
+    eof.literal = ""
+    eof.line = self.line
+    eof.column = self.column
+    if self.config.track_semantic_domains then
+      eof = self.assign_semantic_domain(eof)
+    end
+    self.tokens.append(eof)
+    return self.tokens
+  end
+
+  -- Dispatch to the appropriate scanner based on the current character.
+  -- This is the central routing method of the lexer.
+  fn scan_token(self) -> Token do
+    let ch be self.peek()
+
+    -- Identifiers and keywords: start with a letter or underscore.
+    if self.is_alpha(ch) then
+      return self.scan_identifier()
+    end
+
+    -- Numeric literals: start with a digit.
+    if self.is_digit(ch) then
+      return self.scan_number()
+    end
+
+    -- String literals: start with a double quote.
+    if ch == "\"" then
+      return self.scan_string()
+    end
+
+    -- Operators and punctuation: dispatched by character.
+    return self.scan_symbol()
+  end
+
+  -- Scan an identifier or keyword. Reads a sequence of alphanumeric
+  -- characters and underscores, then looks up the resulting word in the
+  -- keyword map. If it matches a keyword, returns that keyword token;
+  -- otherwise returns an IDENTIFIER token.
+  fn scan_identifier(self) -> Token do
+    let start_col be self.column
+    let start_pos be self.position
+    let chars be List<String>{}
+
+    while not self.is_at_end() do
+      let ch be self.peek()
+      if self.is_alphanumeric(ch) then
+        chars.append(self.advance_char())
+      else
+        break
+      end
+    end
+
+    let word be join_string_list(chars)
+    let token_type be keyword_token_map(word)
+    let token be self.make_token(token_type, word)
+    token.line = self.line
+    token.column = start_col
+    return token
+  end
+
+  -- Scan a string literal. Handles double-quoted strings with support for
+  -- escaped characters. The opening and closing quotes are not included in
+  -- the token's literal value.
+  fn scan_string(self) -> Token do
+    let start_col be self.column
+    -- Consume the opening quote.
+    self.advance_char()
+    let chars be List<String>{}
+
+    while not self.is_at_end() do
+      let ch be self.peek()
+      if ch == "\"" then
+        -- Consume the closing quote.
+        self.advance_char()
+        break
+      end
+      if ch == "\\" then
+        -- Handle escape sequences.
+        self.advance_char()
+        if not self.is_at_end() then
+          let escaped be self.advance_char()
+          match escaped with
+            "n" => chars.append("\n"),
+            "t" => chars.append("\t"),
+            "r" => chars.append("\r"),
+            "\\" => chars.append("\\"),
+            "\"" => chars.append("\""),
+            _ => chars.append(escaped)
+          end
+        end
+      else
+        chars.append(self.advance_char())
+      end
+    end
+
+    let value be join_string_list(chars)
+    let token be self.make_token(STRING, value)
+    token.line = self.line
+    token.column = start_col
+    token.literal = value
+    return token
+  end
+
+  -- Scan a numeric literal. Handles both integers and floating-point numbers.
+  -- A number that contains a decimal point is classified as FLOAT; otherwise
+  -- it is INTEGER.
+  fn scan_number(self) -> Token do
+    let start_col be self.column
+    let chars be List<String>{}
+    let is_float be false
+
+    -- Read the integer part: digits before the decimal point.
+    while not self.is_at_end() do
+      let ch be self.peek()
+      if self.is_digit(ch) then
+        chars.append(self.advance_char())
+      else
+        break
+      end
+    end
+
+    -- Check for a decimal point and fractional part.
+    if not self.is_at_end() and self.peek() == "." then
+      -- Peek ahead to ensure the next character after the dot is a digit.
+      if self.position + 1 < string_length(self.source) then
+        let next_ch be string_char_at(self.source, self.position + 1)
+        if self.is_digit(next_ch) then
+          is_float = true
+          chars.append(self.advance_char()) -- consume the dot
+          while not self.is_at_end() do
+            let ch be self.peek()
+            if self.is_digit(ch) then
+              chars.append(self.advance_char())
+            else
+              break
+            end
+          end
+        end
+      end
+    end
+
+    let text be join_string_list(chars)
+    let token_type be FLOAT
+    if not is_float then
+      token_type = INTEGER
+    end
+    let token be self.make_token(token_type, text)
+    token.line = self.line
+    token.column = start_col
+    token.literal = text
+    return token
+  end
+
+  -- Scan an operator or punctuation symbol. Handles single-character
+  -- and two-character operators by looking ahead when ambiguity exists.
+  fn scan_symbol(self) -> Token do
+    let start_col be self.column
+    let ch be self.advance_char()
+
+    -- Two-character operators: check the next character for compound tokens.
+    if not self.is_at_end() then
+      let next_ch be self.peek()
+
+      -- Arrow: ->
+      if ch == "-" and next_ch == ">" then
+        self.advance_char()
+        return self.make_token_at(ARROW, "->", self.line, start_col)
+      end
+
+      -- Fat arrow: =>
+      if ch == "=" and next_ch == ">" then
+        self.advance_char()
+        return self.make_token_at(FAT_ARROW, "=>", self.line, start_col)
+      end
+
+      -- Not equal: /=
+      if ch == "/" and next_ch == "=" then
+        self.advance_char()
+        return self.make_token_at(NEQ, "/=", self.line, start_col)
+      end
+
+      -- Less than or equal: <=
+      if ch == "<" and next_ch == "=" then
+        self.advance_char()
+        return self.make_token_at(LTE, "<=", self.line, start_col)
+      end
+
+      -- Greater than or equal: >=
+      if ch == ">" and next_ch == "=" then
+        self.advance_char()
+        return self.make_token_at(GTE, ">=", self.line, start_col)
+      end
+
+      -- Plus assign: +=
+      if ch == "+" and next_ch == "=" then
+        self.advance_char()
+        return self.make_token_at(PLUS_ASSIGN, "+=", self.line, start_col)
+      end
+
+      -- Equality: ==
+      if ch == "=" and next_ch == "=" then
+        self.advance_char()
+        return self.make_token_at(EQ, "==", self.line, start_col)
+      end
+    end
+
+    -- Single-character operators and punctuation.
+    match ch with
+      "(" => return self.make_token_at(LPAREN, "(", self.line, start_col),
+      ")" => return self.make_token_at(RPAREN, ")", self.line, start_col),
+      "{" => return self.make_token_at(LBRACE, "{", self.line, start_col),
+      "}" => return self.make_token_at(RBRACE, "}", self.line, start_col),
+      "[" => return self.make_token_at(LBRACKET, "[", self.line, start_col),
+      "]" => return self.make_token_at(RBRACKET, "]", self.line, start_col),
+      "," => return self.make_token_at(COMMA, ",", self.line, start_col),
+      "." => return self.make_token_at(DOT, ".", self.line, start_col),
+      ":" => return self.make_token_at(COLON, ":", self.line, start_col),
+      ";" => return self.make_token_at(SEMICOLON, ";", self.line, start_col),
+      "|" => return self.make_token_at(PIPE, "|", self.line, start_col),
+      "_" => return self.make_token_at(UNDERSCORE, "_", self.line, start_col),
+      "+" => return self.make_token_at(PLUS, "+", self.line, start_col),
+      "-" => return self.make_token_at(MINUS, "-", self.line, start_col),
+      "*" => return self.make_token_at(STAR, "*", self.line, start_col),
+      "/" => return self.make_token_at(SLASH, "/", self.line, start_col),
+      "%" => return self.make_token_at(PERCENT, "%", self.line, start_col),
+      "=" => return self.make_token_at(ASSIGN, "=", self.line, start_col),
+      "<" => return self.make_token_at(LT, "<", self.line, start_col),
+      ">" => return self.make_token_at(GT, ">", self.line, start_col),
+      _ => raise LexicalError{
+          message = "Unexpected character '" + ch + "'",
+          line = self.line,
+          column = start_col,
+          near = ch
+        }
+    end
+  end
+
+  -- Attempt to skip a comment. Orren comments begin with '--' and extend
+  -- to the end of the line. Returns true if a comment was skipped, false
+  -- if the current position is not the start of a comment. If
+  -- preserve_comments is enabled, a COMMENT token is added to the stream.
+  fn skip_comment(self) -> Bool do
+    -- Check for the two-character comment prefix '--'.
+    if self.position + 1 >= string_length(self.source) then
+      return false
+    end
+    let first be string_char_at(self.source, self.position)
+    let second be string_char_at(self.source, self.position + 1)
+    if first != "-" or second != "-" then
+      return false
+    end
+
+    -- We have found a comment. Record its start position.
+    let start_col be self.column
+    let chars be List<String>{} -- include the '--'
+    chars.append("-")
+    chars.append("-")
+    self.advance_char()
+    self.advance_char()
+
+    -- Consume characters until end of line or end of source.
+    while not self.is_at_end() do
+      let ch be self.peek()
+      if ch == "\n" then
+        break
+      end
+      chars.append(self.advance_char())
+    end
+
+    -- If comment preservation is enabled, create a COMMENT token.
+    if self.config.preserve_comments then
+      let text be join_string_list(chars)
+      let token be Token{}
+      token.type = COMMENT
+      token.lexeme = text
+      token.literal = text
+      token.line = self.line
+      token.column = start_col
+      token.semantic_domain = COGNITIVE
+      token.attributes = SemanticAttributes{}
+      if self.config.track_semantic_domains then
+        token = self.assign_semantic_domain(token)
+      end
+      self.tokens.append(token)
+    end
+
+    return true
+  end
+
+  -- Look at the current character without consuming it.
+  -- Returns the character at the current position, or an empty string
+  -- if the lexer has reached the end of the source.
+  fn peek(self) -> String do
+    if self.is_at_end() then
+      return ""
+    end
+    return string_char_at(self.source, self.position)
+  end
+
+  -- Consume the current character and advance the position.
+  -- Updates line and column counters, incrementing the line on newlines
+  -- and resetting the column to 1.
+  fn advance_char(self) -> String do
+    if self.is_at_end() then
+      return ""
+    end
+    let ch be string_char_at(self.source, self.position)
+    self.position = self.position + 1
+    if ch == "\n" then
+      self.line = self.line + 1
+      self.column = 1
+    else
+      self.column = self.column + 1
+    end
+    return ch
+  end
+
+  -- Check whether the current character matches the expected character.
+  -- If it matches, advances the position and returns true. Otherwise
+  -- returns false without advancing.
+  fn match_char(self, expected: String) -> Bool do
+    if self.is_at_end() then
+      return false
+    end
+    let ch be string_char_at(self.source, self.position)
+    if ch == expected then
+      self.advance_char()
+      return true
+    end
+    return false
+  end
+
+  -- Check whether a character is an alphabetic letter or underscore.
+  -- Identifiers must start with one of these characters.
+  fn is_alpha(self, c: String) -> Bool do
+    if c == "_" then return true end
+    if c == "" then return false end
+    return is_letter(c)
+  end
+
+  -- Check whether a character is a numeric digit (0-9).
+  fn is_digit(self, c: String) -> Bool do
+    if c == "" then return false end
+    if c == "0" then return true end
+    if c == "1" then return true end
+    if c == "2" then return true end
+    if c == "3" then return true end
+    if c == "4" then return true end
+    if c == "5" then return true end
+    if c == "6" then return true end
+    if c == "7" then return true end
+    if c == "8" then return true end
+    if c == "9" then return true end
+    return false
+  end
+
+  -- Check whether a character is alphanumeric: a letter, digit, or
+  -- underscore. Used to continue scanning an identifier body.
+  fn is_alphanumeric(self, c: String) -> Bool do
+    return self.is_alpha(c) or self.is_digit(c)
+  end
+
+  -- Check whether a character is whitespace (space, tab, newline,
+  -- carriage return, or form feed).
+  fn is_whitespace(self, c: String) -> Bool do
+    if c == " " then return true end
+    if c == "\t" then return true end
+    if c == "\n" then return true end
+    if c == "\r" then return true end
+    if c == "\f" then return true end
+    return false
+  end
+
+  -- Check whether the lexer has reached the end of the source.
+  fn is_at_end(self) -> Bool do
+    return self.position >= string_length(self.source)
+  end
+
+  -- Construct a token at the current position with the given type and
+  -- lexeme. Uses the lexer's current line and column for location.
+  fn make_token(self, token_type: TokenType, lexeme: String) -> Token do
+    let token be Token{}
+    token.type = token_type
+    token.lexeme = lexeme
+    token.literal = lexeme
+    token.line = self.line
+    token.column = self.column
+    token.semantic_domain = COGNITIVE
+    token.attributes = SemanticAttributes{}
+    return token
+  end
+
+  -- Construct a token at a specific line and column. Used when the token
+  -- spans characters and its position has already advanced past the start.
+  fn make_token_at(self, token_type: TokenType, lexeme: String, line: Int, column: Int) -> Token do
+    let token be Token{}
+    token.type = token_type
+    token.lexeme = lexeme
+    token.literal = lexeme
+    token.line = line
+    token.column = column
+    token.semantic_domain = COGNITIVE
+    token.attributes = SemanticAttributes{}
+    return token
+  end
+
+  -- Assign a semantic domain to a token based on its type. This maps each
+  -- token type to the semantic domain that best represents the kind of
+  -- meaning it carries. The mapping reflects the Orren philosophy that
+  -- every syntactic element has cognitive significance.
+  --
+  -- Cognitive keywords    -> COGNITIVE  (thought operations)
+  -- String literals       -> LANGUAGE   (linguistic content)
+  -- Integer/Float        -> REASONING  (quantitative reasoning)
+  -- Booleans/Nil         -> REASONING  (logical truth values)
+  -- Identifiers          -> COGNITIVE  (named concepts)
+  -- Structural punctuation -> COMMUNICATION (structural signals)
+  -- Mediation keywords    -> COMMUNICATION (cross-boundary operations)
+  -- Design keywords       -> PLANNING   (intentional construction)
+  -- Module/Import/Export  -> COMMUNICATION (boundary management)
+  -- Entity/Property/Fn   -> COGNITIVE  (cognitive structure)
+  -- Let/Be/Const          -> REASONING (binding operations)
+  -- If/Then/Else/Match    -> REASONING (decision structures)
+  -- For/In/Loop/Break     -> TEMPORAL  (temporal flow control)
+  -- Return/Raise           -> COMMUNICATION (control transfer)
+  -- And/Or/Not              -> REASONING (logical connectives)
+  -- Operators               -> REASONING (computational operations)
+  -- EOF/Comment/Newline    -> COGNITIVE  (meta/structural)
+  fn assign_semantic_domain(self, token: Token) -> Token do
+    match token.type with
+      -- Cognitive primitives
+      REASON => token.semantic_domain = COGNITIVE,
+      BELIEVE => token.semantic_domain = COGNITIVE,
+      INTEND => token.semantic_domain = COGNITIVE,
+      KNOW => token.semantic_domain = COGNITIVE,
+      PERCEIVE => token.semantic_domain = PERCEPTUAL,
+      REFLECT => token.semantic_domain = MEMORY,
+      PLAN => token.semantic_domain = PLANNING,
+      EVOLVE => token.semantic_domain = EVOLUTION,
+      RECALL => token.semantic_domain = MEMORY,
+      DELIBERATE => token.semantic_domain = COGNITIVE,
+
+      -- Language content
+      STRING => token.semantic_domain = LANGUAGE,
+
+      -- Quantitative reasoning
+      INTEGER => token.semantic_domain = REASONING,
+      FLOAT => token.semantic_domain = REASONING,
+      TRUE => token.semantic_domain = REASONING,
+      FALSE => token.semantic_domain = REASONING,
+      NIL => token.semantic_domain = REASONING,
+
+      -- Named concepts
+      IDENTIFIER => token.semantic_domain = COGNITIVE,
+
+      -- Structural signals
+      LPAREN => token.semantic_domain = COMMUNICATION,
+      RPAREN => token.semantic_domain = COMMUNICATION,
+      LBRACE => token.semantic_domain = COMMUNICATION,
+      RBRACE => token.semantic_domain = COMMUNICATION,
+      LBRACKET => token.semantic_domain = COMMUNICATION,
+      RBRACKET => token.semantic_domain = COMMUNICATION,
+      COMMA => token.semantic_domain = COMMUNICATION,
+      DOT => token.semantic_domain = COMMUNICATION,
+      COLON => token.semantic_domain = COMMUNICATION,
+      SEMICOLON => token.semantic_domain = COMMUNICATION,
+      ARROW => token.semantic_domain = COMMUNICATION,
+      FAT_ARROW => token.semantic_domain = COMMUNICATION,
+      PIPE => token.semantic_domain = COMMUNICATION,
+      UNDERSCORE => token.semantic_domain = COGNITIVE,
+
+      -- Cross-boundary communication
+      MEDIATE => token.semantic_domain = COMMUNICATION,
+      LAW => token.semantic_domain = SOCIAL,
+      GENOME => token.semantic_domain = IDENTITY,
+      ARTICLE => token.semantic_domain = SOCIAL,
+      CRAFT => token.semantic_domain = PLANNING,
+      FORGE => token.semantic_domain = PLANNING,
+      WEAVE => token.semantic_domain = COMMUNICATION,
+
+      -- Module boundary management
+      MODULE => token.semantic_domain = COMMUNICATION,
+      IMPORT => token.semantic_domain = COMMUNICATION,
+      EXPORT => token.semantic_domain = COMMUNICATION,
+      INTENT => token.semantic_domain = COGNITIVE,
+
+      -- Cognitive structure
+      ENTITY => token.semantic_domain = COGNITIVE,
+      PROPERTY => token.semantic_domain = COGNITIVE,
+      FN => token.semantic_domain = COGNITIVE,
+
+      -- Binding operations
+      LET => token.semantic_domain = REASONING,
+      BE => token.semantic_domain = REASONING,
+      CONST => token.semantic_domain = REASONING,
+
+      -- Decision structures
+      IF => token.semantic_domain = REASONING,
+      THEN => token.semantic_domain = REASONING,
+      ELSE => token.semantic_domain = REASONING,
+      MATCH => token.semantic_domain = REASONING,
+      WITH => token.semantic_domain = REASONING,
+
+      -- Temporal flow control
+      FOR => token.semantic_domain = TEMPORAL,
+      IN => token.semantic_domain = TEMPORAL,
+      LOOP => token.semantic_domain = TEMPORAL,
+      BREAK => token.semantic_domain = TEMPORAL,
+
+      -- Control transfer
+      RETURN => token.semantic_domain = COMMUNICATION,
+      RAISE => token.semantic_domain = COMMUNICATION,
+
+      -- Logical connectives
+      AND => token.semantic_domain = REASONING,
+      OR => token.semantic_domain = REASONING,
+      NOT => token.semantic_domain = REASONING,
+
+      -- Computational operators
+      PLUS => token.semantic_domain = REASONING,
+      MINUS => token.semantic_domain = REASONING,
+      STAR => token.semantic_domain = REASONING,
+      SLASH => token.semantic_domain = REASONING,
+      PERCENT => token.semantic_domain = REASONING,
+      EQ => token.semantic_domain = REASONING,
+      NEQ => token.semantic_domain = REASONING,
+      LT => token.semantic_domain = REASONING,
+      GT => token.semantic_domain = REASONING,
+      LTE => token.semantic_domain = REASONING,
+      GTE => token.semantic_domain = REASONING,
+      ASSIGN => token.semantic_domain = REASONING,
+      PLUS_ASSIGN => token.semantic_domain = REASONING,
+
+      -- Block delimiters
+      DO => token.semantic_domain = COGNITIVE,
+      END => token.semantic_domain = COGNITIVE,
+
+      -- Optional types
+      SOME => token.semantic_domain = COGNITIVE,
+      NONE => token.semantic_domain = COGNITIVE,
+
+      -- Meta tokens
+      EOF => token.semantic_domain = COGNITIVE,
+      NEWLINE => token.semantic_domain = COGNITIVE,
+      COMMENT => token.semantic_domain = COGNITIVE
+    end
+    return token
+  end
+end
+
+-- =========================================================================
+-- HELPER: create_lexer
+-- =========================================================================
+-- Convenience function that creates and initializes a lexer with default
+-- configuration. Equivalent to creating a LexicalConfig with defaults and
+-- calling Lexer.init.
+-- =========================================================================
+
+fn create_lexer(source: String) -> Lexer do
+  let config be LexicalConfig{}
+  let lexer be Lexer{}
+  return lexer.init(source, config)
+end
+
+-- =========================================================================
+-- HELPER: create_configured_lexer
+-- =========================================================================
+-- Convenience function that creates a lexer with a custom configuration.
+-- Allows callers to control comment preservation and semantic tracking.
+-- =========================================================================
+
+fn create_configured_lexer(source: String, preserve_comments: Bool) -> Lexer do
+  let config be LexicalConfig{}
+  config.preserve_comments = preserve_comments
+  let lexer be Lexer{}
+  return lexer.init(source, config)
+end
+
+-- =========================================================================
+-- EXPORTS
+-- =========================================================================
+-- All lexer components are exported. The lexer is the first stage of the
+-- Orren compilation pipeline and its types are consumed by the parser
+-- and downstream phases.
+-- =========================================================================
+
+export {
+  LexicalConfig,
+  LexicalError,
+  Lexer,
+  create_lexer,
+  create_configured_lexer
+}

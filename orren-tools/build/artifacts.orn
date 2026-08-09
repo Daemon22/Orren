@@ -1,0 +1,316 @@
+-- orren_tools.build.artifacts
+-- Artifact management: linking, archiving, packaging, manifests, registries, versioning.
+-- Provides full lifecycle for build outputs from linking through registration.
+
+import orren.core.language.foundation::{String, Int, Bool, List, Map, Result, Ok, Err, None}
+import orren_tools.build.config::{BuildTarget}
+
+module orren_tools.build.artifacts
+
+-- Classification of build output artifacts.
+enum ArtifactKind
+  EXECUTABLE
+  LIBRARY
+  OBJECT
+  ARCHIVE
+  PACKAGE
+  DOCUMENTATION
+end
+
+-- Linking strategy for combining object files and libraries.
+enum LinkStrategy
+  STATIC
+  DYNAMIC
+  SEMANTIC_LINK
+end
+
+-- Supported compression formats for archiving.
+enum CompressionFormat
+  GZIP
+  ZSTD
+  NONE
+end
+
+-- Unique identifier for an artifact across target and version.
+entity ArtifactId
+  property name: String = ""
+  property version: String = "0.0.0"
+  property kind: ArtifactKind = ArtifactKind.OBJECT
+  property target: BuildTarget = BuildTarget.NATIVE
+
+  -- Create a new artifact ID from components.
+  fn create(art_name: String, art_version: String, art_kind: ArtifactKind, art_target: BuildTarget) -> ArtifactId do
+    let aid be ArtifactId.new()
+    aid.name = art_name
+    aid.version = art_version
+    aid.kind = art_kind
+    aid.target = art_target
+    return aid
+  end
+
+  -- Return a fully qualified string representation.
+  fn qualified_name(self) -> String do
+    return self.name + "-" + self.version + "-" + self.target.to_string() + "." + self.kind.to_string().to_lower()
+  end
+
+  -- Check if two artifact IDs refer to the same artifact.
+  fn equals(self, other: ArtifactId) -> Bool do
+    return self.name == other.name and self.version == other.version and self.kind == other.kind and self.target == other.target
+  end
+end
+
+-- Metadata describing a build artifact's provenance and integrity.
+entity ArtifactMetadata
+  property id: ArtifactId = ArtifactId.new()
+  property size_bytes: Int = 0
+  property checksum: String = ""
+  property created: String = ""
+  property build_config_hash: String = ""
+  property dependencies: List<String> = List<String>.new()
+  property semantic_integrity: Bool = true
+
+  -- Produce a short summary string.
+  fn summary(self) -> String do
+    return self.id.qualified_name() + " (" + self.size_bytes.to_string() + " bytes)"
+  end
+
+  -- Check whether this metadata has a non-empty checksum.
+  fn has_checksum(self) -> Bool do
+    return self.checksum != ""
+  end
+end
+
+-- A concrete build artifact with metadata, file path, and linked modules.
+entity BuildArtifact
+  property metadata: ArtifactMetadata = ArtifactMetadata.new()
+  property path: String = ""
+  property linked_modules: List<String> = List<String>.new()
+
+  -- Link a module into this artifact by name.
+  fn link_module(self, module_name: String) do
+    self.linked_modules.append(module_name)
+  end
+
+  -- Return the artifact kind from metadata.
+  fn kind(self) -> ArtifactKind do
+    return self.metadata.id.kind
+  end
+
+  -- Check if this artifact is an executable.
+  fn is_executable(self) -> Bool do
+    return self.kind() == ArtifactKind.EXECUTABLE
+  end
+
+  -- Check if this artifact is a library of any kind.
+  fn is_library(self) -> Bool do
+    return self.kind() == ArtifactKind.LIBRARY
+  end
+end
+
+-- Configuration for the linker stage of the build.
+entity LinkerConfig
+  property strategy: LinkStrategy = LinkStrategy.STATIC
+  property search_paths: List<String> = List<String>.new()
+  property libs: List<String> = List<String>.new()
+  property framework: String = ""
+  property optimize: Bool = false
+  property strip_debug: Bool = false
+
+  -- Add a library search path to the configuration.
+  fn add_search_path(self, path: String) do
+    self.search_paths.append(path)
+  end
+
+  -- Add a library to link against.
+  fn add_lib(self, lib_name: String) do
+    self.libs.append(lib_name)
+  end
+
+  -- Return the link command summary string.
+  fn command_summary(self) -> String do
+    let mut cmd be "link "
+    cmd = cmd + self.strategy.to_string().to_lower()
+    if self.optimize then
+      cmd = cmd + " --optimize"
+    end
+    if self.strip_debug then
+      cmd = cmd + " --strip-debug"
+    end
+    for lib in self.libs do
+      cmd = cmd + " -l" + lib
+    end
+    return cmd
+  end
+end
+
+-- Configuration for archiving build artifacts into a distributable form.
+entity ArchiverConfig
+  property format: CompressionFormat = CompressionFormat.GZIP
+  property compression_level: Int = 6
+  property exclude_patterns: List<String> = List<String>.new()
+
+  -- Check if a given file path should be excluded from the archive.
+  fn should_exclude(self, file_path: String) -> Bool do
+    for pattern in self.exclude_patterns do
+      if file_path.contains(pattern) then
+        return true
+      end
+    end
+    return false
+  end
+
+  -- Return a description of the archive format.
+  fn format_description(self) -> String do
+    return "archive(" + self.format.to_string() + ", level=" + self.compression_level.to_string() + ")"
+  end
+end
+
+-- Configuration for building a distributable package.
+entity PackageConfig
+  property name: String = ""
+  property version: String = "0.0.0"
+  property description: String = ""
+  property author: String = ""
+  property license: String = "MIT"
+  property entry_module: String = ""
+
+  -- Validate the package configuration fields.
+  fn validate(self) -> List<String> do
+    let errors be List<String>.new()
+    if self.name == "" then
+      errors.append("package name must not be empty")
+    end
+    if self.version == "" then
+      errors.append("package version must not be empty")
+    end
+    if self.entry_module == "" then
+      errors.append("entry module must be specified")
+    end
+    return errors
+  end
+end
+
+-- A single entry in the build manifest describing a compiled module.
+entity ManifestEntry
+  property module_path: String = ""
+  property checksum: String = ""
+  property version: String = "0.0.0"
+  property exports_count: Int = 0
+
+  -- Return a string representation of this manifest entry.
+  fn to_string(self) -> String do
+    return self.module_path + " v" + self.version + " (" + self.checksum + ", " + self.exports_count.to_string() + " exports)"
+  end
+end
+
+-- Complete build manifest listing all modules and package metadata.
+entity BuildManifest
+  property entries: List<ManifestEntry> = List<ManifestEntry>.new()
+  property package_config: PackageConfig = PackageConfig.new()
+  property total_modules: Int = 0
+  property generated_at: String = ""
+
+  -- Add an entry to the manifest.
+  fn add_entry(self, entry: ManifestEntry) do
+    self.entries.append(entry)
+    self.total_modules = self.total_modules + 1
+  end
+
+  -- Look up a manifest entry by module path.
+  fn find_entry(self, module_path: String) -> Result<ManifestEntry, String> do
+    for entry in self.entries do
+      if entry.module_path == module_path then
+        return Ok(entry)
+      end
+    end
+    return Err("module not found in manifest: " + module_path)
+  end
+
+  -- Validate the manifest for consistency.
+  fn validate(self) -> List<String> do
+    let errors be List<String>.new()
+    if self.total_modules != self.entries.length() then
+      errors.append("total_modules count does not match entries list")
+    end
+    let pkg_errors be self.package_config.validate()
+    for err in pkg_errors do
+      errors.append(err)
+    end
+    for entry in self.entries do
+      if entry.checksum == "" then
+        errors.append("entry missing checksum: " + entry.module_path)
+      end
+    end
+    return errors
+  end
+
+  -- Generate the manifest by iterating over compiled modules.
+  fn generate(pkg_config: PackageConfig, modules: List<(String, String, String, Int)>) -> BuildManifest do
+    let manifest be BuildManifest.new()
+    manifest.package_config = pkg_config
+    manifest.generated_at = "now()"
+    for (mod_path, checksum, version, exports_count) in modules do
+      let entry be ManifestEntry.new()
+      entry.module_path = mod_path
+      entry.checksum = checksum
+      entry.version = version
+      entry.exports_count = exports_count
+      manifest.add_entry(entry)
+    end
+    return manifest
+  end
+end
+
+-- Registry for storing and querying build artifacts by ID.
+entity ArtifactRegistry
+  property artifacts: Map<String, BuildArtifact> = Map<String, BuildArtifact>.new()
+  property base_dir: String = "./artifacts"
+
+  -- Register a build artifact in the registry.
+  fn register(self, artifact: BuildArtifact) -> Bool do
+    let key be artifact.metadata.id.qualified_name()
+    self.artifacts.set(key, artifact)
+    return true
+  end
+
+  -- Query the registry by artifact name, returning all matching versions.
+  fn query(self, name: String) -> List<BuildArtifact> do
+    let results be List<BuildArtifact>.new()
+    for entry in self.artifacts do
+      if entry.value.metadata.id.name == name then
+        results.append(entry.value)
+      end
+    end
+    return results
+  end
+
+  -- Query the registry by artifact kind.
+  fn query_by_kind(self, kind: ArtifactKind) -> List<BuildArtifact> do
+    let results be List<BuildArtifact>.new()
+    for entry in self.artifacts do
+      if entry.value.metadata.id.kind == kind then
+        results.append(entry.value)
+      end
+    end
+    return results
+  end
+
+  -- Remove an artifact from the registry by qualified name.
+  fn remove(self, qualified_name: String) -> Bool do
+    let existing be self.artifacts.get(qualified_name)
+    if existing == None then
+      return false
+    end
+    self.artifacts.remove(qualified_name)
+    return true
+  end
+
+  -- Return the total number of registered artifacts.
+  fn size(self) -> Int do
+    return self.artifacts.size()
+  end
+end
+
+export { ArtifactKind, LinkStrategy, CompressionFormat, ArtifactId, ArtifactMetadata,
+         BuildArtifact, LinkerConfig, ArchiverConfig, PackageConfig, ManifestEntry,
+         BuildManifest, ArtifactRegistry }

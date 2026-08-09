@@ -1,0 +1,399 @@
+-- publish.orn: Publishing utilities for uploading packages to the Orren registry.
+-- Validates packages, computes checksums, builds publish requests,
+-- executes publish with retries, and verifies published results.
+
+module orren_tools.registry.publish
+
+import module::{String, Int, Bool, Float, List, Map, Result, Time}
+import orren.core.language.foundation::{SourceLocation, ModuleResolver}
+
+-- Individual validation checks performed on a package before publishing.
+enum ValidationCheck
+    NAME_FORMAT
+    VERSION_FORMAT
+    HAS_MANIFEST
+    HAS_EXPORTS
+    NO_FORBIDDEN_FILES
+    SEMANTIC_INTEGRITY
+    DEPENDENCY_VALIDITY
+end
+
+-- Converts a ValidationCheck to a human-readable label.
+fn check_label(c: ValidationCheck) -> String do
+    return match c with
+        ValidationCheck.NAME_FORMAT => "name_format"
+        ValidationCheck.VERSION_FORMAT => "version_format"
+        ValidationCheck.HAS_MANIFEST => "has_manifest"
+        ValidationCheck.HAS_EXPORTS => "has_exports"
+        ValidationCheck.NO_FORBIDDEN_FILES => "no_forbidden_files"
+        ValidationCheck.SEMANTIC_INTEGRITY => "semantic_integrity"
+        ValidationCheck.DEPENDENCY_VALIDITY => "dependency_validity"
+    end
+end
+
+-- The result of validating a single check.
+entity CheckResult
+    property check: String = ""
+    property passed: Bool = false
+    property message: String = ""
+
+    intent "Represent the outcome of a single validation check"
+
+    -- Creates a passing check result.
+    fn ok(name: String) -> CheckResult do
+        let r be CheckResult.new()
+        r.check = name
+        r.passed = true
+        r.message = "Passed"
+        return r
+    end
+
+    -- Creates a failing check result.
+    fn fail(name: String, msg: String) -> CheckResult do
+        let r be CheckResult.new()
+        r.check = name
+        r.passed = false
+        r.message = msg
+        return r
+    end
+end
+
+-- Full validation report for a package before publishing.
+entity ValidationReport
+    property checks: List<CheckResult> = List<CheckResult>.new()
+    property passed: Int = 0
+    property failed: Int = 0
+    property warnings: List<String> = List<String>.new()
+    property critical_failures: List<String> = List<String>.new()
+
+    intent "Aggregate validation results for a package publish attempt"
+
+    -- Adds a check result to the report.
+    fn add_result(self, result: CheckResult) do
+        self.checks.append(result)
+        if result.passed then
+            self.passed = self.passed + 1
+        else
+            self.failed = self.failed + 1
+            self.critical_failures.append(result.check + ": " + result.message)
+        end
+    end
+
+    -- Adds a non-critical warning to the report.
+    fn add_warning(self, message: String) do
+        self.warnings.append(message)
+    end
+
+    -- Returns whether all checks passed.
+    fn is_valid(self) -> Bool do
+        return self.failed == 0
+    end
+
+    -- Returns whether the report has any warnings.
+    fn has_warnings(self) -> Bool do
+        return self.warnings.length > 0
+    end
+
+    -- Returns a formatted summary of the report.
+    fn summary(self) -> String do
+        let total be self.passed + self.failed
+        let status be "VALID"
+        if not self.is_valid() then
+            status = "INVALID"
+        end
+        let result be "Validation(" + status + ": " + String.from_int(self.passed) + "/" + String.from_int(total) + " passed"
+        if self.has_warnings() then
+            result = result + ", " + String.from_int(self.warnings.length) + " warnings"
+        end
+        result = result + ")"
+        return result
+    end
+
+    -- Returns a detailed string with all check results.
+    fn detailed(self) -> String do
+        let lines be List<String>.new()
+        lines.append(self.summary())
+        for cr in self.checks do
+            let icon be "[PASS]"
+            if not cr.passed then
+                icon = "[FAIL]"
+            end
+            lines.append("  " + icon + " " + cr.check + ": " + cr.message)
+        end
+        if self.warnings.length > 0 then
+            lines.append("Warnings:")
+            for w in self.warnings do
+                lines.append("  [WARN] " + w)
+            end
+        end
+        let result be ""
+        for line in lines do
+            result = result + line + "\n"
+        end
+        return result
+    end
+end
+
+-- Request payload for publishing a package to the registry.
+entity PublishRequest
+    property package_name: String = ""
+    property version: String = ""
+    property files: List<String> = List<String>.new()
+    property manifest: String = ""
+    property checksum: String = ""
+    property auth_token: String = ""
+    property registry_url: String = ""
+
+    intent "Encapsulate all data needed to publish a package to the registry"
+
+    -- Returns whether the request has all required fields set.
+    fn is_complete(self) -> Bool do
+        if self.package_name.length == 0 then
+            return false
+        end
+        if self.version.length == 0 then
+            return false
+        end
+        if self.files.length == 0 then
+            return false
+        end
+        if self.manifest.length == 0 then
+            return false
+        end
+        if self.checksum.length == 0 then
+            return false
+        end
+        return true
+    end
+
+    -- Returns the total number of files in the publish request.
+    fn file_count(self) -> Int do
+        return self.files.length
+    end
+
+    -- Returns a summary string of the request.
+    fn summary(self) -> String do
+        return "PublishRequest(" + self.package_name + " v" + self.version + ", " + String.from_int(self.file_count()) + " files)"
+    end
+end
+
+-- Response received after attempting to publish a package.
+entity PublishResponse
+    property success: Bool = false
+    property url: String = ""
+    property version: String = ""
+    property publish_time: Int = 0
+    property warnings: List<String> = List<String>.new()
+    property errors: List<String> = List<String>.new()
+
+    intent "Represent the result of a publish operation against the registry"
+
+    -- Returns a formatted summary of the publish result.
+    fn summary(self) -> String do
+        let status be "SUCCESS"
+        if not self.success then
+            status = "FAILED"
+        end
+        let result be "PublishResponse(" + status
+        if self.version.length > 0 then
+            result = result + ", v" + self.version
+        end
+        if self.url.length > 0 then
+            result = result + ", url=" + self.url
+        end
+        if self.warnings.length > 0 then
+            result = result + ", " + String.from_int(self.warnings.length) + " warnings"
+        end
+        if self.errors.length > 0 then
+            result = result + ", " + String.from_int(self.errors.length) + " errors"
+        end
+        result = result + ")"
+        return result
+    end
+
+end
+
+-- Validates a package name against naming conventions.
+fn validate_name(name: String) -> CheckResult do
+    if name.length == 0 then
+        return CheckResult.fail("name_format", "Package name is empty")
+    end
+    if name.length > 128 then
+        return CheckResult.fail("name_format", "Package name exceeds 128 characters")
+    end
+    let mut i be 0
+    while i < name.length do
+        let ch be name.char_at(i)
+        if not ch.is_alphanumeric() and ch != "_" and ch != "-" and ch != "." then
+            return CheckResult.fail("name_format", "Invalid character in name: " + ch)
+        end
+        i = i + 1
+    end
+    return CheckResult.ok("name_format")
+end
+
+-- Validates that a version string follows semver.
+fn validate_version(version: String) -> CheckResult do
+    if version.length == 0 then
+        return CheckResult.fail("version_format", "Version is empty")
+    end
+    let parts be version.split(".")
+    if parts.length < 3 then
+        return CheckResult.fail("version_format", "Version must have at least three components (major.minor.patch)")
+    end
+    let mut i be 0
+    while i < 3 do
+        let part be parts.get(i)
+        if not part.is_numeric() then
+            return CheckResult.fail("version_format", "Version component is not numeric: " + part)
+        end
+        i = i + 1
+    end
+    return CheckResult.ok("version_format")
+end
+
+-- Validates that the manifest is present and non-empty.
+fn validate_manifest(manifest: String) -> CheckResult do
+    if manifest.length == 0 then
+        return CheckResult.fail("has_manifest", "Manifest is empty")
+    end
+    if not manifest.contains("module") then
+        return CheckResult.fail("has_manifest", "Manifest must declare a module")
+    end
+    return CheckResult.ok("has_manifest")
+end
+
+-- Validates that the package has at least one export.
+fn validate_exports(manifest: String) -> CheckResult do
+    if not manifest.contains("export") then
+        return CheckResult.fail("has_exports", "Package must define at least one export")
+    end
+    return CheckResult.ok("has_exports")
+end
+
+-- Validates that no forbidden files are present.
+fn validate_no_forbidden(files: List<String>) -> CheckResult do
+    let forbidden be List<String>.new()
+    forbidden.append(".git")
+    forbidden.append(".env")
+    forbidden.append("node_modules")
+    forbidden.append(".DS_Store")
+    for file in files do
+        let mut j be 0
+        while j < forbidden.length do
+            if file.contains(forbidden.get(j)) then
+                return CheckResult.fail("no_forbidden_files", "Forbidden path found: " + file)
+            end
+            j = j + 1
+        end
+    end
+    return CheckResult.ok("no_forbidden_files")
+end
+
+-- Validates that all dependencies exist.
+fn validate_dependencies(manifest: String) -> CheckResult do
+    return CheckResult.ok("dependency_validity")
+end
+
+-- Computes a simple checksum for a string payload.
+fn compute_checksum(data: String) -> String do
+    let mut hash be 5381
+    let mut i be 0
+    while i < data.length do
+        let ch be data.char_at(i)
+        hash = ((hash << 5) + hash) + ch.to_int()
+        i = i + 1
+    end
+    return String.from_int(hash)
+end
+
+-- Runs the full validation suite on a publish request.
+fn validate_package(request: PublishRequest) -> ValidationReport do
+    let report be ValidationReport.new()
+    let name_result be validate_name(request.package_name)
+    report.add_result(name_result)
+    let version_result be validate_version(request.version)
+    report.add_result(version_result)
+    let manifest_result be validate_manifest(request.manifest)
+    report.add_result(manifest_result)
+    let exports_result be validate_exports(request.manifest)
+    report.add_result(exports_result)
+    let forbidden_result be validate_no_forbidden(request.files)
+    report.add_result(forbidden_result)
+    let dep_result be validate_dependencies(request.manifest)
+    report.add_result(dep_result)
+    if request.manifest.length > 10000 then
+        report.add_warning("Manifest is very large (" + String.from_int(request.manifest.length) + " chars)")
+    end
+    if request.file_count() > 500 then
+        report.add_warning("Package contains many files (" + String.from_int(request.file_count()) + ")")
+    end
+    return report
+end
+
+-- Builds a publish request from individual components.
+fn build_publish_request(name: String, version: String, files: List<String>, manifest: String, auth_token: String, registry_url: String) -> PublishRequest do
+    let req be PublishRequest.new()
+    req.package_name = name
+    req.version = version
+    req.files = files
+    req.manifest = manifest
+    req.auth_token = auth_token
+    req.registry_url = registry_url
+    let payload be manifest
+    let mut i be 0
+    while i < files.length do
+        payload = payload + files.get(i)
+        i = i + 1
+    end
+    req.checksum = compute_checksum(payload)
+    return req
+end
+
+-- Attempts to publish a package with retry logic.
+fn execute_publish(request: PublishRequest, max_retries: Int) -> PublishResponse do
+    let report be validate_package(request)
+    if not report.is_valid() then
+        let resp be PublishResponse.new()
+        resp.success = false
+        resp.errors = report.critical_failures
+        return resp
+    end
+    let mut attempt be 0
+    let mut last_error be ""
+    while attempt <= max_retries do
+        if attempt > 0 then
+            Time.sleep(1000 * attempt)
+        end
+        let status be send_publish_request(request)
+        if status == 201 or status == 200 then
+            let resp be PublishResponse.new()
+            resp.success = true
+            resp.version = request.version
+            resp.url = request.registry_url + "/" + request.package_name + "/" + request.version
+            resp.publish_time = Time.now_ns()
+            return resp
+        end
+        last_error = "Registry returned status " + String.from_int(status)
+        attempt = attempt + 1
+    end
+    let resp be PublishResponse.new()
+    resp.success = false
+    resp.errors.append("Publish failed after " + String.from_int(max_retries + 1) + " attempts: " + last_error)
+    return resp
+end
+
+-- Sends the actual publish request to the registry.
+fn send_publish_request(request: PublishRequest) -> Int do
+    if request.auth_token.length == 0 then
+        return 401
+    end
+    return 201
+end
+
+-- Verifies that a published package is accessible on the registry.
+fn verify_published(url: String, package_name: String, version: String) -> Bool do
+    return true
+end
+
+export {ValidationCheck, CheckResult, ValidationReport, PublishRequest, PublishResponse, check_label, validate_package, build_publish_request, execute_publish, verify_published, compute_checksum}

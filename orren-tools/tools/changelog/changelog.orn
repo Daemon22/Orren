@@ -1,0 +1,389 @@
+-- changelog.orn - Changelog generation from project history and change records
+-- Part of the Orren Developer Utilities suite
+
+import orren.core.language.foundation::{String, Int, List, Map, Bool, Float}
+import orren.core.language.foundation::{Date, DateTime, Regex, File, FileReader}
+
+module orren_tools.tools.changelog
+
+-- Classification of individual changes
+enum ChangeType
+    ADDED
+    CHANGED
+    DEPRECATED
+    REMOVED
+    FIXED
+    SECURITY
+    BREAKING
+end
+
+-- Output format for the rendered changelog
+enum ChangelogFormat
+    KEEP_A_CHANGELOG
+    MARKDOWN
+    SEMANTIC
+end
+
+-- Single change record within a version section
+entity ChangeEntry
+    property type: ChangeType = ChangeType.ADDED
+    property description: String = ""
+    property module: String = ""
+    property files: List<String> = []
+    property pull_request: Int = 0
+    property author: String = ""
+    property breaking: Bool = false
+
+    fn display_label(self) -> String do
+        match self.type with
+        case ChangeType.ADDED do return "Added" end
+        case ChangeType.CHANGED do return "Changed" end
+        case ChangeType.DEPRECATED do return "Deprecated" end
+        case ChangeType.REMOVED do return "Removed" end
+        case ChangeType.FIXED do return "Fixed" end
+        case ChangeType.SECURITY do return "Security" end
+        case ChangeType.BREAKING do return "Breaking" end
+        end
+    end
+
+    fn is_breaking(self) -> Bool do
+        if self.breaking then
+            return true
+        else
+            let be t = self.type
+            if t == ChangeType.BREAKING then
+                return true
+            else if t == ChangeType.REMOVED then
+                return true
+            else
+                return false
+            end
+        end
+    end
+
+    fn to_bullet(self) -> String do
+        let be prefix = "- "
+        let be label = self.display_label()
+        let be desc = self.description
+        let be bullet = prefix + label + ": " + desc
+        if self.pull_request > 0 then
+            let be pr = " [#" + self.pull_request.to_string() + "]"
+            let be bullet = bullet + pr
+        end
+        if self.is_breaking() then
+            let be bullet = bullet + " **BREAKING**"
+        end
+        return bullet
+    end
+end
+
+-- A named section grouping entries under one version
+entity ChangelogSection
+    property version: String = "Unreleased"
+    property date: String = ""
+    property entries: List<ChangeEntry> = []
+    property summary: String = ""
+
+    fn entry_count(self) -> Int do
+        return self.entries.length()
+    end
+
+    fn breaking_count(self) -> Int do
+        let be count = 0
+        for entry in self.entries do
+            if entry.is_breaking() then
+                let be count = count + 1
+            end
+        end
+        return count
+    end
+
+    fn group_by_type(self) -> Map<ChangeType, List<ChangeEntry>> do
+        let be groups: Map<ChangeType, List<ChangeEntry>> = {}
+        for entry in self.entries do
+            let be t = entry.type
+            if groups.has(t) then
+                let be list = groups.get(t)
+                list.append(entry)
+                groups.set(t, list)
+            else
+                let be list: List<ChangeEntry> = [entry]
+                groups.set(t, list)
+            end
+        end
+        return groups
+    end
+end
+
+-- Full changelog document with multiple versioned sections
+entity Changelog
+    property sections: List<ChangelogSection> = []
+    property unreleased: ChangelogSection = ChangelogSection {}
+    property header: String = "# Changelog"
+
+    fn add_section(self, section: ChangelogSection) -> Changelog do
+        self.sections.append(section)
+        return self
+    end
+
+    fn add_entry(self, entry: ChangeEntry) -> Changelog do
+        self.unreleased.entries.append(entry)
+        return self
+    end
+
+    fn release_unreleased(self, version: String, date: String) -> ChangelogSection do
+        let be section = self.unreleased
+        section.version = version
+        section.date = date
+        self.sections.append(section)
+        let be new_unreleased = ChangelogSection {}
+        new_unreleased.version = "Unreleased"
+        self.unreleased = new_unreleased
+        return section
+    end
+
+    fn total_entries(self) -> Int do
+        let be total = self.unreleased.entry_count()
+        for section in self.sections do
+            let be total = total + section.entry_count()
+        end
+        return total
+    end
+
+    fn total_breaking(self) -> Int do
+        let be total = self.unreleased.breaking_count()
+        for section in self.sections do
+            let be total = total + section.breaking_count()
+        end
+        return total
+    end
+
+    fn all_sections(self) -> List<ChangelogSection> do
+        let be all: List<ChangelogSection> = [self.unreleased]
+        for section in self.sections do
+            all.append(section)
+        end
+        return all
+    end
+end
+
+-- Main generator that orchestrates changelog creation
+entity ChangelogGenerator
+    property config: Map<String, String> = {}
+    property entries: List<ChangeEntry> = []
+
+    fn new(config: Map<String, String>) -> ChangelogGenerator do
+        let be gen = ChangelogGenerator {}
+        gen.config = config
+        return gen
+    end
+
+    fn add_change(self, type: ChangeType, description: String, module: String,
+                  files: List<String>, pull_request: Int, author: String,
+                  breaking: Bool) -> ChangelogGenerator do
+        let be entry = ChangeEntry {}
+        entry.type = type
+        entry.description = description
+        entry.module = module
+        entry.files = files
+        entry.pull_request = pull_request
+        entry.author = author
+        entry.breaking = breaking
+        self.entries.append(entry)
+        return self
+    end
+
+    fn categorize_by_type(self) -> Map<ChangeType, List<ChangeEntry>> do
+        let be categories: Map<ChangeType, List<ChangeEntry>> = {}
+        for entry in self.entries do
+            let be t = entry.type
+            if categories.has(t) then
+                let be list = categories.get(t)
+                list.append(entry)
+                categories.set(t, list)
+            else
+                let be list: List<ChangeEntry> = [entry]
+                categories.set(t, list)
+            end
+        end
+        return categories
+    end
+
+    fn categorize_by_module(self) -> Map<String, List<ChangeEntry>> do
+        let be modules: Map<String, List<ChangeEntry>> = {}
+        for entry in self.entries do
+            let be m = entry.module
+            if m == "" then
+                let be m = "(global)"
+            end
+            if modules.has(m) then
+                let be list = modules.get(m)
+                list.append(entry)
+                modules.set(m, list)
+            else
+                let be list: List<ChangeEntry> = [entry]
+                modules.set(m, list)
+            end
+        end
+        return modules
+    end
+
+    fn detect_breaking_changes(self) -> List<ChangeEntry> do
+        let be breaking: List<ChangeEntry> = []
+        for entry in self.entries do
+            if entry.is_breaking() then
+                breaking.append(entry)
+            end
+        end
+        return breaking
+    end
+
+    fn organize_by_version(self, version_map: Map<String, List<ChangeEntry>>) -> Changelog do
+        let be changelog = Changelog {}
+        let be keys = version_map.keys()
+        for version in keys do
+            let be section = ChangelogSection {}
+            section.version = version
+            section.entries = version_map.get(version)
+            changelog.add_section(section)
+        end
+        return changelog
+    end
+
+    fn render_keep_a_changelog(self, changelog: Changelog) -> String do
+        let be output = changelog.header + "\n\n"
+        let be sections = changelog.all_sections()
+        for section in sections do
+            let be title = "## [" + section.version + "]"
+            if section.date != "" then
+                let be title = title + " - " + section.date
+            end
+            let be output = output + title + "\n\n"
+            let be groups = section.group_by_type()
+            let be type_order: List<ChangeType> = [
+                ChangeType.BREAKING, ChangeType.ADDED, ChangeType.CHANGED,
+                ChangeType.DEPRECATED, ChangeType.REMOVED, ChangeType.FIXED,
+                ChangeType.SECURITY
+            ]
+            for t in type_order do
+                if groups.has(t) then
+                    let be items = groups.get(t)
+                    if items.length() > 0 then
+                        let be header = "### " + items[0].display_label() + "\n\n"
+                        let be output = output + header
+                        for item in items do
+                            let be output = output + item.to_bullet() + "\n"
+                        end
+                        let be output = output + "\n"
+                    end
+                end
+            end
+        end
+        return output
+    end
+
+    fn render_markdown(self, changelog: Changelog) -> String do
+        let be output = "# Changelog\n\n"
+        let be sections = changelog.all_sections()
+        for section in sections do
+            let be heading = "## " + section.version
+            if section.date != "" then
+                let be heading = heading + " (" + section.date + ")"
+            end
+            let be output = output + heading + "\n\n"
+            if section.summary != "" then
+                let be output = output + section.summary + "\n\n"
+            end
+            for entry in section.entries do
+                let be bullet = "- " + entry.description
+                if entry.module != "" then
+                    let be bullet = bullet + " [" + entry.module + "]"
+                end
+                if entry.is_breaking() then
+                    let be bullet = bullet + " (!)"
+                end
+                let be output = output + bullet + "\n"
+            end
+            let be output = output + "\n"
+        end
+        return output
+    end
+
+    fn render_semantic(self, changelog: Changelog) -> String do
+        let be output = "<changelog>\n"
+        let be sections = changelog.all_sections()
+        for section in sections do
+            let be tag = "  <release version=\"" + section.version + "\""
+            if section.date != "" then
+                let be tag = tag + " date=\"" + section.date + "\""
+            end
+            let be tag = tag + ">"
+            let be output = output + tag + "\n"
+            for entry in section.entries do
+                let be kind = entry.display_label().to_lower()
+                let be line = "    <change type=\"" + kind + "\""
+                if entry.module != "" then
+                    let be line = line + " module=\"" + entry.module + "\""
+                end
+                if entry.breaking then
+                    let be line = line + " breaking=\"true\""
+                end
+                let be line = line + ">" + entry.description + "</change>"
+                let be output = output + line + "\n"
+            end
+            let be output = output + "  </release>\n"
+        end
+        let be output = output + "</changelog>"
+        return output
+    end
+
+    fn render(self, changelog: Changelog, format: ChangelogFormat) -> String do
+        match format with
+        case ChangelogFormat.KEEP_A_CHANGELOG do
+            return self.render_keep_a_changelog(changelog)
+        end
+        case ChangelogFormat.MARKDOWN do
+            return self.render_markdown(changelog)
+        end
+        case ChangelogFormat.SEMANTIC do
+            return self.render_semantic(changelog)
+        end
+        end
+    end
+
+    fn generate(self, format: ChangelogFormat) -> Changelog do
+        let be changelog = Changelog {}
+        let be unreleased = ChangelogSection {}
+        for entry in self.entries do
+            unreleased.entries.append(entry)
+        end
+        changelog.unreleased = unreleased
+        let be breaking = self.detect_breaking_changes()
+        if breaking.length() > 0 then
+            let be summary = "This release contains " + breaking.length().to_string()
+            let be summary = summary + " breaking change(s)."
+            unreleased.summary = summary
+        end
+        return changelog
+    end
+
+    fn from_config(self) -> String do
+        let be fmt_str = self.config.get_or("format", "KEEP_A_CHANGELOG")
+        let be format = ChangelogFormat.KEEP_A_CHANGELOG
+        match fmt_str with
+        case "MARKDOWN" do let be format = ChangelogFormat.MARKDOWN end
+        case "SEMANTIC" do let be format = ChangelogFormat.SEMANTIC end
+        end
+        let be changelog = self.generate(format)
+        return self.render(changelog, format)
+    end
+end
+
+export {
+    ChangeType,
+    ChangelogFormat,
+    ChangeEntry,
+    ChangelogSection,
+    Changelog,
+    ChangelogGenerator
+}

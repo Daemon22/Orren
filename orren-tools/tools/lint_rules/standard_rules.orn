@@ -1,0 +1,309 @@
+-- standard_rules.orn
+-- Standard lint rule definitions and registry for the Orren linter
+-- Provides categorization, lookup, and default rule loading
+
+module orren_tools.tools.lint_rules
+
+import orren.core.language.foundation::{String, Int, Float, Bool, List, Map}
+
+-- Categories that lint rules can belong to
+enum RuleCategory
+  SEMANTIC
+  STRUCTURAL
+  NAMING
+  COMPLEXITY
+  PERFORMANCE
+  SECURITY
+  CONVENTION
+end
+
+-- Definition of a single lint rule with metadata
+entity LintRuleDefinition
+  property id: String = ""
+  property name: String = ""
+  property category: RuleCategory = RuleCategory.CONVENTION
+  property description: String = ""
+  property severity: String = "warning"
+  property default_enabled: Bool = true
+  property params: Map<String, String> = Map<String, String>{}
+  property check_fn_description: String = ""
+end
+
+-- Registry that manages all available lint rules
+entity RuleRegistry
+  property rules: List<LintRuleDefinition> = List<LintRuleDefinition>{}
+  property categories: Map<String, List<String>> = Map<String, List<String>>{}
+  property loaded: Bool = false
+end
+
+intent "define, register, categorize, and manage standard lint rules for the Orren linter with category-based lookup"
+
+-- Register a new lint rule into the registry
+fn register_rule(self: RuleRegistry, rule: LintRuleDefinition) -> Bool do
+  -- Validate required fields
+  if rule.id.length() == 0 then return false end
+  if rule.name.length() == 0 then return false end
+  -- Check for duplicate rule IDs
+  for existing in self.rules do
+    if existing.id == rule.id then
+      return false
+    end
+  end
+  self.rules.append(rule)
+  -- Add to category index
+  let cat_str be rule.category.to_string()
+  if not self.categories.has(cat_str) then
+    self.categories[cat_str] = List<String>{}
+  end
+  self.categories[cat_str].append(rule.id)
+  return true
+end
+
+-- Retrieve a single rule by its ID
+fn get_rule(self: RuleRegistry, rule_id: String) -> LintRuleDefinition do
+  let not_found be LintRuleDefinition{}
+  for rule in self.rules do
+    if rule.id == rule_id then
+      return rule
+    end
+  end
+  return not_found
+end
+
+-- Get all rules belonging to a specific category
+fn get_by_category(self: RuleRegistry, category: RuleCategory) -> List<LintRuleDefinition> do
+  let result be List<LintRuleDefinition>{}
+  let cat_str be category.to_string()
+  if not self.categories.has(cat_str) then
+    return result
+  end
+  let rule_ids be self.categories[cat_str]
+  for rule_id in rule_ids do
+    let rule be self.get_rule(rule_id)
+    if rule.id.length() > 0 then
+      result.append(rule)
+    end
+  end
+  return result
+end
+
+-- Get all rules that are enabled by default
+fn get_all_enabled_defaults(self: RuleRegistry) -> List<LintRuleDefinition> do
+  let result be List<LintRuleDefinition>{}
+  for rule in self.rules do
+    if rule.default_enabled then
+      result.append(rule)
+    end
+  end
+  return result
+end
+
+-- List all categories that have at least one rule registered
+fn list_categories(self: RuleRegistry) -> List<String> do
+  let result be List<String>{}
+  for key in self.categories.keys() do
+    let rule_ids be self.categories[key]
+    if rule_ids.length() > 0 then
+      result.append(key)
+    end
+  end
+  return result
+end
+
+-- Return a detailed description of a specific rule
+fn describe_rule(self: RuleRegistry, rule_id: String) -> String do
+  let rule be self.get_rule(rule_id)
+  if rule.id.length() == 0 then
+    return "Rule not found: " + rule_id
+  end
+  let lines be List<String>{}
+  lines.append("Rule: " + rule.id)
+  lines.append("Name: " + rule.name)
+  lines.append("Category: " + rule.category.to_string())
+  lines.append("Severity: " + rule.severity)
+  lines.append("Default Enabled: " + self.bool_to_str(rule.default_enabled))
+  lines.append("")
+  lines.append(rule.description)
+  if rule.check_fn_description.length() > 0 then
+    lines.append("")
+    lines.append("Check: " + rule.check_fn_description)
+  end
+  if rule.params.keys().length() > 0 then
+    lines.append("")
+    lines.append("Parameters:")
+    for key in rule.params.keys() do
+      lines.append("  " + key + " = " + rule.params[key])
+    end
+  end
+  return lines.join("\n")
+end
+
+-- Return the total number of registered rules
+fn count(self: RuleRegistry) -> Int do
+  return self.rules.length()
+end
+
+-- Load the standard set of built-in lint rules
+fn load_defaults(self: RuleRegistry) -> Bool do
+  if self.loaded then return true end
+  -- Semantic rules
+  let _ be self.register_rule(LintRuleDefinition{
+    id = "semantic-missing-intent",
+    name = "Missing Intent",
+    category = RuleCategory.SEMANTIC,
+    description = "Modules should declare an intent statement describing their purpose.",
+    severity = "warning",
+    default_enabled = true,
+    check_fn_description = "Checks that a module contains at least one intent statement."
+  })
+  let _ be self.register_rule(LintRuleDefinition{
+    id = "semantic-unused-import",
+    name = "Unused Import",
+    category = RuleCategory.SEMANTIC,
+    description = "Imported types should be used within the module.",
+    severity = "warning",
+    default_enabled = true,
+    check_fn_description = "Scans the module body for references to each imported type."
+  })
+  let _ be self.register_rule(LintRuleDefinition{
+    id = "semantic-dead-exports",
+    name = "Dead Exports",
+    category = RuleCategory.SEMANTIC,
+    description = "Exported symbols should be referenced by at least one other module.",
+    severity = "info",
+    default_enabled = false,
+    check_fn_description = "Cross-references all modules to verify exported symbols are consumed."
+  })
+  -- Structural rules
+  let _ be self.register_rule(LintRuleDefinition{
+    id = "structural-entity-properties",
+    name = "Entity Property Count",
+    category = RuleCategory.STRUCTURAL,
+    description = "Entities should not have an excessive number of properties.",
+    severity = "warning",
+    default_enabled = true,
+    check_fn_description = "Counts properties per entity and flags those exceeding the configured maximum."
+  })
+  let _ = self.register_rule(LintRuleDefinition{
+    id = "structural-module-length",
+    name = "Module Length",
+    category = RuleCategory.STRUCTURAL,
+    description = "Module files should not exceed a reasonable line count.",
+    severity = "warning",
+    default_enabled = true,
+    check_fn_description = "Counts total lines in the module file and compares against the configured limit."
+  })
+  let _ = self.register_rule(LintRuleDefinition{
+    id = "structural-function-length",
+    name = "Function Length",
+    category = RuleCategory.STRUCTURAL,
+    description = "Functions should be concise and focused.",
+    severity = "warning",
+    default_enabled = true,
+    check_fn_description = "Measures the line count of each function body against the configured threshold."
+  })
+  -- Naming rules
+  let _ = self.register_rule(LintRuleDefinition{
+    id = "naming-entity-snake",
+    name = "Entity Snake Case",
+    category = RuleCategory.NAMING,
+    description = "Entity names should use snake_case convention.",
+    severity = "warning",
+    default_enabled = true,
+    check_fn_description = "Validates that entity names follow snake_case formatting."
+  })
+  let _ = self.register_rule(LintRuleDefinition{
+    id = "naming-function-snake",
+    name = "Function Snake Case",
+    category = RuleCategory.NAMING,
+    description = "Function names should use snake_case convention.",
+    severity = "warning",
+    default_enabled = true,
+    check_fn_description = "Validates that function names follow snake_case formatting."
+  })
+  let _ = self.register_rule(LintRuleDefinition{
+    id = "naming-module-kebab",
+    name = "Module Kebab Path",
+    category = RuleCategory.NAMING,
+    description = "Module file paths should use kebab-case directory and file names.",
+    severity = "info",
+    default_enabled = false,
+    check_fn_description = "Validates the file path components follow kebab-case convention."
+  })
+  -- Complexity rules
+  let _ = self.register_rule(LintRuleDefinition{
+    id = "complexity-nesting-depth",
+    name = "Nesting Depth",
+    category = RuleCategory.COMPLEXITY,
+    description = "Code should not nest control structures too deeply.",
+    severity = "warning",
+    default_enabled = true,
+    check_fn_description = "Tracks the maximum nesting depth of if/for/while/match blocks within functions."
+  })
+  let _ = self.register_rule(LintRuleDefinition{
+    id = "complexity-branch-count",
+    name = "Branch Count",
+    category = RuleCategory.COMPLEXITY,
+    description = "Functions should not have too many branching paths.",
+    severity = "info",
+    default_enabled = false,
+    check_fn_description = "Counts the number of if/match branches per function body."
+  })
+  -- Performance rules
+  let _ = self.register_rule(LintRuleDefinition{
+    id = "performance-string-concat-loop",
+    name = "String Concatenation in Loop",
+    category = RuleCategory.PERFORMANCE,
+    description = "Avoid repeated string concatenation inside loops.",
+    severity = "info",
+    default_enabled = false,
+    check_fn_description = "Detects + string concatenation operations inside for/while loop bodies."
+  })
+  -- Security rules
+  let _ = self.register_rule(LintRuleDefinition{
+    id = "security-no-hardcoded-paths",
+    name = "No Hardcoded Paths",
+    category = RuleCategory.SECURITY,
+    description = "Avoid hardcoding file system paths in source code.",
+    severity = "warning",
+    default_enabled = false,
+    check_fn_description = "Scans for string literals that look like absolute file paths."
+  })
+  -- Convention rules
+  let _ = self.register_rule(LintRuleDefinition{
+    id = "convention-file-header",
+    name = "File Header Comment",
+    category = RuleCategory.CONVENTION,
+    description = "Every .orn file should start with a descriptive comment header.",
+    severity = "info",
+    default_enabled = true,
+    check_fn_description = "Checks that the first non-empty line starts with -- comment syntax."
+  })
+  let _ = self.register_rule(LintRuleDefinition{
+    id = "convention-export-last",
+    name = "Export Statement Last",
+    category = RuleCategory.CONVENTION,
+    description = "The export statement should be the last line in the file.",
+    severity = "info",
+    default_enabled = true,
+    check_fn_description = "Verifies that the export statement appears at the end of the module."
+  })
+  self.loaded = true
+  return true
+end
+
+-- Reset the registry to an empty state
+fn reset(self: RuleRegistry) -> Bool do
+  self.rules = List<LintRuleDefinition>{}
+  self.categories = Map<String, List<String>>{}
+  self.loaded = false
+  return true
+end
+
+-- Convert a bool to a lowercase string for display
+fn bool_to_str(self: RuleRegistry, value: Bool) -> String do
+  if value then return "true" end
+  return "false"
+end
+
+export {RuleCategory, LintRuleDefinition, RuleRegistry}

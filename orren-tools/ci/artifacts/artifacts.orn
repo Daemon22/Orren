@@ -1,0 +1,347 @@
+-- artifacts.orn: CI artifact management. Collects, stores, and provides access
+-- to build artifacts. Supports retention policies, checksums, and indexing.
+
+module orren_tools.ci.artifacts
+
+import module::{String, Int, Bool, Float, List, Map, Result, Time}
+import orren.core.language.foundation::{SourceLocation, ModuleResolver}
+
+-- The type of a build artifact.
+enum ArtifactType
+    BINARY
+    LIBRARY
+    DOCUMENTATION
+    COVERAGE_REPORT
+    TEST_REPORT
+    BENCHMARK_REPORT
+    PACKAGE
+    LOG
+end
+
+-- Retention policy determining how long artifacts are kept.
+enum RetentionPolicy
+    ALWAYS
+    DAYS_7
+    DAYS_30
+    DAYS_90
+    LATEST_N
+end
+
+-- Converts an ArtifactType to a display string.
+fn artifact_type_label(t: ArtifactType) -> String do
+    return match t with
+        ArtifactType.BINARY => "binary"
+        ArtifactType.LIBRARY => "library"
+        ArtifactType.DOCUMENTATION => "documentation"
+        ArtifactType.COVERAGE_REPORT => "coverage_report"
+        ArtifactType.TEST_REPORT => "test_report"
+        ArtifactType.BENCHMARK_REPORT => "benchmark_report"
+        ArtifactType.PACKAGE => "package"
+        ArtifactType.LOG => "log"
+    end
+end
+
+-- Converts a RetentionPolicy to a display string.
+fn retention_policy_label(p: RetentionPolicy) -> String do
+    return match p with
+        RetentionPolicy.ALWAYS => "always"
+        RetentionPolicy.DAYS_7 => "7_days"
+        RetentionPolicy.DAYS_30 => "30_days"
+        RetentionPolicy.DAYS_90 => "90_days"
+        RetentionPolicy.LATEST_N => "latest_n"
+    end
+end
+
+-- Returns the retention duration in nanoseconds for a policy.
+fn retention_duration_ns(policy: RetentionPolicy) -> Int do
+    let ns_per_day be 86400000000000
+    return match policy with
+        RetentionPolicy.ALWAYS => 0
+        RetentionPolicy.DAYS_7 => 7 * ns_per_day
+        RetentionPolicy.DAYS_30 => 30 * ns_per_day
+        RetentionPolicy.DAYS_90 => 90 * ns_per_day
+        RetentionPolicy.LATEST_N => 0
+    end
+end
+
+-- A single build artifact produced by a pipeline stage.
+entity Artifact
+    property id: String = ""
+    property name: String = ""
+    property type: ArtifactType = ArtifactType.BINARY
+    property path: String = ""
+    property size_bytes: Int = 0
+    property stage_name: String = ""
+    property created: Int = 0
+    property checksum: String = ""
+    property metadata: Map<String, String> = Map<String, String>.new()
+
+    intent "Represent a single build artifact with metadata and checksum"
+
+    -- Returns the artifact size formatted as a human-readable string.
+    fn size_label(self) -> String do
+        if self.size_bytes < 1024 then
+            return String.from_int(self.size_bytes) + " B"
+        end
+        if self.size_bytes < 1048576 then
+            let kb be self.size_bytes / 1024
+            return String.from_int(kb) + " KB"
+        end
+        if self.size_bytes < 1073741824 then
+            let mb be self.size_bytes / 1048576
+            return String.from_int(mb) + " MB"
+        end
+        let gb be self.size_bytes / 1073741824
+        return String.from_int(gb) + " GB"
+    end
+
+    -- Returns whether this artifact is older than the given nanosecond age.
+    fn is_older_than(self, age_ns: Int) -> Bool do
+        let age be Time.now_ns() - self.created
+        return age > age_ns
+    end
+
+    -- Sets a metadata key-value pair on this artifact.
+    fn set_meta(self, key: String, value: String) do
+        self.metadata.set(key, value)
+    end
+
+    -- Gets a metadata value by key, returning default if not found.
+    fn get_meta(self, key: String, default: String) -> String do
+        let val be self.metadata.get(key)
+        if val == nothing then
+            return default
+        end
+        return val
+    end
+
+    -- Returns a summary string for this artifact.
+    fn summary(self) -> String do
+        let t be artifact_type_label(self.type)
+        return self.id + ": " + self.name + " (" + t + ", " + self.size_label() + ", stage=" + self.stage_name + ")"
+    end
+
+    -- Computes and sets the checksum for this artifact.
+    fn compute_checksum(self, data: String) do
+        let mut hash be 5381
+        let mut i be 0
+        while i < data.length do
+            let ch be data.char_at(i)
+            hash = ((hash << 5) + hash) + ch.to_int()
+            i = i + 1
+        end
+        self.checksum = String.from_int(hash)
+    end
+end
+
+-- Stores and manages build artifacts with retention policies.
+entity ArtifactStore
+    property artifacts: List<Artifact> = List<Artifact>.new()
+    property base_dir: String = ""
+    property retention_policy: RetentionPolicy = RetentionPolicy.DAYS_30
+    property total_size: Int = 0
+    property latest_n_limit: Int = 10
+
+    intent "Manage collection, storage, retrieval, and retention of CI artifacts"
+
+    -- Stores a new artifact in the store.
+    fn store(self, artifact: Artifact) do
+        self.artifacts.append(artifact)
+        self.total_size = self.total_size + artifact.size_bytes
+    end
+
+    -- Creates and stores a new artifact from components.
+    fn store_new(self, id: String, name: String, atype: ArtifactType, path: String, size_bytes: Int, stage_name: String, data: String) -> Artifact do
+        let a be Artifact.new()
+        a.id = id
+        a.name = name
+        a.type = atype
+        a.path = path
+        a.size_bytes = size_bytes
+        a.stage_name = stage_name
+        a.created = Time.now_ns()
+        a.compute_checksum(data)
+        self.store(a)
+        return a
+    end
+
+    -- Retrieves an artifact by its ID.
+    fn retrieve(self, id: String) -> Artifact do
+        for a in self.artifacts do
+            if a.id == id then
+                return a
+            end
+        end
+        let empty be Artifact.new()
+        return empty
+    end
+
+    -- Lists all artifacts produced by a specific stage.
+    fn by_stage(self, stage_name: String) -> List<Artifact> do
+        let result be List<Artifact>.new()
+        for a in self.artifacts do
+            if a.stage_name == stage_name then
+                result.append(a)
+            end
+        end
+        return result
+    end
+
+    -- Lists all artifacts of a given type.
+    fn by_type(self, atype: ArtifactType) -> List<Artifact> do
+        let result be List<Artifact>.new()
+        for a in self.artifacts do
+            if a.type == atype then
+                result.append(a)
+            end
+        end
+        return result
+    end
+
+    -- Removes artifacts that have exceeded the retention period.
+    fn apply_retention(self) -> Int do
+        let removed be 0
+        if self.retention_policy == RetentionPolicy.ALWAYS then
+            return removed
+        end
+        if self.retention_policy == RetentionPolicy.LATEST_N then
+            return self.keep_latest_n(self.latest_n_limit)
+        end
+        let duration be retention_duration_ns(self.retention_policy)
+        if duration == 0 then
+            return removed
+        end
+        let mut i be 0
+        while i < self.artifacts.length do
+            let a be self.artifacts.get(i)
+            if a.is_older_than(duration) then
+                self.total_size = self.total_size - a.size_bytes
+                self.artifacts.remove_at(i)
+                removed = removed + 1
+            else
+                i = i + 1
+            end
+        end
+        return removed
+    end
+
+    -- Keeps only the N most recent artifacts, removing the rest.
+    fn keep_latest_n(self, n: Int) -> Int do
+        if self.artifacts.length <= n then
+            return 0
+        end
+        let sorted be self.artifacts_sorted_by_created()
+        let to_keep be Map<String, Bool>.new()
+        let mut i be 0
+        while i < sorted.length and i < n do
+            to_keep.set(sorted.get(i).id, true)
+            i = i + 1
+        end
+        let removed be 0
+        let mut j be 0
+        while j < self.artifacts.length do
+            let a be self.artifacts.get(j)
+            if to_keep.get(a.id) != true then
+                self.total_size = self.total_size - a.size_bytes
+                self.artifacts.remove_at(j)
+                removed = removed + 1
+            else
+                j = j + 1
+            end
+        end
+        return removed
+    end
+
+    -- Returns artifacts sorted by creation time descending.
+    fn artifacts_sorted_by_created(self) -> List<Artifact> do
+        let sorted be List<Artifact>.new()
+        for a in self.artifacts do
+            sorted.append(a)
+        end
+        let mut swapped be true
+        while swapped do
+            swapped = false
+            let mut i be 0
+            while i < sorted.length - 1 do
+                if sorted.get(i).created < sorted.get(i + 1).created then
+                    let temp be sorted.get(i)
+                    sorted.set(i, sorted.get(i + 1))
+                    sorted.set(i + 1, temp)
+                    swapped = true
+                end
+                i = i + 1
+            end
+        end
+        return sorted
+    end
+
+    -- Returns the total size formatted as a human-readable string.
+    fn total_size_label(self) -> String do
+        if self.total_size < 1024 then
+            return String.from_int(self.total_size) + " B"
+        end
+        if self.total_size < 1048576 then
+            let kb be self.total_size / 1024
+            return String.from_int(kb) + " KB"
+        end
+        if self.total_size < 1073741824 then
+            let mb be self.total_size / 1048576
+            return String.from_int(mb) + " MB"
+        end
+        let gb be self.total_size / 1073741824
+        return String.from_int(gb) + " GB"
+    end
+
+    -- Generates an index of all artifacts as a formatted string.
+    fn generate_index(self) -> String do
+        let lines be List<String>.new()
+        lines.append("# Artifact Index")
+        lines.append("Total: " + String.from_int(self.artifacts.length) + " artifacts (" + self.total_size_label() + ")")
+        lines.append("Retention: " + retention_policy_label(self.retention_policy))
+        lines.append("")
+        let sorted be self.artifacts_sorted_by_created()
+        for a in sorted do
+            lines.append(a.summary())
+        end
+        let result be ""
+        for line in lines do
+            result = result + line + "\n"
+        end
+        return result
+    end
+
+    -- Computes a checksum for the given data string.
+    fn compute_checksum(data: String) -> String do
+        let mut hash be 5381
+        let mut i be 0
+        while i < data.length do
+            let ch be data.char_at(i)
+            hash = ((hash << 5) + hash) + ch.to_int()
+            i = i + 1
+        end
+        return String.from_int(hash)
+    end
+
+    -- Removes an artifact by ID.
+    fn remove(self, id: String) -> Bool do
+        let mut i be 0
+        while i < self.artifacts.length do
+            let a be self.artifacts.get(i)
+            if a.id == id then
+                self.total_size = self.total_size - a.size_bytes
+                self.artifacts.remove_at(i)
+                return true
+            end
+            i = i + 1
+        end
+        return false
+    end
+
+    -- Returns a summary string for the store.
+    fn summary(self) -> String do
+        let policy be retention_policy_label(self.retention_policy)
+        return "ArtifactStore(" + String.from_int(self.artifacts.length) + " artifacts, " + self.total_size_label() + ", retention=" + policy + ")"
+    end
+end
+
+export {ArtifactType, RetentionPolicy, artifact_type_label, retention_policy_label, retention_duration_ns, Artifact, ArtifactStore}

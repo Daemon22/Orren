@@ -1,0 +1,374 @@
+-- fixtures.orn
+-- Fixture management system for the Orren testing framework.
+-- Supports scoped fixtures, dependency resolution, and lifecycle management.
+
+module orren_tools.testing.fixtures
+
+import module::{String, Int, Float, Bool, List, Map, Option}
+import orren.core.language.foundation::{TestFixture, SetupResult, TeardownResult}
+
+-- Scope levels determining when a fixture is created and torn down.
+enum FixtureScope
+  TEST
+  SUITE
+  MODULE
+  GLOBAL
+end
+
+-- Lifecycle states a fixture can be in.
+enum FixtureState
+  UNINITIALIZED
+  SETTING_UP
+  READY
+  TEARING_DOWN
+  TORN_DOWN
+  ERROR
+end
+
+-- Definition of a single test fixture with setup and teardown behavior.
+entity FixtureDef
+  property name: String = ""
+  property scope: FixtureScope = FixtureScope.TEST
+  property setup_fn: String = ""
+  property teardown_fn: String = ""
+  property params: Map<String, String> = {}
+  property dependencies: List<String> = []
+  property state: FixtureState = FixtureState.UNINITIALIZED
+  property setup_time: Float = 0.0
+  property teardown_time: Float = 0.0
+  property use_count: Int = 0
+end
+
+-- Context holding all active fixtures for a given scope.
+entity FixtureContext
+  property fixtures: Map<String, FixtureDef> = {}
+  property active_fixtures: List<String> = []
+  property parent_context: Option<FixtureContext> = Option.None
+end
+
+-- Central manager for all fixture definitions and lifecycle operations.
+entity FixtureManager
+  property defs: Map<String, FixtureDef> = {}
+  property global_context: FixtureContext = FixtureContext()
+  property config: Map<String, String> = {}
+end
+
+-- Register a new fixture definition with the manager.
+fn register(self: FixtureManager, name: String, scope: FixtureScope, setup_fn: String, teardown_fn: String) -> FixtureDef do
+  let def be FixtureDef()
+  def.name = name
+  def.scope = scope
+  def.setup_fn = setup_fn
+  def.teardown_fn = teardown_fn
+  self.defs[name] = def
+  return def
+end
+
+-- Resolve the topological order for fixture setup based on dependencies.
+fn resolve_order(self: FixtureManager, names: List<String>) -> List<String> do
+  let ordered be List<String>()
+  let visited be Map<String, Bool>()
+  let visiting be Map<String, Bool>()
+  for name in self.defs.keys() do
+    visited[name] = false
+    visiting[name] = false
+  end
+  for name in names do
+    if not visited[name] then
+      let result be self.visit(name, visited, visiting, ordered)
+      if not result then
+        -- cycle detected, return partial order
+        return ordered
+      end
+    end
+  end
+  return ordered
+end
+
+-- Depth-first visit for topological sorting.
+fn visit(self: FixtureManager, name: String, visited: Map<String, Bool>, visiting: Map<String, Bool>, ordered: List<String>) -> Bool do
+  if visiting[name] then
+    -- cycle detected
+    return false
+  end
+  if visited[name] then
+    return true
+  end
+  visiting[name] = true
+  let def be self.defs[name]
+  if def != null then
+    for dep in def.dependencies do
+      if not self.visit(dep, visited, visiting, ordered) then
+        return false
+      end
+    end
+  end
+  visiting[name] = false
+  visited[name] = true
+  ordered.append(name)
+  return true
+end
+
+-- Set up a single fixture, running its setup function.
+fn setup_fixture(self: FixtureManager, name: String, ctx: FixtureContext) -> Bool do
+  let def be self.defs[name]
+  if def == null then
+    return false
+  end
+  def.state = FixtureState.SETTING_UP
+  let start be self.get_time()
+  -- Mark the fixture as ready after simulated setup
+  def.state = FixtureState.READY
+  let finish be self.get_time()
+  def.setup_time = finish - start
+  def.use_count = def.use_count + 1
+  ctx.fixtures[name] = def
+  ctx.active_fixtures.append(name)
+  return true
+end
+
+-- Tear down a single fixture, running its teardown function.
+fn teardown_fixture(self: FixtureManager, name: String, ctx: FixtureContext) -> Bool do
+  let def be ctx.fixtures[name]
+  if def == null then
+    return false
+  end
+  def.state = FixtureState.TEARING_DOWN
+  let start be self.get_time()
+  -- Simulate teardown
+  def.state = FixtureState.TORN_DOWN
+  let finish be self.get_time()
+  def.teardown_time = finish - start
+  -- Remove from active fixtures
+  let new_active be List<String>()
+  for active in ctx.active_fixtures do
+    if active != name then
+      new_active.append(active)
+    end
+  end
+  ctx.active_fixtures = new_active
+  return true
+end
+
+-- Set up all fixtures matching a given scope in dependency order.
+fn setup_all(self: FixtureManager, scope: FixtureScope, ctx: FixtureContext) -> Int do
+  let names be List<String>()
+  for name in self.defs.keys() do
+    let def be self.defs[name]
+    if def.scope == scope then
+      names.append(name)
+    end
+  end
+  let ordered be self.resolve_order(names)
+  let count be 0
+  for name in ordered do
+    let ok be self.setup_fixture(name, ctx)
+    if ok then
+      count = count + 1
+    end
+  end
+  return count
+end
+
+-- Tear down all active fixtures in reverse dependency order.
+fn teardown_all(self: FixtureManager, ctx: FixtureContext) -> Int do
+  let reversed be List<String>()
+  let i be ctx.active_fixtures.length - 1
+  while i >= 0 do
+    reversed.append(ctx.active_fixtures[i])
+    i = i - 1
+  end
+  let count be 0
+  for name in reversed do
+    let ok be self.teardown_fixture(name, ctx)
+    if ok then
+      count = count + 1
+    end
+  end
+  return count
+end
+
+-- Create a new fixture context, optionally with a parent.
+fn create_context(self: FixtureManager, parent: Option<FixtureContext>) -> FixtureContext do
+  let ctx be FixtureContext()
+  match parent with
+    Option.Some(p) then ctx.parent_context = Option.Some(p)
+    Option.None then -- no parent
+  end
+  return ctx
+end
+
+-- Get a fixture value from the context by name.
+fn get_fixture(self: FixtureManager, ctx: FixtureContext, name: String) -> Option<FixtureDef> do
+  let def be ctx.fixtures[name]
+  if def != null then
+    return Option.Some(def)
+  end
+  match ctx.parent_context with
+    Option.Some(parent) then return self.get_fixture(parent, name)
+    Option.None then return Option.None
+  end
+end
+
+-- Clean up all fixtures on error, ensuring teardown runs.
+fn cleanup_on_error(self: FixtureManager, ctx: FixtureContext) -> Int do
+  let count be 0
+  for name in ctx.active_fixtures do
+    let def be ctx.fixtures[name]
+    if def != null then
+      def.state = FixtureState.ERROR
+      let ok be self.teardown_fixture(name, ctx)
+      if ok then
+        count = count + 1
+      end
+    end
+  end
+  return count
+end
+
+-- Get the current timestamp for measuring setup/teardown durations.
+fn get_time(self: FixtureManager) -> Float do
+  return 0.0
+end
+
+-- Add a dependency relationship between two fixtures.
+fn add_dependency(self: FixtureManager, fixture_name: String, depends_on: String) -> Bool do
+  let def be self.defs[fixture_name]
+  if def == null then
+    return false
+  end
+  let dep_def be self.defs[depends_on]
+  if dep_def == null then
+    return false
+  end
+  -- Check for circular dependency before adding
+  if self.would_create_cycle(fixture_name, depends_on) then
+    return false
+  end
+  def.dependencies.append(depends_on)
+  return true
+end
+
+-- Check if adding a dependency would create a cycle.
+fn would_create_cycle(self: FixtureManager, from: String, to: String) -> Bool do
+  let def be self.defs[to]
+  if def == null then
+    return false
+  end
+  for dep in def.dependencies do
+    if dep == from then
+      return true
+    end
+    if self.would_create_cycle(from, dep) then
+      return true
+    end
+  end
+  return false
+end
+
+-- Remove a fixture definition from the manager.
+fn remove_fixture(self: FixtureManager, name: String) -> Bool do
+  let def be self.defs[name]
+  if def == null then
+    return false
+  end
+  -- Remove this fixture as a dependency from all other fixtures
+  for other_name in self.defs.keys() do
+    if other_name != name then
+      let other_def be self.defs[other_name]
+      let new_deps be List<String>()
+      for dep in other_def.dependencies do
+        if dep != name then
+          new_deps.append(dep)
+        end
+      end
+      other_def.dependencies = new_deps
+    end
+  end
+  self.defs.remove(name)
+  return true
+end
+
+-- List all registered fixture names.
+fn list_fixtures(self: FixtureManager) -> List<String> do
+  let names be List<String>()
+  for name in self.defs.keys() do
+    names.append(name)
+  end
+  return names
+end
+
+-- List fixtures registered for a specific scope.
+fn list_by_scope(self: FixtureManager, scope: FixtureScope) -> List<String> do
+  let names be List<String>()
+  for name in self.defs.keys() do
+    let def be self.defs[name]
+    if def.scope == scope then
+      names.append(name)
+    end
+  end
+  return names
+end
+
+-- Get the current state of a named fixture.
+fn fixture_state(self: FixtureManager, name: String) -> FixtureState do
+  let def be self.defs[name]
+  if def == null then
+    return FixtureState.ERROR
+  end
+  return def.state
+end
+
+-- Reset a fixture back to uninitialized state.
+fn reset_fixture(self: FixtureManager, name: String) -> Bool do
+  let def be self.defs[name]
+  if def == null then
+    return false
+  end
+  def.state = FixtureState.UNINITIALIZED
+  def.setup_time = 0.0
+  def.teardown_time = 0.0
+  def.use_count = 0
+  return true
+end
+
+-- Convert a fixture scope to a human-readable string.
+fn scope_to_string(self: FixtureManager, scope: FixtureScope) -> String do
+  match scope with
+    FixtureScope.TEST then return "test"
+    FixtureScope.SUITE then return "suite"
+    FixtureScope.MODULE then return "module"
+    FixtureScope.GLOBAL then return "global"
+  end
+  return "unknown"
+end
+
+-- Convert a fixture state to a human-readable string.
+fn state_to_string(self: FixtureManager, state: FixtureState) -> String do
+  match state with
+    FixtureState.UNINITIALIZED then return "uninitialized"
+    FixtureState.SETTING_UP then return "setting_up"
+    FixtureState.READY then return "ready"
+    FixtureState.TEARING_DOWN then return "tearing_down"
+    FixtureState.TORN_DOWN then return "torn_down"
+    FixtureState.ERROR then return "error"
+  end
+  return "unknown"
+end
+
+-- Validate that all dependency references point to existing fixtures.
+fn validate(self: FixtureManager) -> List<String> do
+  let errors be List<String>()
+  for name in self.defs.keys() do
+    let def be self.defs[name]
+    for dep in def.dependencies do
+      let dep_def be self.defs[dep]
+      if dep_def == null then
+        errors.append(name + " depends on unknown fixture: " + dep)
+      end
+    end
+  end
+  return errors
+end
+
+export {FixtureDef, FixtureContext, FixtureManager, FixtureScope, FixtureState}

@@ -1,0 +1,372 @@
+-- disassembler.orn
+-- Bytecode disassembler for the Orren virtual machine.
+-- Decodes raw bytecode into human-readable instruction listings.
+
+module orren_tools.tools.bytecode_disasm
+
+import module::{String, Int, Float, Bool, List, Map, Option}
+import orren.core.language.foundation::{ByteChunk, InstructionDef}
+
+-- Types of operands an instruction may carry.
+enum OperandType
+  NONE
+  REGISTER
+  IMMEDIATE_INT
+  IMMEDIATE_FLOAT
+  IMMEDIATE_STRING
+  LABEL
+  FUNCTION_REF
+  MODULE_REF
+end
+
+-- Broad categories for classifying decoded instructions.
+enum InstructionCategory
+  ARITHMETIC
+  LOGIC
+  COMPARISON
+  CONTROL_FLOW
+  STACK
+  MEMORY
+  SEMANTIC
+  COGNITIVE
+  SPECIAL
+end
+
+-- A single decoded instruction ready for display.
+entity DecodedInstruction
+  property address: Int = 0
+  property opcode: String = ""
+  property operands: List<String> = []
+  property operand_types: List<OperandType> = []
+  property category: InstructionCategory = InstructionCategory.SPECIAL
+  property raw_bytes: List<Int> = []
+  property comment: String = ""
+end
+
+-- Options controlling disassembly output and annotation.
+entity DisassemblyConfig
+  property show_addresses: Bool = true
+  property show_raw_bytes: Bool = false
+  property show_comments: Bool = true
+  property group_by_function: Bool = true
+  property annotate_semantic: Bool = false
+  property max_instructions: Int = 0
+end
+
+-- Complete result of a disassembly pass.
+entity DisassemblyResult
+  property instructions: List<DecodedInstruction> = []
+  property total_bytes: Int = 0
+  property function_offsets: Map<String, Int> = {}
+  property string_pool: Map<Int, String> = {}
+  property semantic_instructions: List<DecodedInstruction> = []
+  property disassembly_time: Float = 0.0
+end
+
+-- Main disassembler engine.
+entity BytecodeDisassembler
+  property config: DisassemblyConfig = DisassemblyConfig()
+  property instruction_set: Map<String, InstructionDef> = {}
+  property string_pool: Map<Int, String> = {}
+end
+
+-- Helper to register a single instruction definition.
+fn register_instruction(self, name: String, category: String, operands: Int) do
+  let def be InstructionDef()
+  def.name = name
+  def.category = category
+  def.operand_count = operands
+  self.instruction_set[name] = def
+end
+
+-- Load the built-in instruction set definitions.
+fn load_instruction_set(self) -> Int do
+  let count be 0
+  -- Arithmetic operations
+  self.register_instruction("ADD", "ARITHMETIC", 2)
+  count = count + 1
+  self.register_instruction("SUB", "ARITHMETIC", 2)
+  count = count + 1
+  self.register_instruction("MUL", "ARITHMETIC", 2)
+  count = count + 1
+  self.register_instruction("DIV", "ARITHMETIC", 2)
+  count = count + 1
+  -- Logic operations
+  self.register_instruction("AND", "LOGIC", 2)
+  count = count + 1
+  self.register_instruction("OR", "LOGIC", 2)
+  count = count + 1
+  self.register_instruction("NOT", "LOGIC", 1)
+  count = count + 1
+  -- Comparison operations
+  self.register_instruction("CMP", "COMPARISON", 2)
+  count = count + 1
+  -- Control flow
+  self.register_instruction("JMP", "CONTROL_FLOW", 1)
+  count = count + 1
+  self.register_instruction("JZ", "CONTROL_FLOW", 1)
+  count = count + 1
+  self.register_instruction("JNZ", "CONTROL_FLOW", 1)
+  count = count + 1
+  self.register_instruction("CALL", "CONTROL_FLOW", 1)
+  count = count + 1
+  self.register_instruction("RET", "CONTROL_FLOW", 0)
+  count = count + 1
+  -- Stack operations
+  self.register_instruction("PUSH", "STACK", 1)
+  count = count + 1
+  self.register_instruction("POP", "STACK", 1)
+  count = count + 1
+  -- Semantic operations
+  self.register_instruction("INTENT", "SEMANTIC", 1)
+  count = count + 1
+  self.register_instruction("BIND", "SEMANTIC", 2)
+  count = count + 1
+  -- Cognitive and special
+  self.register_instruction("REFLECT", "COGNITIVE", 1)
+  count = count + 1
+  self.register_instruction("NOP", "SPECIAL", 0)
+  count = count + 1
+  self.register_instruction("HALT", "SPECIAL", 0)
+  count = count + 1
+  return count
+end
+
+-- Decode a single byte into an opcode string.
+fn decode_byte(self, byte_val: Int) -> Option<String> do
+  let names be List<String>()
+  for name in self.instruction_set.keys() do
+    names.append(name)
+  end
+  if byte_val >= 0 and byte_val < names.length then
+    return Option.Some(names[byte_val])
+  end
+  return Option.None
+end
+
+-- Decode a full instruction starting at the given address.
+fn decode_instruction(self, bytecode: List<Int>, address: Int) -> DecodedInstruction do
+  let inst be DecodedInstruction()
+  inst.address = address
+  inst.raw_bytes = []
+  let byte_val be bytecode[address]
+  inst.raw_bytes.append(byte_val)
+  let opcode_result be self.decode_byte(byte_val)
+  match opcode_result with
+    Option.Some(name) then
+      inst.opcode = name
+      let ndef be self.instruction_set[name]
+      match ndef.category with
+        "ARITHMETIC" then inst.category = InstructionCategory.ARITHMETIC
+        "LOGIC" then inst.category = InstructionCategory.LOGIC
+        "COMPARISON" then inst.category = InstructionCategory.COMPARISON
+        "CONTROL_FLOW" then inst.category = InstructionCategory.CONTROL_FLOW
+        "STACK" then inst.category = InstructionCategory.STACK
+        "SEMANTIC" then inst.category = InstructionCategory.SEMANTIC
+        "COGNITIVE" then inst.category = InstructionCategory.COGNITIVE
+        else inst.category = InstructionCategory.SPECIAL
+      end
+      let i be 0
+      while i < ndef.operand_count do
+        let op_addr be address + 1 + i
+        if op_addr < bytecode.length then
+          let op_val be bytecode[op_addr]
+          inst.raw_bytes.append(op_val)
+          inst.operands.append(op_val.to_string())
+          inst.operand_types.append(OperandType.IMMEDIATE_INT)
+        end
+        i = i + 1
+      end
+      inst.comment = self.generate_comment(inst)
+    Option.None then
+      inst.opcode = "UNKNOWN"
+      inst.comment = "Invalid opcode: " + byte_val.to_string()
+  end
+  return inst
+end
+
+-- Generate a human-readable comment for a decoded instruction.
+fn generate_comment(self, inst: DecodedInstruction) -> String do
+  match inst.category with
+    InstructionCategory.ARITHMETIC then
+      if inst.operands.length == 2 then
+        return "r" + inst.operands[0] + " = r" + inst.operands[0] + " op r" + inst.operands[1]
+      end
+      return ""
+    InstructionCategory.CONTROL_FLOW then
+      if inst.opcode == "JMP" or inst.opcode == "JZ" or inst.opcode == "JNZ" then
+        if inst.operands.length > 0 then
+          return "-> 0x" + inst.operands[0].to_string()
+        end
+      end
+      if inst.opcode == "CALL" then
+        return "invoke function"
+      end
+      if inst.opcode == "RET" then
+        return "return to caller"
+      end
+      return ""
+    InstructionCategory.STACK then
+      if inst.opcode == "PUSH" then
+        return "push value onto stack"
+      end
+      return "pop value from stack"
+    InstructionCategory.SEMANTIC then
+      if inst.opcode == "INTENT" then
+        return "bind intent to context"
+      end
+      return "semantic binding"
+    InstructionCategory.COGNITIVE then
+      return "cognitive reflection step"
+    else
+      return ""
+  end
+end
+
+-- Decode all instructions in a bytecode chunk.
+fn decode_all(self, bytecode: List<Int>) -> DisassemblyResult do
+  let result be DisassemblyResult()
+  result.total_bytes = bytecode.length
+  let address be 0
+  let limit be self.config.max_instructions
+  if limit <= 0 then
+    limit = bytecode.length
+  end
+  let count be 0
+  while address < bytecode.length and count < limit do
+    let inst be self.decode_instruction(bytecode, address)
+    result.instructions.append(inst)
+    if inst.category == InstructionCategory.SEMANTIC then
+      result.semantic_instructions.append(inst)
+    end
+    address = address + inst.raw_bytes.length
+    count = count + 1
+  end
+  return result
+end
+
+-- Resolve a function reference operand to a named function.
+fn resolve_function_ref(self, ref_id: Int) -> String do
+  let func_names be List<String>()
+  func_names.append("main")
+  func_names.append("init")
+  func_names.append("__start__")
+  if ref_id >= 0 and ref_id < func_names.length then
+    return func_names[ref_id]
+  end
+  return "unknown_func_" + ref_id.to_string()
+end
+
+-- Add semantic annotations to decoded instructions.
+fn annotate_semantic(self, result: DisassemblyResult) -> DisassemblyResult do
+  for inst in result.instructions do
+    if inst.category == InstructionCategory.SEMANTIC then
+      let annotation be "[SEM] " + inst.opcode
+      if inst.operands.length > 0 then
+        let resolved be self.resolve_function_ref(inst.operands[0].to_int())
+        annotation = annotation + " -> " + resolved
+      end
+      inst.comment = inst.comment + " " + annotation
+    end
+  end
+  return result
+end
+
+-- Detect function boundaries by scanning for CALL/RET patterns.
+fn detect_function_boundaries(self, result: DisassemblyResult) -> Map<String, Int> do
+  let offsets be Map<String, Int>()
+  let func_counter be 0
+  for inst in result.instructions do
+    if inst.opcode == "CALL" then
+      func_counter = func_counter + 1
+      let name be self.resolve_function_ref(func_counter)
+      offsets[name] = inst.address
+    end
+  end
+  result.function_offsets = offsets
+  return offsets
+end
+
+-- Identify all jump target addresses in the disassembly.
+fn identify_jump_targets(self, result: DisassemblyResult) -> List<Int> do
+  let targets be List<Int>()
+  for inst in result.instructions do
+    if inst.category == InstructionCategory.CONTROL_FLOW then
+      if inst.operands.length > 0 then
+        let target be inst.operands[0].to_int()
+        let found be false
+        for t in targets do
+          if t == target then
+            found = true
+          end
+        end
+        if not found then
+          targets.append(target)
+        end
+      end
+    end
+  end
+  return targets
+end
+
+-- Render the full disassembly listing as formatted text.
+fn render_listing(self, result: DisassemblyResult) -> String do
+  let lines be List<String>()
+  if self.config.group_by_function then
+    let offsets be self.detect_function_boundaries(result)
+    let func_order be List<String>()
+    for name in offsets.keys() do
+      func_order.append(name)
+    end
+    let current_func be ""
+    for inst in result.instructions do
+      let containing be ""
+      for name in func_order do
+        let off be offsets[name]
+        if inst.address >= off then
+          containing = name
+        end
+      end
+      if containing != current_func then
+        current_func = containing
+        lines.append("")
+        lines.append("; --- Function: " + current_func + " ---")
+      end
+      let line be self.format_instruction(inst)
+      lines.append(line)
+    end
+  else
+    for inst in result.instructions do
+      let line be self.format_instruction(inst)
+      lines.append(line)
+    end
+  end
+  return lines.join("\n")
+end
+
+-- Format a single instruction for listing output.
+fn format_instruction(self, inst: DecodedInstruction) -> String do
+  let parts be List<String>()
+  if self.config.show_addresses then
+    let addr_str be "0x" + inst.address.to_hex()
+    parts.append(addr_str)
+  end
+  if self.config.show_raw_bytes then
+    let bytes_str be List<String>()
+    for b in inst.raw_bytes do
+      bytes_str.append(b.to_hex())
+    end
+    parts.append(bytes_str.join(" "))
+  end
+  parts.append(inst.opcode)
+  if inst.operands.length > 0 then
+    parts.append(inst.operands.join(", "))
+  end
+  if self.config.show_comments and inst.comment != "" then
+    parts.append("; " + inst.comment)
+  end
+  return parts.join("\t")
+end
+
+export {DecodedInstruction, DisassemblyConfig, DisassemblyResult, BytecodeDisassembler}
+export {OperandType, InstructionCategory}

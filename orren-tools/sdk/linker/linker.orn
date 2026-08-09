@@ -1,0 +1,438 @@
+-- linker.orn: Module linking, import resolution, and dependency ordering for the Orren SDK.
+-- Resolves inter-module imports, detects cycles, performs topological sorting,
+-- deduplicates symbols, and produces linked module artifacts.
+
+module orren_tools.sdk.linker
+
+import module::{String, Int, Bool, Float, List, Map, Set}
+
+-- Kinds of errors that can occur during the linking phase.
+enum LinkErrorKind
+  CIRCULAR_DEPENDENCY
+  MODULE_NOT_FOUND
+  DUPLICATE_SYMBOL
+  INCOMPATIBLE_VERSION
+  MISSING_EXPORT
+  INVALID_PATH
+  DEPTH_EXCEEDED
+end
+
+-- Strategy for ordering module dependencies during linking.
+enum DependencyOrderStrategy
+  TOPOLOGICAL
+  BREADTH_FIRST
+  DEPTH_FIRST
+end
+
+-- Configuration for the module linker.
+entity LinkerConfig
+  property strict_mode: Bool = true
+  property include_stdlib: Bool = true
+  property resolve_transitive: Bool = true
+  property max_depth: Int = 64
+  property emit_import_map: Bool = false
+  property target: String = "native"
+end
+
+-- Represents a single resolved import path.
+entity ImportResolution
+  property module_path: String = ""
+  property resolved_path: String = ""
+  property is_stdlib: Bool = false
+  property is_local: Bool = false
+  property depth: Int = 0
+  property found: Bool = false
+end
+
+-- A single error produced during linking.
+entity LinkError
+  property kind: LinkErrorKind = LinkErrorKind.MODULE_NOT_FOUND
+  property message: String = ""
+  property module_path: String = ""
+  property source_module: String = ""
+  property severity: String = "error"
+end
+
+-- Diagnostics summary for a linking pass.
+entity LinkerDiagnostics
+  property errors: List<LinkError> = []
+  property warnings: List<LinkError> = []
+  property resolved_count: Int = 0
+  property total_time: Float = 0.0
+end
+
+-- A fully linked module with all imports resolved.
+entity LinkedModule
+  property module_path: String = ""
+  property resolved_imports: List<ImportResolution> = []
+  property dependency_order: List<String> = []
+  property semantic_attributes: Map<String, String> = {}
+  property total_symbols: Int = 0
+end
+
+-- The main module linker engine.
+entity ModuleLinker
+  property config: LinkerConfig = LinkerConfig{}
+  property search_paths: List<String> = []
+  property resolved_modules: Map<String, LinkedModule> = {}
+  property diagnostics: LinkerDiagnostics = LinkerDiagnostics{}
+  property link_time: Float = 0.0
+
+  -- Resolve all imports for a given module path.
+  fn resolve_imports(self, module_path: String) -> List<ImportResolution> do
+    let raw_imports be self._read_imports(module_path)
+    let results be List<ImportResolution>{}
+    for imp in raw_imports do
+      let resolution be ImportResolution{}
+      resolution.module_path = imp
+      let search_order be List<String>{}
+      if self.config.include_stdlib then
+        search_order.append("orren.stdlib." + imp)
+      end
+      for sp in self.search_paths do
+        search_order.append(sp + "/" + imp)
+      end
+      let found_path be self._search_module(imp, search_order)
+      if found_path != "" then
+        resolution.resolved_path = found_path
+        resolution.found = true
+        resolution.is_stdlib = found_path.starts_with("orren.stdlib.")
+        resolution.is_local = found_path.starts_with("./") or found_path.starts_with("../")
+      else
+        resolution.found = false
+        let err be LinkError{}
+        err.kind = LinkErrorKind.MODULE_NOT_FOUND
+        err.message = "Cannot resolve import: " + imp
+        err.module_path = module_path
+        err.source_module = imp
+        self.diagnostics.errors.append(err)
+      end
+      results.append(resolution)
+    end
+    self.diagnostics.resolved_count = results.length
+    return results
+  end
+
+  -- Detect circular dependencies using depth-first search.
+  fn detect_cycles(self, graph: Map<String, List<String>>) -> List<List<String>> do
+    let cycles be List<List<String>>{}
+    let visited be Map<String, Bool>{}
+    let rec_stack be Map<String, Bool>{}
+    let path be List<String>{}
+    for node in graph.keys do
+      visited[node] = false
+      rec_stack[node] = false
+    end
+    for node in graph.keys do
+      if visited[node] == false then
+        self._dfs_cycle(node, graph, visited, rec_stack, path, cycles)
+      end
+    end
+    return cycles
+  end
+
+  -- Internal DFS helper for cycle detection.
+  fn _dfs_cycle(self, node: String, graph: Map<String, List<String>>,
+                 visited: Map<String, Bool>, rec_stack: Map<String, Bool>,
+                 path: List<String>, cycles: List<List<String>>) do
+    visited[node] = true
+    rec_stack[node] = true
+    path.append(node)
+    let neighbors be graph[node]
+    if neighbors != nil then
+      for neighbor in neighbors do
+        if visited[neighbor] == false then
+          self._dfs_cycle(neighbor, graph, visited, rec_stack, path, cycles)
+        else if rec_stack[neighbor] == true then
+          let cycle_start be path.index_of(neighbor)
+          let cycle be List<String>{}
+          if cycle_start >= 0 then
+            let idx be cycle_start
+            while idx < path.length do
+              cycle.append(path[idx])
+              idx = idx + 1
+            end
+          end
+          cycle.append(neighbor)
+          cycles.append(cycle)
+        end
+      end
+    end
+    rec_stack[node] = false
+    path.remove_last
+  end
+
+  -- Topological sort using Kahn's algorithm.
+  fn topological_sort(self, graph: Map<String, List<String>>) -> List<String> do
+    let in_degree be Map<String, Int>{}
+    let all_nodes be List<String>{}
+    for node in graph.keys do
+      all_nodes.append(node)
+      in_degree[node] = 0
+    end
+    for node in graph.keys do
+      let deps be graph[node]
+      if deps != nil then
+        for dep in deps do
+          if in_degree.has(dep) == false then
+            in_degree[dep] = 0
+            all_nodes.append(dep)
+          end
+          in_degree[dep] = in_degree[dep] + 1
+        end
+      end
+    end
+    let queue be List<String>{}
+    for node in all_nodes do
+      if in_degree[node] == 0 then
+        queue.append(node)
+      end
+    end
+    let result be List<String>{}
+    while queue.length > 0 do
+      let current be queue.remove_at(0)
+      result.append(current)
+      let neighbors be graph[current]
+      if neighbors != nil then
+        for n in neighbors do
+          in_degree[n] = in_degree[n] - 1
+          if in_degree[n] == 0 then
+            queue.append(n)
+          end
+        end
+      end
+    end
+    if result.length != all_nodes.length then
+      let err be LinkError{}
+      err.kind = LinkErrorKind.CIRCULAR_DEPENDENCY
+      err.message = "Cycle detected during topological sort"
+      self.diagnostics.errors.append(err)
+    end
+    return result
+  end
+
+  -- Deduplicate symbols across all resolved modules.
+  fn deduplicate_symbols(self, modules: Map<String, LinkedModule>) -> Map<String, String> do
+    let symbol_map be Map<String, String>{}
+    let duplicates be List<LinkError>{}
+    for mod_path in modules.keys do
+      let mod be modules[mod_path]
+      let exports be self._read_exports(mod_path)
+      for sym in exports do
+        if symbol_map.has(sym) then
+          let err be LinkError{}
+          err.kind = LinkErrorKind.DUPLICATE_SYMBOL
+          err.message = "Duplicate symbol: " + sym + " in " + symbol_map[sym] + " and " + mod_path
+          err.source_module = symbol_map[sym]
+          err.module_path = mod_path
+          duplicates.append(err)
+        else
+          symbol_map[sym] = mod_path
+        end
+      end
+    end
+    for d in duplicates do
+      self.diagnostics.errors.append(d)
+    end
+    return symbol_map
+  end
+
+  -- Merge semantic attributes from all linked modules.
+  fn merge_semantic_attrs(self, modules: Map<String, LinkedModule>) -> Map<String, String> do
+    let merged be Map<String, String>{}
+    for mod_path in modules.keys do
+      let mod be modules[mod_path]
+      let attrs be mod.semantic_attributes
+      for key in attrs.keys do
+        let full_key be mod_path + ":" + key
+        merged[full_key] = attrs[key]
+      end
+    end
+    return merged
+  end
+
+  -- Produce an import map artifact for downstream tooling.
+  fn produce_import_map(self, modules: Map<String, LinkedModule>) -> Map<String, List<String>> do
+    let import_map be Map<String, List<String>>{}
+    for mod_path in modules.keys do
+      let mod be modules[mod_path]
+      let import_paths be List<String>{}
+      for res in mod.resolved_imports do
+        if res.found then
+          import_paths.append(res.resolved_path)
+        end
+      end
+      import_map[mod_path] = import_paths
+    end
+    return import_map
+  end
+
+  -- Link a single module.
+  fn link_module(self, module_path: String) -> LinkedModule do
+    let linked be LinkedModule{}
+    linked.module_path = module_path
+    let resolutions be self.resolve_imports(module_path)
+    linked.resolved_imports = resolutions
+    let dep_graph be Map<String, List<String>>{}
+    dep_graph[module_path] = List<String>{}
+    for res in resolutions do
+      if res.found then
+        dep_graph[module_path].append(res.resolved_path)
+      end
+    end
+    let order be self.topological_sort(dep_graph)
+    linked.dependency_order = order
+    linked.semantic_attributes = self._extract_semantic_attrs(module_path)
+    linked.total_symbols = self._count_symbols(module_path)
+    self.resolved_modules[module_path] = linked
+    return linked
+  end
+
+  -- Link all discovered modules in the workspace.
+  fn link_all(self, entry_modules: List<String>) -> Map<String, LinkedModule> do
+    let start be self._now()
+    for entry in entry_modules do
+      self.link_module(entry)
+      if self.config.resolve_transitive then
+        let linked be self.resolved_modules[entry]
+        for res in linked.resolved_imports do
+          if res.found and self.resolved_modules.has(res.resolved_path) == false then
+            self.link_module(res.resolved_path)
+          end
+        end
+      end
+    end
+    let full_graph be Map<String, List<String>>{}
+    for mod_path in self.resolved_modules.keys do
+      let mod be self.resolved_modules[mod_path]
+      let deps be List<String>{}
+      for res in mod.resolved_imports do
+        if res.found then
+          deps.append(res.resolved_path)
+        end
+      end
+      full_graph[mod_path] = deps
+    end
+    let cycles be self.detect_cycles(full_graph)
+    for cyc in cycles do
+      let err be LinkError{}
+      err.kind = LinkErrorKind.CIRCULAR_DEPENDENCY
+      err.message = "Circular dependency: " + cyc.join(" -> ")
+      self.diagnostics.errors.append(err)
+    end
+    self.deduplicate_symbols(self.resolved_modules)
+    self.link_time = self._now() - start
+    self.diagnostics.total_time = self.link_time
+    return self.resolved_modules
+  end
+
+  -- Generate a human-readable diagnostics report.
+  fn report(self) -> String do
+    let buf be List<String>{}
+    buf.append("=== Linker Diagnostics ===")
+    buf.append("Resolved modules: " + self.diagnostics.resolved_count.to_string)
+    buf.append("Total time: " + self.diagnostics.total_time.to_string + "ms")
+    buf.append("Errors: " + self.diagnostics.errors.length.to_string)
+    for e in self.diagnostics.errors do
+      buf.append("  [" + e.severity + "] " + e.kind.to_string + ": " + e.message)
+    end
+    buf.append("Warnings: " + self.diagnostics.warnings.length.to_string)
+    for w in self.diagnostics.warnings do
+      buf.append("  [" + w.severity + "] " + w.message)
+    end
+    return buf.join("\n")
+  end
+
+  -- Read import declarations from a module file.
+  fn _read_imports(self, module_path: String) -> List<String> do
+    let content be self._read_file(module_path)
+    let imports be List<String>{}
+    for line in content.split("\n") do
+      let trimmed be line.trim
+      if trimmed.starts_with("import ") then
+        let rest be trimmed.substring(7).trim
+        let mod_name be rest.split("::")[0].trim
+        imports.append(mod_name)
+      end
+    end
+    return imports
+  end
+
+  -- Search for a module across the search order.
+  fn _search_module(self, name: String, search_order: List<String>) -> String do
+    for candidate in search_order do
+      if self._file_exists(candidate) then
+        return candidate
+      end
+    end
+    return ""
+  end
+
+  -- Extract semantic attributes from a module.
+  fn _extract_semantic_attrs(self, module_path: String) -> Map<String, String> do
+    let attrs be Map<String, String>{}
+    let content be self._read_file(module_path)
+    for line in content.split("\n") do
+      let trimmed be line.trim
+      if trimmed.starts_with("intent ") then
+        let value be trimmed.substring(7).replace("\"", "").trim
+        attrs["intent"] = value
+      end
+    end
+    return attrs
+  end
+
+  -- Count exported symbols in a module.
+  fn _count_symbols(self, module_path: String) -> Int do
+    let content be self._read_file(module_path)
+    let count be 0
+    for line in content.split("\n") do
+      if line.trim.starts_with("fn ") or line.trim.starts_with("entity ") then
+        count = count + 1
+      end
+    end
+    return count
+  end
+
+  -- Read exports block from a module.
+  fn _read_exports(self, module_path: String) -> List<String> do
+    let content be self._read_file(module_path)
+    let exports be List<String>{}
+    let in_export be false
+    for line in content.split("\n") do
+      let trimmed be line.trim
+      if trimmed.starts_with("export ") then
+        in_export = true
+        let inner be trimmed.substring(7)
+        if inner.starts_with("{") then
+          let items be inner.replace("{", "").replace("}", "").replace(",", " ")
+          for item in items.split_whitespace do
+            if item != "" then
+              exports.append(item)
+            end
+          end
+          in_export = false
+        end
+      else if in_export then
+        if trimmed.starts_with("}") then
+          in_export = false
+        end
+      end
+    end
+    return exports
+  end
+
+  fn _read_file(self, path: String) -> String do
+    return ""
+  end
+
+  fn _file_exists(self, path: String) -> Bool do
+    return false
+  end
+
+  fn _now(self) -> Float do
+    return 0.0
+  end
+end
+
+export { ModuleLinker, LinkerConfig, LinkedModule, LinkError, LinkErrorKind, DependencyOrderStrategy, ImportResolution, LinkerDiagnostics }

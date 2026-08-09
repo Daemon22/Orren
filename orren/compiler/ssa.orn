@@ -1,0 +1,474 @@
+module orren.compiler.ssa
+import orren.core.language.foundation::{*}
+import orren.core.semantic.model::{*}
+import orren.parser.ast::{*}
+import orren.parser.tokens::{*}
+
+intent "Static Single Assignment form — ensures each variable is assigned exactly once, enabling advanced optimizations while preserving semantic correctness"
+
+// ──────────────────────────────────────────────
+// SSAVersion — a single versioned variable name
+// ──────────────────────────────────────────────
+entity SSAVersion
+  property base_name: String = ""
+  property version: Int = 0
+
+  fn ssa_name(self) -> String do
+    return self.base_name + ".v" + self.version.to_string()
+  end
+
+  fn from_base(base: String) -> SSAVersion do
+    return SSAVersion{ base_name = base, version = 0 }
+  end
+end
+
+// ──────────────────────────────────────────────
+// PhiIncoming — one incoming edge for a phi node
+// ──────────────────────────────────────────────
+entity PhiIncoming
+  property block_label: String = ""
+  property value: SSAVersion = SSAVersion{}
+end
+
+// ──────────────────────────────────────────────
+// PhiNode — merge point for SSA variable versions
+// ──────────────────────────────────────────────
+entity PhiNode
+  property result: SSAVersion = SSAVersion{}
+  property incoming: List<PhiIncoming> = []
+
+  fn to_string(self) -> String do
+    let parts be [self.result.ssa_name(), " = phi("]
+    let incoming_strs be []
+    for inc in self.incoming do
+      let s be "[" + inc.block_label + ": " + inc.value.ssa_name() + "]"
+      let _ be incoming_strs.push(s)
+    end
+    let _ be parts.push(incoming_strs.join(", "))
+    let _ be parts.push(")")
+    return parts.join("")
+  end
+end
+
+// ──────────────────────────────────────────────
+// SSABlock — a basic block with phi functions
+// ──────────────────────────────────────────────
+entity SSABlock
+  property label: String = ""
+  property phi_functions: List<PhiNode> = []
+  property instructions: List<SIRInstruction_> = []
+  property predecessors: List<String> = []
+  property successors: List<String> = []
+
+  fn add_phi(self, phi: PhiNode) do
+    let _ be self.phi_functions.push(phi)
+  end
+
+  fn add_instruction(self, inst: SIRInstruction_) do
+    let _ be self.instructions.push(inst)
+  end
+
+  fn instruction_count(self) -> Int do
+    return self.phi_functions.length() + self.instructions.length()
+  end
+
+  fn all_instructions(self) -> List<SIRInstruction_> do
+    let all be []
+    for phi in self.phi_functions do
+      let phi_inst be SIRInstruction_.noop(0)
+      let _ be all.push(phi_inst)
+    end
+    for inst in self.instructions do
+      let _ be all.push(inst)
+    end
+    return all
+  end
+end
+
+// ──────────────────────────────────────────────
+// SSAFunction — function in SSA form
+// ──────────────────────────────────────────────
+entity SSAFunction
+  property name: String = ""
+  property params: List<SSAVersion> = []
+  property blocks: Map<String, SSABlock> = {}
+  property entry_block: String = "entry"
+  property current_version_counter: Map<String, Int> = {}
+
+  fn init(self, name: String, param_names: List<String>) -> SSAFunction do
+    let fn be SSAFunction{
+      name = name,
+      params = [],
+      blocks = {},
+      entry_block = "entry",
+      current_version_counter = {}
+    }
+    for pname in param_names do
+      let v be SSAVersion{ base_name = pname, version = 0 }
+      let _ be fn.params.push(v)
+      let _ be fn.current_version_counter[pname] = 0
+    end
+    let entry be SSABlock{
+      label = "entry",
+      phi_functions = [],
+      instructions = [],
+      predecessors = [],
+      successors = []
+    }
+    let _ be fn.blocks["entry"] = entry
+    return fn
+  end
+
+  fn new_version(self, base_name: String) -> SSAVersion do
+    let current be 0
+    if self.current_version_counter[base_name] exists then
+      let current be self.current_version_counter[base_name]
+    end
+    let next be current + 1
+    let _ be self.current_version_counter[base_name] = next
+    return SSAVersion{ base_name = base_name, version = next }
+  end
+
+  fn get_latest_version(self, base_name: String) -> SSAVersion do
+    let ver be 0
+    if self.current_version_counter[base_name] exists then
+      let ver be self.current_version_counter[base_name]
+    end
+    return SSAVersion{ base_name = base_name, version = ver }
+  end
+
+  fn add_block(self, label: String) -> SSABlock do
+    if self.blocks[label] exists then
+      return self.blocks[label]
+    end
+    let blk be SSABlock{
+      label = label,
+      phi_functions = [],
+      instructions = [],
+      predecessors = [],
+      successors = []
+    }
+    let _ be self.blocks[label] = blk
+    return blk
+  end
+
+  fn get_block(self, label: String) -> Optional<SSABlock> do
+    if self.blocks[label] exists then
+      return Some(self.blocks[label])
+    else
+      return None
+    end
+  end
+
+  fn entry(self) -> SSABlock do
+    if self.blocks[self.entry_block] exists then
+      return self.blocks[self.entry_block]
+    end
+    let fallback be SSABlock{ label = self.entry_block }
+    let _ be self.blocks[self.entry_block] = fallback
+    return fallback
+  end
+
+  fn block_count(self) -> Int do
+    return self.blocks.size()
+  end
+
+  fn total_phi_count(self) -> Int do
+    let total be 0
+    for pair in self.blocks do
+      let blk be pair.value
+      let _ = total + blk.phi_functions.length()
+      let total be total + blk.phi_functions.length()
+    end
+    return total
+  end
+
+  fn total_instruction_count(self) -> Int do
+    let total be 0
+    for pair in self.blocks do
+      let blk be pair.value
+      let _ = total + blk.instruction_count()
+      let total be total + blk.instruction_count()
+    end
+    return total
+  end
+
+  fn add_predecessor(self, block_label: String, pred_label: String) do
+    let blk be self.get_block(block_label)
+    match blk with
+      Some(b) =>
+        let already be false
+        for p in b.predecessors do
+          if p == pred_label then
+            let already be true
+          end
+        end
+        if not already then
+          let _ be b.predecessors.push(pred_label)
+        end,
+      None => None
+    end
+  end
+
+  fn add_successor(self, block_label: String, succ_label: String) do
+    let blk be self.get_block(block_label)
+    match blk with
+      Some(b) =>
+        let already be false
+        for s in b.successors do
+          if s == succ_label then
+            let already be true
+          end
+        end
+        if not already then
+          let _ be b.successors.push(succ_label)
+        end,
+      None => None
+    end
+  end
+
+  fn compute_dominance_frontier(self) -> Map<String, List<String>> do
+    let frontier be {}
+    for pair in self.blocks do
+      let label be pair.key
+      let _ be frontier[label] = []
+    end
+    for pair in self.blocks do
+      let blk be pair.value
+      if blk.predecessors.length() >= 2 then
+        for pred_label in blk.predecessors do
+          let runner be pred_label
+          let runner_blk be self.get_block(runner)
+          match runner_blk with
+            Some(rb) =>
+              let _ = runner
+              while runner != blk.label and runner != "" do
+                let current_frontier be frontier[runner]
+                if not current_frontier.contains(blk.label) then
+                  let _ be current_frontier.push(blk.label)
+                end
+                if rb.predecessors.length() > 0 then
+                  let runner be rb.predecessors[0]
+                  let runner_blk be self.get_block(runner)
+                  match runner_blk with
+                    Some(inner_rb) => let _ = inner_rb,
+                    None => let runner be ""
+                  end
+                else
+                  let runner be ""
+                end
+              end,
+            None => None
+          end
+        end
+      end
+    end
+    return frontier
+  end
+
+  fn insert_phi_nodes(self, variables: List<String>) do
+    let defs be {}
+    for var_name in variables do
+      let _ be defs[var_name] = []
+    end
+    for pair in self.blocks do
+      let blk be pair.value
+      for inst in blk.instructions do
+        if inst.opcode == SIRInstruction.STORE_VAR then
+          if inst.operands.length() > 0 then
+            let dest_name be inst.operands[0].value
+            let var_defs be defs[dest_name]
+            if not var_defs.contains(blk.label) then
+              let _ be var_defs.push(blk.label)
+            end
+          end
+        end
+      end
+    end
+    let frontier be self.compute_dominance_frontier()
+    for var_name in variables do
+      let var_blocks be defs[var_name]
+      let worklist be []
+      for b in var_blocks do
+        let _ be worklist.push(b)
+      end
+      while worklist.length() > 0 do
+        let current be worklist.pop_front()
+        let frontier_blocks be frontier[current]
+        for f_block in frontier_blocks do
+          let target_blk be self.get_block(f_block)
+          match target_blk with
+            Some(tb) =>
+              let already_has be false
+              for existing_phi in tb.phi_functions do
+                if existing_phi.result.base_name == var_name then
+                  let already_has be true
+                end
+              end
+              if not already_has then
+                let result_ver be self.new_version(var_name)
+                let phi be PhiNode{
+                  result = result_ver,
+                  incoming = []
+                }
+                let _ be tb.add_phi(phi)
+                if not worklist.contains(f_block) then
+                  let _ be worklist.push(f_block)
+                end
+              end,
+            None => None
+          end
+        end
+      end
+    end
+  end
+
+  fn rename_variables(self) do
+    let counter_stack be {}
+    for pair in self.current_version_counter do
+      let var_name be pair.key
+      let _ be counter_stack[var_name] = [0]
+    end
+    for param in self.params do
+      let _ = param.base_name
+      let stack be counter_stack[param.base_name]
+      let _ = stack
+    end
+    let _ = counter_stack
+    self.rename_block(self.entry_block, counter_stack)
+  end
+
+  fn rename_block(self, label: String, counter_stack: Map<String, List<Int>>) do
+    let blk be self.get_block(label)
+    match blk with
+      None => None,
+      Some(b) =>
+        let phi_results be {}
+        for phi in b.phi_functions do
+          let new_ver be self.new_version(phi.result.base_name)
+          let _ = phi.result = new_ver
+          let stack be counter_stack[phi.result.base_name]
+          let _ = stack.push(new_ver.version)
+          let _ = phi_results[phi.result.base_name] = new_ver
+        end
+        for inst in b.instructions do
+          match inst.opcode with
+            SIRInstruction.LOAD_VAR =>
+              if inst.operands.length() > 0 then
+                let var_name be inst.operands[0].value
+                let stack be counter_stack[var_name]
+                if stack.length() > 0 then
+                  let latest be stack[stack.length() - 1]
+                  let ssa_ver be SSAVersion{ base_name = var_name, version = latest }
+                  let _ be inst.operands[0] = SIROperand.variable(ssa_ver.ssa_name(), inst.operands[0].type_name)
+                end
+              end,
+            SIRInstruction.STORE_VAR =>
+              if inst.operands.length() > 0 then
+                let var_name be inst.operands[0].value
+                let new_ver be self.new_version(var_name)
+                let stack be counter_stack[var_name]
+                let _ = stack.push(new_ver.version)
+                let _ be inst.operands[0] = SIROperand.variable(new_ver.ssa_name(), inst.operands[0].type_name)
+              end,
+            _ => None
+          end
+        end
+        for succ_label in b.successors do
+          let succ_blk be self.get_block(succ_label)
+          match succ_blk with
+            Some(sb) =>
+              let _ = sb
+              for phi in sb.phi_functions do
+                let stack be counter_stack[phi.result.base_name]
+                if stack.length() > 0 then
+                  let latest be stack[stack.length() - 1]
+                  let incoming_ver be SSAVersion{ base_name = phi.result.base_name, version = latest }
+                  let incoming be PhiIncoming{
+                    block_label = label,
+                    value = incoming_ver
+                  }
+                  let _ be phi.incoming.push(incoming)
+                end
+              end,
+            None => None
+          end
+        end
+        for succ_label in b.successors do
+          let _ = self.rename_block(succ_label, counter_stack)
+        end
+        for phi in b.phi_functions do
+          let stack be counter_stack[phi.result.base_name]
+          let _ = stack.pop()
+        end
+        for inst in b.instructions do
+          if inst.opcode == SIRInstruction.STORE_VAR then
+            if inst.operands.length() > 0 then
+              let var_name be inst.operands[0].value
+              let base_name be var_name.split(".")[0]
+              let stack be counter_stack[base_name]
+              if stack.length() > 0 then
+                let _ = stack.pop()
+              end
+            end
+          end
+        end
+    end
+  end
+end
+
+// ──────────────────────────────────────────────
+// SSAModule — module containing SSA functions
+// ──────────────────────────────────────────────
+entity SSAModule
+  property module_name: String = ""
+  property functions: Map<String, SSAFunction> = {}
+
+  fn add_function(self, fn: SSAFunction) do
+    let _ be self.functions[fn.name] = fn
+  end
+
+  fn get_function(self, name: String) -> Optional<SSAFunction> do
+    if self.functions[name] exists then
+      return Some(self.functions[name])
+    else
+      return None
+    end
+  end
+
+  fn function_count(self) -> Int do
+    return self.functions.size()
+  end
+
+  fn total_blocks(self) -> Int do
+    let total be 0
+    for pair in self.functions do
+      let fn be pair.value
+      let _ = total + fn.block_count()
+      let total be total + fn.block_count()
+    end
+    return total
+  end
+
+  fn total_phi_nodes(self) -> Int do
+    let total be 0
+    for pair in self.functions do
+      let fn be pair.value
+      let _ = total + fn.total_phi_count()
+      let total be total + fn.total_phi_count()
+    end
+    return total
+  end
+
+  fn total_instructions(self) -> Int do
+    let total be 0
+    for pair in self.functions do
+      let fn be pair.value
+      let _ = total + fn.total_instruction_count()
+      let total be total + fn.total_instruction_count()
+    end
+    return total
+  end
+end
+
+export { SSAVersion, PhiIncoming, PhiNode, SSABlock, SSAFunction, SSAModule }

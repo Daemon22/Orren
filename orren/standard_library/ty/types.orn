@@ -1,0 +1,437 @@
+module orren.types
+
+import from orren.core.language.foundation::{*}
+
+intent "Provide extended type definitions and type system utilities"
+intent "Enable runtime type introspection and registration"
+intent "Support type checking, coercion, and subtyping relationships"
+
+const TYPE_SYSTEM_VERSION = "1.0.0"
+const BUILTIN_TYPE_COUNT = 11
+const MAX_TYPE_DEPTH = 64
+const GENERIC_PARAM_PREFIX = "T"
+
+enum TypeKind
+    PRIMITIVE
+    COMPOSITE
+    FUNCTION
+    ENTITY
+    ENUM
+    COGNITIVE
+    MEDIATED
+end
+
+entity TypeSignature
+    property name : String = ""
+    property kind : TypeKind = TypeKind.PRIMITIVE
+    property type_params : List<String> = []
+    property fields : List<Map<String, String>> = []
+    property super_types : List<String> = []
+    property description : String = ""
+    property is_abstract : Bool = false
+
+    fn new(name : String, kind : TypeKind) -> TypeSignature
+        let sig : TypeSignature = TypeSignature()
+        sig.name = name
+        sig.kind = kind
+        return sig
+    end
+
+    fn to_string() -> String
+        let kind_str : String = ""
+        match self.kind with
+            TypeKind.PRIMITIVE then
+                kind_str = "PRIMITIVE"
+            TypeKind.COMPOSITE then
+                kind_str = "COMPOSITE"
+            TypeKind.FUNCTION then
+                kind_str = "FUNCTION"
+            TypeKind.ENTITY then
+                kind_str = "ENTITY"
+            TypeKind.ENUM then
+                kind_str = "ENUM"
+            TypeKind.COGNITIVE then
+                kind_str = "COGNITIVE"
+            TypeKind.MEDIATED then
+                kind_str = "MEDIATED"
+        end
+        let result : String = "TypeSignature(" + self.name + ", " + kind_str + ")"
+        if self.is_generic()
+            let params_str : String = ""
+            for param in self.type_params do
+                if params_str == ""
+                    params_str = param
+                else
+                    params_str = params_str + ", " + param
+                end
+            end
+            result = result + "<" + params_str + ">"
+        end
+        if ListOps.length(self.fields) > 0
+            result = result + " { "
+            let field_str : String = ""
+            for field in self.fields do
+                let fname : String = field["name"]
+                let ftype : String = field["type"]
+                let entry : String = fname + ": " + ftype
+                if field_str == ""
+                    field_str = entry
+                else
+                    field_str = field_str + "; " + entry
+                end
+            end
+            result = result + field_str + " }"
+        end
+        return result
+    end
+
+    fn is_generic() -> Bool
+        let count : Int = ListOps.length(self.type_params)
+        if count > 0
+            return true
+        else
+            return false
+        end
+    end
+
+    fn add_field(name : String, type_name : String) -> TypeSignature
+        let field_entry : Map<String, String> = {}
+        field_entry["name"] = name
+        field_entry["type"] = type_name
+        let updated_fields : List<Map<String, String>> = ListOps.append(self.fields, field_entry)
+        let updated : TypeSignature = self
+        updated.fields = updated_fields
+        return updated
+    end
+
+    fn add_type_param(param : String) -> TypeSignature
+        let updated_params : List<String> = ListOps.append(self.type_params, param)
+        let updated : TypeSignature = self
+        updated.type_params = updated_params
+        return updated
+    end
+
+    fn add_super_type(super_name : String) -> TypeSignature
+        let updated_supers : List<String> = ListOps.append(self.super_types, super_name)
+        let updated : TypeSignature = self
+        updated.super_types = updated_supers
+        return updated
+    end
+
+    fn has_field(name : String) -> Bool
+        for field in self.fields do
+            let fname : String = field["name"]
+            if fname == name
+                return true
+            end
+        end
+        return false
+    end
+
+    fn get_field_type(name : String) -> String
+        for field in self.fields do
+            let fname : String = field["name"]
+            if fname == name
+                let ftype : String = field["type"]
+                return ftype
+            end
+        end
+        return ""
+    end
+
+    fn field_count() -> Int
+        return ListOps.length(self.fields)
+    end
+end
+
+entity TypeRegistry
+    property types : Map<String, TypeSignature> = {}
+    property parent_map : Map<String, List<String>> = {}
+    property child_map : Map<String, List<String>> = {}
+
+    fn new() -> TypeRegistry
+        let reg : TypeRegistry = TypeRegistry()
+        reg.types = {}
+        reg.parent_map = {}
+        reg.child_map = {}
+        return reg
+    end
+
+    fn register(sig : TypeSignature)
+        self.types[sig.name] = sig
+        for super_name in sig.super_types do
+            let existing_children : List<String> = self.child_map[super_name]
+            let updated_children : List<String> = ListOps.append(existing_children, sig.name)
+            self.child_map[super_name] = updated_children
+            let existing_parents : List<String> = self.parent_map[sig.name]
+            let updated_parents : List<String> = ListOps.append(existing_parents, super_name)
+            self.parent_map[sig.name] = updated_parents
+        end
+    end
+
+    fn get(name : String) -> Optional<TypeSignature>
+        let sig : TypeSignature = self.types[name]
+        if sig.name != ""
+            return Optional.some(sig)
+        else
+            return Optional.none()
+        end
+    end
+
+    fn is_subtype(child : String, parent : String) -> Bool
+        if child == parent
+            return true
+        end
+        let parents : List<String> = self.parent_map[child]
+        for p in parents do
+            if p == parent
+                return true
+            end
+            let is_sub : Bool = self.is_subtype(p, parent)
+            if is_sub
+                return true
+            end
+        end
+        return false
+    end
+
+    fn is_supertype(parent : String, child : String) -> Bool
+        return self.is_subtype(child, parent)
+    end
+
+    fn list_types() -> List<String>
+        let names : List<String> = []
+        for name in self.types do
+            names = ListOps.append(names, name)
+        end
+        return names
+    end
+
+    fn list_types_of_kind(kind : TypeKind) -> List<String>
+        let result : List<String> = []
+        for name in self.types do
+            let sig : TypeSignature = self.types[name]
+            if sig.kind == kind
+                result = ListOps.append(result, name)
+            end
+        end
+        return result
+    end
+
+    fn type_exists(name : String) -> Bool
+        let sig : TypeSignature = self.types[name]
+        if sig.name != ""
+            return true
+        else
+            return false
+        end
+    end
+
+    fn children_of(name : String) -> List<String>
+        let children : List<String> = self.child_map[name]
+        return children
+    end
+
+    fn parents_of(name : String) -> List<String>
+        let parents : List<String> = self.parent_map[name]
+        return parents
+    end
+
+    fn count() -> Int
+        let names : List<String> = self.list_types()
+        return ListOps.length(names)
+    end
+
+    fn initialize_builtins() -> TypeRegistry
+        let reg : TypeRegistry = TypeRegistry.new()
+
+        let string_sig : TypeSignature = TypeSignature.new("String", TypeKind.PRIMITIVE)
+        string_sig.description = "Unicode text string"
+        reg.register(string_sig)
+
+        let int_sig : TypeSignature = TypeSignature.new("Int", TypeKind.PRIMITIVE)
+        int_sig.description = "Arbitrary precision integer"
+        reg.register(int_sig)
+
+        let float_sig : TypeSignature = TypeSignature.new("Float", TypeKind.PRIMITIVE)
+        float_sig.description = "IEEE 754 floating point number"
+        reg.register(float_sig)
+
+        let bool_sig : TypeSignature = TypeSignature.new("Bool", TypeKind.PRIMITIVE)
+        bool_sig.description = "Boolean true or false"
+        reg.register(bool_sig)
+
+        let nil_sig : TypeSignature = TypeSignature.new("Nil", TypeKind.PRIMITIVE)
+        nil_sig.description = "Unit or null type"
+        reg.register(nil_sig)
+
+        let list_sig : TypeSignature = TypeSignature.new("List", TypeKind.COMPOSITE)
+        list_sig.description = "Ordered homogeneous collection"
+        list_sig = list_sig.add_type_param("T")
+        list_sig = list_sig.add_field("elements", "List<T>")
+        reg.register(list_sig)
+
+        let map_sig : TypeSignature = TypeSignature.new("Map", TypeKind.COMPOSITE)
+        map_sig.description = "Key-value associative collection"
+        map_sig = map_sig.add_type_param("K")
+        map_sig = map_sig.add_type_param("V")
+        map_sig = map_sig.add_field("keys", "List<K>")
+        map_sig = map_sig.add_field("values", "List<V>")
+        reg.register(map_sig)
+
+        let pair_sig : TypeSignature = TypeSignature.new("Pair", TypeKind.COMPOSITE)
+        pair_sig.description = "Two-element tuple"
+        pair_sig = pair_sig.add_type_param("A")
+        pair_sig = pair_sig.add_type_param("B")
+        pair_sig = pair_sig.add_field("first", "A")
+        pair_sig = pair_sig.add_field("second", "B")
+        reg.register(pair_sig)
+
+        let maybe_sig : TypeSignature = TypeSignature.new("Maybe", TypeKind.COMPOSITE)
+        maybe_sig.description = "Optional value container"
+        maybe_sig = maybe_sig.add_type_param("T")
+        maybe_sig = maybe_sig.add_field("value", "T")
+        maybe_sig = maybe_sig.add_field("has_value", "Bool")
+        reg.register(maybe_sig)
+
+        let result_sig : TypeSignature = TypeSignature.new("Result", TypeKind.COMPOSITE)
+        result_sig.description = "Error-handling container"
+        result_sig = result_sig.add_type_param("T")
+        result_sig = result_sig.add_type_param("E")
+        result_sig = result_sig.add_field("value", "T")
+        result_sig = result_sig.add_field("error", "E")
+        result_sig = result_sig.add_field("is_ok", "Bool")
+        reg.register(result_sig)
+
+        let sem_attrs_sig : TypeSignature = TypeSignature.new("SemanticAttributes", TypeKind.MEDIATED)
+        sem_attrs_sig.description = "Semantic attribute container for cognitive mediation"
+        sem_attrs_sig = sem_attrs_sig.add_field("intention", "String")
+        sem_attrs_sig = sem_attrs_sig.add_field("context", "String")
+        sem_attrs_sig = sem_attrs_sig.add_field("confidence", "Float")
+        reg.register(sem_attrs_sig)
+
+        let med_msg_sig : TypeSignature = TypeSignature.new("MediatedMessage", TypeKind.MEDIATED)
+        med_msg_sig.description = "Message with cognitive mediation metadata"
+        med_msg_sig = med_msg_sig.add_field("content", "String")
+        med_msg_sig = med_msg_sig.add_field("sender", "String")
+        med_msg_sig = med_msg_sig.add_field("attributes", "SemanticAttributes")
+        med_msg_sig = med_msg_sig.add_field("timestamp", "Float")
+        reg.register(med_msg_sig)
+
+        return reg
+    end
+
+    fn to_string() -> String
+        let count : Int = self.count()
+        return "TypeRegistry(" + count + " types registered)"
+    end
+end
+
+entity TypeChecker
+    property registry : TypeRegistry = TypeRegistry.new()
+
+    fn new(registry : TypeRegistry) -> TypeChecker
+        let checker : TypeChecker = TypeChecker()
+        checker.registry = registry
+        return checker
+    end
+
+    fn check(expr_type : String, expected_type : String) -> Bool
+        if expr_type == expected_type
+            return true
+        end
+        let is_sub : Bool = self.registry.is_subtype(expr_type, expected_type)
+        if is_sub
+            return true
+        end
+        if expr_type == "Nil"
+            return true
+        end
+        return false
+    end
+
+    fn coerce(value : String, from_type : String, to_type : String) -> String
+        if from_type == to_type
+            return value
+        end
+        if self.check(from_type, to_type)
+            return value
+        end
+        match from_type with
+            "Int" then
+                match to_type with
+                    "Float" then
+                        return value + ".0"
+                    "String" then
+                        return value
+                end
+            "Float" then
+                match to_type with
+                    "String" then
+                        return value
+                end
+            "Bool" then
+                match to_type with
+                    "String" then
+                        return value
+                end
+        end
+        return ""
+    end
+
+    fn common_type(a : String, b : String) -> String
+        if a == b
+            return a
+        end
+        if self.check(a, b)
+            return b
+        end
+        if self.check(b, a)
+            return a
+        end
+        if a == "Int"
+            if b == "Float"
+                return "Float"
+            end
+        end
+        if a == "Float"
+            if b == "Int"
+                return "Float"
+            end
+        end
+        return "String"
+    end
+
+    fn is_numeric(type_name : String) -> Bool
+        if type_name == "Int"
+            return true
+        end
+        if type_name == "Float"
+            return true
+        end
+        return false
+    end
+
+    fn is_primitive(type_name : String) -> Bool
+        let sig : TypeSignature = self.registry.types[type_name]
+        if sig.kind == TypeKind.PRIMITIVE
+            return true
+        else
+            return false
+        end
+    end
+
+    fn describe(type_name : String) -> String
+        let sig : TypeSignature = self.registry.types[type_name]
+        if sig.name != ""
+            return sig.to_string()
+        else
+            return "Unknown type: " + type_name
+        end
+    end
+end
+
+export TypeKind
+export TypeSignature
+export TypeRegistry
+export TypeChecker

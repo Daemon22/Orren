@@ -1,0 +1,1606 @@
+module orren.parser.parser
+
+import orren.parser.tokens::{*}
+import orren.parser.ast::{*}
+import orren.core.language.foundation::{*}
+
+intent "The recursive descent parser that transforms a TokenStream into a
+  cognition-aware Abstract Syntax Tree. Every parse step preserves the
+  semantic domain annotations carried by tokens, ensuring that the AST
+  is a faithful semantic representation of the source from the moment
+  it is constructed. The parser implements precedence climbing for
+  expressions and dispatch-based parsing for all statement forms."
+
+-- =========================================================================
+-- ENTITY: ParseError
+-- =========================================================================
+-- Represents a single error encountered during parsing. Carries the
+-- error message, source location, and the text near the error for
+-- diagnostic output. Parse errors are collected but do not immediately
+-- halt parsing, allowing multiple errors to be reported per compilation.
+-- =========================================================================
+
+entity ParseError
+  -- Human-readable description of what went wrong.
+  property message: String = ""
+
+  -- The line number where the error was detected.
+  property line: Int = 1
+
+  -- The column number where the error was detected.
+  property column: Int = 1
+
+  -- The source text near the error location for context.
+  property near: String = ""
+
+  -- Produce a formatted error string for reporting.
+  fn to_string(self) -> String do
+    let location be "ParseError at line " + int_to_string(self.line)
+      + ", column " + int_to_string(self.column)
+    let near_text be ""
+    if self.near != "" then
+      near_text = " [near '" + self.near + "']"
+    end
+    return location + ": " + self.message + near_text
+  end
+end
+
+-- =========================================================================
+-- ENTITY: Parser
+-- =========================================================================
+-- The main recursive descent parser for the Orren language. Consumes a
+-- TokenStream and produces a ProgramNode representing the full AST of
+-- the source file. The parser is structured as a set of mutually recursive
+-- methods, each responsible for a single grammar production.
+--
+-- Parsing strategy:
+--   - Top-level: module declaration, imports, intents, declarations, exports
+--   - Declarations: entity, enum, function, const dispatch by current token
+--   - Statements: let, const, if, for, loop, match, return, raise, expression
+--   - Expressions: assignment, or, and, comparison, addition, multiplication,
+--     unary, primary (literals, identifiers, calls, cognitive ops, lists, maps)
+--
+-- Error handling: errors are collected in a list rather than thrown,
+-- allowing recovery and multiple-error reporting. After parsing completes,
+-- the caller checks the errors list to determine success or failure.
+-- =========================================================================
+
+entity Parser
+  -- The token stream being parsed.
+  property tokens: TokenStream = TokenStream{}
+
+  -- Accumulated parse errors during this parse.
+  property errors: List<ParseError> = []
+
+  -- The module name as declared at the top of the file.
+  property current_module: String = ""
+
+  -- Initialize a new parser with the given token stream.
+  fn init(tokens: TokenStream) -> Parser do
+    let parser be Parser{}
+    parser.tokens = tokens
+    parser.errors = []
+    parser.current_module = ""
+    return parser
+  end
+
+  -- =====================================================================
+  -- MAIN ENTRY POINT
+  -- =====================================================================
+  -- Parses the entire source file into a ProgramNode. Expects the
+  -- following top-level structure:
+  --   module <name>
+  --   import <path>::{<symbols>}
+  --   intent "<description>"
+  --   <declarations>
+  --   export {<symbols>}
+  -- =====================================================================
+
+  fn parse(self) -> ProgramNode do
+    let program be ProgramNode{}
+    program.module_name = ""
+    program.imports = []
+    program.intents = []
+    program.declarations = []
+    program.exports = []
+
+    -- Parse module declaration if present.
+    if self.check_type(MODULE) then
+      program.module_name = self.parse_module_declaration()
+      self.current_module = program.module_name
+    end
+
+    -- Parse imports, intents, declarations, and exports until EOF.
+    while not self.tokens.at_end() do
+      if self.tokens.current().type == EOF then
+        break
+      end
+
+      let current be self.tokens.current().type
+
+      if current == IMPORT then
+        let import_node be self.parse_import()
+        program.imports.append(import_node)
+      else if current == INTENT then
+        let intent_node be self.parse_intent()
+        program.intents.append(intent_node)
+      else if current == EXPORT then
+        let export_node be self.parse_export()
+        program.exports.append(export_node)
+      else if current == ENTITY or current == ENUM or current == FN
+                  or current == CONST or current == LET then
+        let decl be self.parse_declaration()
+        match decl with
+          Optional::some(node) => program.declarations.append(node),
+          Optional::none() => None
+        end
+      else
+        -- Skip unexpected tokens at the top level.
+        let tok be self.tokens.advance()
+        let err be ParseError{}
+        err.message = "Unexpected token at top level: " + tok.lexeme
+        err.line = tok.line
+        err.column = tok.column
+        err.near = tok.lexeme
+        self.errors.append(err)
+      end
+    end
+
+    return program
+  end
+
+  -- =====================================================================
+  -- MODULE DECLARATION
+  -- =====================================================================
+  -- Parses: module orren.path.name
+  -- Returns the fully qualified module name string.
+  -- =====================================================================
+
+  fn parse_module_declaration(self) -> String do
+    self.advance() -- consume 'module'
+    let parts be List<String>{}
+    let name_token be self.expect(IDENTIFIER)
+    parts.append(name_token.literal)
+
+    -- Consume dot-separated path segments.
+    while self.check_type(DOT) do
+      self.advance() -- consume '.'
+      let part_token be self.expect(IDENTIFIER)
+      parts.append(part_token.literal)
+    end
+
+    return join_string_list_with(parts, ".")
+  end
+
+  -- =====================================================================
+  -- IMPORT DECLARATION
+  -- =====================================================================
+  -- Parses: import path::{sym1, sym2} or import path::{*}
+  -- Returns an ImportNode with the module path and symbol list.
+  -- =====================================================================
+
+  fn parse_import(self) -> ImportNode do
+    let start_line be self.peek().line
+    let start_col be self.peek().column
+    self.advance() -- consume 'import'
+
+    let node be ImportNode{}
+    node.line = start_line
+    node.column = start_col
+
+    -- Parse the module path.
+    let path_parts be List<String>{}
+    let first be self.expect(IDENTIFIER)
+    path_parts.append(first.literal)
+    while self.check_type(DOT) do
+      self.advance() -- consume '.'
+      let part be self.expect(IDENTIFIER)
+      path_parts.append(part.literal)
+    end
+    node.module_path = join_string_list_with(path_parts, ".")
+
+    -- Expect ::{...}
+    self.expect(COLON)
+    self.expect(COLON)
+    self.expect(LBRACE)
+
+    if self.check_type(STAR) then
+      -- Wildcard import: import path::{*}
+      self.advance() -- consume '*'
+      node.is_wildcard = true
+    else
+      -- Named import: import path::{Sym1, Sym2}
+      node.is_wildcard = false
+      let first_sym be self.expect(IDENTIFIER)
+      node.symbols.append(first_sym.literal)
+      while self.check_type(COMMA) do
+        self.advance() -- consume ','
+        let sym be self.expect(IDENTIFIER)
+        node.symbols.append(sym.literal)
+      end
+    end
+
+    self.expect(RBRACE)
+    return node
+  end
+
+  -- =====================================================================
+  -- EXPORT DECLARATION
+  -- =====================================================================
+  -- Parses: export { Type1, Type2 }
+  -- Returns an ExportNode with the list of exported symbol names.
+  -- =====================================================================
+
+  fn parse_export(self) -> ExportNode do
+    let start_line be self.peek().line
+    let start_col be self.peek().column
+    self.advance() -- consume 'export'
+
+    let node be ExportNode{}
+    node.line = start_line
+    node.column = start_col
+
+    self.expect(LBRACE)
+    let first_sym be self.expect(IDENTIFIER)
+    node.symbols.append(first_sym.literal)
+    while self.check_type(COMMA) do
+      self.advance() -- consume ','
+      if self.check_type(RBRACE) then
+        break -- trailing comma
+      end
+      let sym be self.expect(IDENTIFIER)
+      node.symbols.append(sym.literal)
+    end
+    self.expect(RBRACE)
+
+    return node
+  end
+
+  -- =====================================================================
+  -- INTENT DECLARATION
+  -- =====================================================================
+  -- Parses: intent "description text"
+  -- Returns an IntentNode with the description string.
+  -- =====================================================================
+
+  fn parse_intent(self) -> IntentNode do
+    let start_line be self.peek().line
+    let start_col be self.peek().column
+    self.advance() -- consume 'intent'
+
+    let node be IntentNode{}
+    node.line = start_line
+    node.column = start_col
+
+    let string_token be self.expect(STRING)
+    node.description = string_token.literal
+
+    return node
+  end
+
+  -- =====================================================================
+  -- DECLARATION DISPATCH
+  -- =====================================================================
+  -- Dispatches to the appropriate declaration parser based on the
+  -- current token type. Returns an Optional<ASTNode> — none if the
+  -- current token does not begin a valid declaration.
+  -- =====================================================================
+
+  fn parse_declaration(self) -> Optional<ASTNode> do
+    let current be self.tokens.current().type
+
+    if current == ENTITY then
+      return Optional::some(self.parse_entity())
+    end
+    if current == ENUM then
+      return Optional::some(self.parse_enum())
+    end
+    if current == FN then
+      return Optional::some(self.parse_function())
+    end
+    if current == CONST then
+      return Optional::some(self.parse_const())
+    end
+    if current == LET then
+      return Optional::some(self.parse_let())
+    end
+
+    -- Cognitive keyword functions: reason fn, believe fn, etc.
+    if self.peek().is_cognitive() then
+      self.advance() -- consume the cognitive keyword
+      if self.check_type(FN) then
+        return Optional::some(self.parse_function())
+      end
+    end
+
+    return Optional::none()
+  end
+
+  -- =====================================================================
+  -- ENTITY DECLARATION
+  -- =====================================================================
+  -- Parses: entity Name ... end
+  -- The entity body contains property and method declarations.
+  -- =====================================================================
+
+  fn parse_entity(self) -> EntityNode do
+    let start_line be self.peek().line
+    let start_col be self.peek().column
+    self.advance() -- consume 'entity'
+
+    let node be EntityNode{}
+    node.line = start_line
+    node.column = start_col
+    node.properties = []
+    node.methods = []
+    node.super_entities = []
+
+    let name_token be self.expect(IDENTIFIER)
+    node.name = name_token.literal
+
+    -- Parse optional super-entity list: extends Parent1, Parent2
+    -- (not in the core syntax yet, but预留)
+
+    -- Parse body: property and fn declarations until 'end'.
+    while not self.check_type(END) do
+      if self.tokens.at_end() then
+        let err be ParseError{}
+        err.message = "Unterminated entity '" + node.name + "'"
+        err.line = start_line
+        err.column = start_col
+        err.near = name_token.literal
+        self.errors.append(err)
+        break
+      end
+
+      if self.check_type(PROPERTY) then
+        let prop be self.parse_property()
+        node.properties.append(prop)
+      else if self.check_type(FN) then
+        let method be self.parse_function()
+        node.methods.append(method)
+      else
+        -- Skip unexpected tokens inside entity body.
+        let tok be self.tokens.advance()
+        let err be ParseError{}
+        err.message = "Unexpected token in entity body: " + tok.lexeme
+        err.line = tok.line
+        err.column = tok.column
+        err.near = tok.lexeme
+        self.errors.append(err)
+      end
+    end
+
+    self.expect(END)
+    return node
+  end
+
+  -- =====================================================================
+  -- ENUM DECLARATION
+  -- =====================================================================
+  -- Parses: enum Name VARIANT1 VARIANT2 ... end
+  -- Returns an EnumNode with the name and variant list.
+  -- =====================================================================
+
+  fn parse_enum(self) -> EnumNode do
+    let start_line be self.peek().line
+    let start_col be self.peek().column
+    self.advance() -- consume 'enum'
+
+    let node be EnumNode{}
+    node.line = start_line
+    node.column = start_col
+    node.variants = []
+
+    let name_token be self.expect(IDENTIFIER)
+    node.name = name_token.literal
+
+    -- Parse variant identifiers until 'end'.
+    while not self.check_type(END) do
+      if self.tokens.at_end() then
+        let err be ParseError{}
+        err.message = "Unterminated enum '" + node.name + "'"
+        err.line = start_line
+        err.column = start_col
+        self.errors.append(err)
+        break
+      end
+
+      let variant_token be self.expect(IDENTIFIER)
+      node.variants.append(variant_token.literal)
+    end
+
+    self.expect(END)
+    return node
+  end
+
+  -- =====================================================================
+  -- FUNCTION DECLARATION
+  -- =====================================================================
+  -- Parses: fn name(params) -> Type do ... end
+  -- Also handles cognitive-annotated functions.
+  -- =====================================================================
+
+  fn parse_function(self) -> FunctionNode do
+    let start_line be self.peek().line
+    let start_col be self.peek().column
+
+    let node be FunctionNode{}
+    node.line = start_line
+    node.column = start_col
+    node.params = []
+    node.return_type = ""
+    node.body = BlockNode{}
+    node.body.statements = []
+    node.is_cognitive = false
+    node.cognitive_keyword = ""
+
+    -- Check for cognitive keyword prefix (already consumed in
+    -- parse_declaration, but handle standalone fn too).
+    self.expect(FN)
+
+    let name_token be self.expect(IDENTIFIER)
+    node.name = name_token.literal
+
+    -- Parse parameter list: (param1: Type1, param2: Type2, ...)
+    self.expect(LPAREN)
+    if not self.check_type(RPAREN) then
+      let param be self.parse_param()
+      node.params.append(param)
+      while self.check_type(COMMA) do
+        self.advance() -- consume ','
+        let p be self.parse_param()
+        node.params.append(p)
+      end
+    end
+    self.expect(RPAREN)
+
+    -- Parse optional return type: -> Type
+    if self.check_type(ARROW) then
+      self.advance() -- consume '->'
+      let type_token be self.expect(IDENTIFIER)
+      node.return_type = type_token.literal
+      -- Handle generic types like List<Int>
+      while self.check_type(LT) do
+        self.advance() -- consume '<'
+        let _ = node.return_type + "<"
+        let inner be self.expect(IDENTIFIER)
+        let _ = node.return_type + inner.literal
+        if self.check_type(GT) then
+          self.advance()
+          let _ = node.return_type + ">"
+        end
+      end
+    end
+
+    -- Parse body: do ... end
+    node.body = self.parse_block()
+
+    return node
+  end
+
+  -- Parse a single function parameter: name: Type
+  fn parse_param(self) -> ParamNode do
+    let node be ParamNode{}
+    let name_token be self.expect(IDENTIFIER)
+    node.name = name_token.literal
+    node.line = name_token.line
+    node.column = name_token.column
+
+    self.expect(COLON)
+    let type_token be self.expect(IDENTIFIER)
+    node.type_name = type_token.literal
+
+    return node
+  end
+
+  -- =====================================================================
+  -- PROPERTY DECLARATION
+  -- =====================================================================
+  -- Parses: property name: Type = default_value
+  -- The default value is captured as a string representation.
+  -- =====================================================================
+
+  fn parse_property(self) -> PropertyNode do
+    let start_line be self.peek().line
+    let start_col be self.peek().column
+    self.advance() -- consume 'property'
+
+    let node be PropertyNode{}
+    node.line = start_line
+    node.column = start_col
+
+    let name_token be self.expect(IDENTIFIER)
+    node.name = name_token.literal
+
+    self.expect(COLON)
+    let type_token be self.expect(IDENTIFIER)
+    node.type_name = type_token.literal
+
+    -- Parse optional default value: = expr
+    if self.check_type(ASSIGN) then
+      self.advance() -- consume '='
+      let default_expr be self.parse_expression()
+      node.default_value = default_expr.to_summary()
+    end
+
+    return node
+  end
+
+  -- =====================================================================
+  -- BLOCK
+  -- =====================================================================
+  -- Parses: do <statements> end
+  -- Returns a BlockNode containing all parsed statements.
+  -- =====================================================================
+
+  fn parse_block(self) -> BlockNode do
+    let start_line be self.peek().line
+    let start_col be self.peek().column
+
+    let node be BlockNode{}
+    node.line = start_line
+    node.column = start_col
+    node.statements = []
+
+    self.expect(DO)
+
+    while not self.check_type(END) do
+      if self.tokens.at_end() then
+        let err be ParseError{}
+        err.message = "Unterminated block starting at this location"
+        err.line = start_line
+        err.column = start_col
+        self.errors.append(err)
+        break
+      end
+      let stmt be self.parse_statement()
+      node.statements.append(stmt)
+    end
+
+    self.expect(END)
+    return node
+  end
+
+  -- =====================================================================
+  -- STATEMENT DISPATCH
+  -- =====================================================================
+  -- Dispatches to the appropriate statement parser based on the current
+  -- token type. Falls through to expression parsing for expression
+  -- statements.
+  -- =====================================================================
+
+  fn parse_statement(self) -> ASTNode do
+    let current be self.tokens.current().type
+
+    if current == LET then
+      return self.parse_let()
+    end
+    if current == CONST then
+      return self.parse_const()
+    end
+    if current == IF then
+      return self.parse_if()
+    end
+    if current == FOR then
+      return self.parse_for()
+    end
+    if current == LOOP then
+      return self.parse_loop()
+    end
+    if current == MATCH then
+      return self.parse_match()
+    end
+    if current == RETURN then
+      return self.parse_return()
+    end
+    if current == RAISE then
+      return self.parse_raise()
+    end
+    if current == BREAK then
+      self.advance() -- consume 'break'
+      let node be ASTNode{}
+      node.node_type = "Break"
+      node.line = self.peek().line
+      node.column = self.peek().column
+      return node
+    end
+
+    -- Expression statement.
+    return self.parse_expression()
+  end
+
+  -- =====================================================================
+  -- LET STATEMENT
+  -- =====================================================================
+  -- Parses: let name be expression
+  -- =====================================================================
+
+  fn parse_let(self) -> LetNode do
+    let start_line be self.peek().line
+    let start_col be self.peek().column
+    self.advance() -- consume 'let'
+
+    let node be LetNode{}
+    node.line = start_line
+    node.column = start_col
+
+    let name_token be self.expect(IDENTIFIER)
+    node.name = name_token.literal
+
+    self.expect(BE)
+    node.value = self.parse_expression()
+
+    return node
+  end
+
+  -- =====================================================================
+  -- CONST STATEMENT
+  -- =====================================================================
+  -- Parses: const NAME: Type = value
+  -- =====================================================================
+
+  fn parse_const(self) -> ConstNode do
+    let start_line be self.peek().line
+    let start_col be self.peek().column
+    self.advance() -- consume 'const'
+
+    let node be ConstNode{}
+    node.line = start_line
+    node.column = start_col
+
+    let name_token be self.expect(IDENTIFIER)
+    node.name = name_token.literal
+
+    self.expect(COLON)
+    let type_token be self.expect(IDENTIFIER)
+    node.type_name = type_token.literal
+
+    self.expect(ASSIGN)
+    node.value = self.parse_expression()
+
+    return node
+  end
+
+  -- =====================================================================
+  -- IF STATEMENT
+  -- =====================================================================
+  -- Parses: if cond then ... else ... end
+  -- =====================================================================
+
+  fn parse_if(self) -> IfNode do
+    let start_line be self.peek().line
+    let start_col be self.peek().column
+    self.advance() -- consume 'if'
+
+    let node be IfNode{}
+    node.line = start_line
+    node.column = start_col
+
+    node.condition = self.parse_expression()
+    self.expect(THEN)
+
+    -- Parse then-branch as a block.
+    node.then_branch = BlockNode{}
+    node.then_branch.line = self.peek().line
+    node.then_branch.column = self.peek().column
+    node.then_branch.statements = []
+    while not self.check_type(ELSE) and not self.check_type(END) do
+      if self.tokens.at_end() then break end
+      let stmt be self.parse_statement()
+      node.then_branch.statements.append(stmt)
+    end
+
+    -- Parse optional else-branch.
+    if self.check_type(ELSE) then
+      self.advance() -- consume 'else'
+      node.else_branch = BlockNode{}
+      node.else_branch.line = self.peek().line
+      node.else_branch.column = self.peek().column
+      node.else_branch.statements = []
+      -- Support else-if chains.
+      if self.check_type(IF) then
+        let inner_if be self.parse_if()
+        node.else_branch.statements.append(inner_if)
+      else
+        while not self.check_type(END) do
+          if self.tokens.at_end() then break end
+          let stmt be self.parse_statement()
+          node.else_branch.statements.append(stmt)
+        end
+      end
+    end
+
+    self.expect(END)
+    return node
+  end
+
+  -- =====================================================================
+  -- FOR STATEMENT
+  -- =====================================================================
+  -- Parses: for item in iterable do ... end
+  -- =====================================================================
+
+  fn parse_for(self) -> ForNode do
+    let start_line be self.peek().line
+    let start_col be self.peek().column
+    self.advance() -- consume 'for'
+
+    let node be ForNode{}
+    node.line = start_line
+    node.column = start_col
+
+    let var_token be self.expect(IDENTIFIER)
+    node.variable = var_token.literal
+
+    self.expect(IN)
+    node.iterable = self.parse_expression()
+    node.body = self.parse_block()
+
+    return node
+  end
+
+  -- =====================================================================
+  -- LOOP STATEMENT
+  -- =====================================================================
+  -- Parses: loop do ... end
+  -- =====================================================================
+
+  fn parse_loop(self) -> LoopNode do
+    let start_line be self.peek().line
+    let start_col be self.peek().column
+    self.advance() -- consume 'loop'
+
+    let node be LoopNode{}
+    node.line = start_line
+    node.column = start_col
+    node.body = self.parse_block()
+
+    return node
+  end
+
+  -- =====================================================================
+  -- MATCH STATEMENT
+  -- =====================================================================
+  -- Parses: match expr with PATTERN => result, _ => default end
+  -- =====================================================================
+
+  fn parse_match(self) -> MatchNode do
+    let start_line be self.peek().line
+    let start_col be self.peek().column
+    self.advance() -- consume 'match'
+
+    let node be MatchNode{}
+    node.line = start_line
+    node.column = start_col
+    node.branches = []
+
+    node.subject = self.parse_expression()
+    self.expect(WITH)
+
+    -- Parse match branches: pattern => result, separated by commas.
+    let branch be self.parse_match_branch()
+    node.branches.append(branch)
+    while self.check_type(COMMA) do
+      self.advance() -- consume ','
+      if self.check_type(END) then
+        break -- trailing comma before end
+      end
+      let b be self.parse_match_branch()
+      node.branches.append(b)
+    end
+
+    self.expect(END)
+    return node
+  end
+
+  -- Parse a single match branch: pattern => result
+  fn parse_match_branch(self) -> MatchBranch do
+    let start_line be self.peek().line
+    let start_col be self.peek().column
+
+    let node be MatchBranch{}
+    node.line = start_line
+    node.column = start_col
+
+    -- Parse the pattern: an identifier, underscore, or literal.
+    if self.check_type(UNDERSCORE) then
+      self.advance() -- consume '_'
+      node.pattern = "_"
+    else if self.check_type(IDENTIFIER) then
+      let pat_token be self.advance()
+      node.pattern = pat_token.literal
+    else if self.check_type(INTEGER) then
+      let pat_token be self.advance()
+      node.pattern = pat_token.literal
+    else if self.check_type(STRING) then
+      let pat_token be self.advance()
+      node.pattern = "\"" + pat_token.literal + "\""
+    else if self.check_type(TRUE) then
+      self.advance()
+      node.pattern = "true"
+    else if self.check_type(FALSE) then
+      self.advance()
+      node.pattern = "false"
+    else if self.check_type(NIL) then
+      self.advance()
+      node.pattern = "nil"
+    else
+      let tok be self.peek()
+      let err be ParseError{}
+      err.message = "Expected match pattern, found: " + tok.lexeme
+      err.line = tok.line
+      err.column = tok.column
+      err.near = tok.lexeme
+      self.errors.append(err)
+      node.pattern = "_"
+    end
+
+    self.expect(FAT_ARROW) -- consume '=>'
+    node.result = self.parse_expression()
+
+    return node
+  end
+
+  -- =====================================================================
+  -- RETURN STATEMENT
+  -- =====================================================================
+  -- Parses: return expression
+  -- =====================================================================
+
+  fn parse_return(self) -> ReturnNode do
+    let start_line be self.peek().line
+    let start_col be self.peek().column
+    self.advance() -- consume 'return'
+
+    let node be ReturnNode{}
+    node.line = start_line
+    node.column = start_col
+
+    -- Parse the return value expression, if present.
+    -- If the next token starts a new statement, return nil.
+    let current be self.tokens.current().type
+    if current == END or current == ELSE or current == EOF then
+      let nil_node be LiteralNode{}
+      nil_node.literal_type = "nil"
+      nil_node.value = "nil"
+      node.value = nil_node
+    else
+      node.value = self.parse_expression()
+    end
+
+    return node
+  end
+
+  -- =====================================================================
+  -- RAISE STATEMENT
+  -- =====================================================================
+  -- Parses: raise error_type: message_expression
+  -- =====================================================================
+
+  fn parse_raise(self) -> RaiseNode do
+    let start_line be self.peek().line
+    let start_col be self.peek().column
+    self.advance() -- consume 'raise'
+
+    let node be RaiseNode{}
+    node.line = start_line
+    node.column = start_col
+
+    -- Parse the error type (an identifier or expression).
+    let type_expr be self.parse_expression()
+    node.error_type = type_expr.to_summary()
+
+    -- Optionally consume a colon and message.
+    if self.check_type(COLON) then
+      self.advance() -- consume ':'
+      let msg_token be self.expect(STRING)
+      node.message = msg_token.literal
+    end
+
+    return node
+  end
+
+  -- =====================================================================
+  -- EXPRESSION PARSING
+  -- =====================================================================
+  -- Expression parsing uses precedence climbing. The hierarchy from
+  -- lowest to highest precedence is:
+  --   expression     -> assignment
+  --   comparison     -> ==, !=, <, >, <=, >=
+  --   addition       -> +, -
+  --   multiplication -> *, /, %
+  --   unary          -> not, -
+  --   primary        -> literals, identifiers, calls, cognitive, parens
+  -- =====================================================================
+
+  fn parse_expression(self) -> ASTNode do
+    let left be self.parse_comparison()
+
+    -- Handle assignment: identifier = expression
+    if self.check_type(ASSIGN) then
+      self.advance() -- consume '='
+      let right be self.parse_expression()
+      let node be BinaryNode{}
+      node.node_type = "Binary"
+      node.line = left.line
+      node.column = left.column
+      node.operator = "="
+      node.left = left
+      node.right = right
+      return node
+    end
+
+    -- Handle plus-assign: identifier += expression
+    if self.check_type(PLUS_ASSIGN) then
+      self.advance() -- consume '+='
+      let right be self.parse_expression()
+      let node be BinaryNode{}
+      node.node_type = "Binary"
+      node.line = left.line
+      node.column = left.column
+      node.operator = "+="
+      node.left = left
+      node.right = right
+      return node
+    end
+
+    -- Handle 'and' (short-circuit)
+    if self.check_type(AND) then
+      self.advance() -- consume 'and'
+      let right be self.parse_comparison()
+      let node be BinaryNode{}
+      node.node_type = "Binary"
+      node.line = left.line
+      node.column = left.column
+      node.operator = "and"
+      node.left = left
+      node.right = right
+      return node
+    end
+
+    -- Handle 'or' (short-circuit)
+    if self.check_type(OR) then
+      self.advance() -- consume 'or'
+      let right be self.parse_comparison()
+      let node be BinaryNode{}
+      node.node_type = "Binary"
+      node.line = left.line
+      node.column = left.column
+      node.operator = "or"
+      node.left = left
+      node.right = right
+      return node
+    end
+
+    -- Handle field access: expr.field
+    while self.check_type(DOT) do
+      self.advance() -- consume '.'
+      let field_token be self.expect(IDENTIFIER)
+      let access be AccessNode{}
+      access.node_type = "Access"
+      access.line = left.line
+      access.column = left.column
+      access.object = left
+      access.field = field_token.literal
+      left = access
+    end
+
+    return left
+  end
+
+  -- =====================================================================
+  -- COMPARISON EXPRESSIONS
+  -- =====================================================================
+  -- Handles: ==, !=, <, >, <=, >=
+  -- =====================================================================
+
+  fn parse_comparison(self) -> ASTNode do
+    let left be self.parse_addition()
+
+    while true do
+      let op be ""
+      if self.check_type(EQ) then
+        op = "=="
+      else if self.check_type(NEQ) then
+        op = "/="
+      else if self.check_type(LT) then
+        op = "<"
+      else if self.check_type(GT) then
+        op = ">"
+      else if self.check_type(LTE) then
+        op = "<="
+      else if self.check_type(GTE) then
+        op = ">="
+      end
+
+      if op == "" then
+        break
+      end
+
+      self.advance() -- consume the operator
+      let right be self.parse_addition()
+
+      let node be BinaryNode{}
+      node.node_type = "Binary"
+      node.line = left.line
+      node.column = left.column
+      node.operator = op
+      node.left = left
+      node.right = right
+      left = node
+    end
+
+    return left
+  end
+
+  -- =====================================================================
+  -- ADDITION EXPRESSIONS
+  -- =====================================================================
+  -- Handles: +, -
+  -- =====================================================================
+
+  fn parse_addition(self) -> ASTNode do
+    let left be self.parse_multiplication()
+
+    while true do
+      let op be ""
+      if self.check_type(PLUS) then
+        op = "+"
+      else if self.check_type(MINUS) then
+        op = "-"
+      end
+
+      if op == "" then
+        break
+      end
+
+      self.advance() -- consume the operator
+      let right be self.parse_multiplication()
+
+      let node be BinaryNode{}
+      node.node_type = "Binary"
+      node.line = left.line
+      node.column = left.column
+      node.operator = op
+      node.left = left
+      node.right = right
+      left = node
+    end
+
+    return left
+  end
+
+  -- =====================================================================
+  -- MULTIPLICATION EXPRESSIONS
+  -- =====================================================================
+  -- Handles: *, /, %
+  -- =====================================================================
+
+  fn parse_multiplication(self) -> ASTNode do
+    let left be self.parse_unary()
+
+    while true do
+      let op be ""
+      if self.check_type(STAR) then
+        op = "*"
+      else if self.check_type(SLASH) then
+        op = "/"
+      else if self.check_type(PERCENT) then
+        op = "%"
+      end
+
+      if op == "" then
+        break
+      end
+
+      self.advance() -- consume the operator
+      let right be self.parse_unary()
+
+      let node be BinaryNode{}
+      node.node_type = "Binary"
+      node.line = left.line
+      node.column = left.column
+      node.operator = op
+      node.left = left
+      node.right = right
+      left = node
+    end
+
+    return left
+  end
+
+  -- =====================================================================
+  -- UNARY EXPRESSIONS
+  -- =====================================================================
+  -- Handles: not, - (negation)
+  -- =====================================================================
+
+  fn parse_unary(self) -> ASTNode do
+    if self.check_type(NOT) then
+      let start_line be self.peek().line
+      let start_col be self.peek().column
+      self.advance() -- consume 'not'
+      let operand be self.parse_unary()
+      let node be UnaryNode{}
+      node.node_type = "Unary"
+      node.line = start_line
+      node.column = start_col
+      node.operator = "not"
+      node.operand = operand
+      return node
+    end
+
+    if self.check_type(MINUS) then
+      let start_line be self.peek().line
+      let start_col be self.peek().column
+      self.advance() -- consume '-'
+      let operand be self.parse_unary()
+      let node be UnaryNode{}
+      node.node_type = "Unary"
+      node.line = start_line
+      node.column = start_col
+      node.operator = "-"
+      node.operand = operand
+      return node
+    end
+
+    return self.parse_primary()
+  end
+
+  -- =====================================================================
+  -- PRIMARY EXPRESSIONS
+  -- =====================================================================
+  -- Handles: literals, identifiers, function calls, cognitive operations,
+  -- parenthesized expressions, list literals, and map literals.
+  -- =====================================================================
+
+  fn parse_primary(self) -> ASTNode do
+    let current be self.tokens.current().type
+
+    -- Integer literal.
+    if current == INTEGER then
+      let token be self.advance()
+      let node be LiteralNode{}
+      node.node_type = "Literal"
+      node.line = token.line
+      node.column = token.column
+      node.value = token.literal
+      node.literal_type = "integer"
+      return node
+    end
+
+    -- Float literal.
+    if current == FLOAT then
+      let token be self.advance()
+      let node be LiteralNode{}
+      node.node_type = "Literal"
+      node.line = token.line
+      node.column = token.column
+      node.value = token.literal
+      node.literal_type = "float"
+      return node
+    end
+
+    -- String literal.
+    if current == STRING then
+      let token be self.advance()
+      let node be LiteralNode{}
+      node.node_type = "Literal"
+      node.line = token.line
+      node.column = token.column
+      node.value = token.literal
+      node.literal_type = "string"
+      return node
+    end
+
+    -- Boolean true.
+    if current == TRUE then
+      let token be self.advance()
+      let node be LiteralNode{}
+      node.node_type = "Literal"
+      node.line = token.line
+      node.column = token.column
+      node.value = "true"
+      node.literal_type = "bool"
+      return node
+    end
+
+    -- Boolean false.
+    if current == FALSE then
+      let token be self.advance()
+      let node be LiteralNode{}
+      node.node_type = "Literal"
+      node.line = token.line
+      node.column = token.column
+      node.value = "false"
+      node.literal_type = "bool"
+      return node
+    end
+
+    -- Nil literal.
+    if current == NIL then
+      let token be self.advance()
+      let node be LiteralNode{}
+      node.node_type = "Literal"
+      node.line = token.line
+      node.column = token.column
+      node.value = "nil"
+      node.literal_type = "nil"
+      return node
+    end
+
+    -- Cognitive keyword operation.
+    if self.peek().is_cognitive() then
+      return self.parse_cognitive()
+    end
+
+    -- Identifier or function call.
+    if current == IDENTIFIER then
+      let name_token be self.advance()
+      let name be name_token.literal
+
+      -- Check if this is a function call: name(...)
+      if self.check_type(LPAREN) then
+        return self.parse_call(name)
+      end
+
+      -- Plain identifier reference.
+      let node be IdentifierNode{}
+      node.node_type = "Identifier"
+      node.line = name_token.line
+      node.column = name_token.column
+      node.name = name
+      return node
+    end
+
+    -- Parenthesized expression: (expr)
+    if current == LPAREN then
+      self.advance() -- consume '('
+      let expr be self.parse_expression()
+      self.expect(RPAREN)
+      return expr
+    end
+
+    -- List literal: [elem1, elem2, ...]
+    if current == LBRACKET then
+      return self.parse_list_literal()
+    end
+
+    -- Map literal: {key: value, ...}
+    -- Distinguished from block by context: if we see STRING COLON
+    -- after LBRACE, it is a map literal.
+    if current == LBRACE then
+      return self.parse_map_literal()
+    end
+
+    -- If we reach here, we have an unexpected token.
+    let tok be self.peek()
+    let err be ParseError{}
+    err.message = "Unexpected token in expression: " + tok.lexeme
+    err.line = tok.line
+    err.column = tok.column
+    err.near = tok.lexeme
+    self.errors.append(err)
+
+    let fallback be LiteralNode{}
+    fallback.node_type = "Literal"
+    fallback.line = tok.line
+    fallback.column = tok.column
+    fallback.value = "nil"
+    fallback.literal_type = "nil"
+    return fallback
+  end
+
+  -- =====================================================================
+  -- COGNITIVE OPERATION PARSING
+  -- =====================================================================
+  -- Parses: reason about {expr} with strategy {name} ... etc.
+  -- Cognitive operations are first-class expressions that carry rich
+  -- metadata about the cognitive process being invoked.
+  -- =====================================================================
+
+  fn parse_cognitive(self) -> ASTNode do
+    let start_line be self.peek().line
+    let start_col be self.peek().column
+
+    let node be CognitiveNode{}
+    node.line = start_line
+    node.column = start_col
+    node.context = ""
+    node.strategy = ""
+    node.depth = 0
+    node.modality = ""
+    node.constraints = []
+    node.memory_type = ""
+
+    -- Determine which cognitive keyword.
+    let kw_token be self.advance()
+    let kw_str be kw_token.lexeme
+    node.keyword = string_to_cognitive_keyword(kw_str)
+
+    -- Check if followed by 'about' (reason about, reflect about, etc.)
+    if self.check_type(IDENTIFIER) and self.peek().literal == "about" then
+      self.advance() -- consume 'about'
+      self.expect(LBRACE)
+      node.target = self.parse_expression()
+      self.expect(RBRACE)
+    end
+
+    -- Check for 'with' clause: with strategy {name}
+    if self.check_type(IDENTIFIER) and self.peek().literal == "with" then
+      self.advance() -- consume 'with'
+      if self.check_type(IDENTIFIER) and self.peek().literal == "strategy" then
+        self.advance() -- consume 'strategy'
+        self.expect(LBRACE)
+        let strat_token be self.expect(IDENTIFIER)
+        node.strategy = strat_token.literal
+        self.expect(RBRACE)
+      end
+    end
+
+    -- Check for 'depth' clause: depth N
+    if self.check_type(IDENTIFIER) and self.peek().literal == "depth" then
+      self.advance() -- consume 'depth'
+      let depth_token be self.expect(INTEGER)
+      node.depth = string_to_int(depth_token.literal)
+    end
+
+    -- Check for 'modality' clause: modality {name}
+    if self.check_type(IDENTIFIER) and self.peek().literal == "modality" then
+      self.advance() -- consume 'modality'
+      self.expect(LBRACE)
+      let mod_token be self.expect(IDENTIFIER)
+      node.modality = mod_token.literal
+      self.expect(RBRACE)
+    end
+
+    -- Check for 'constraints' clause: constraints {c1, c2}
+    if self.check_type(IDENTIFIER) and self.peek().literal == "constraints" then
+      self.advance() -- consume 'constraints'
+      self.expect(LBRACE)
+      if not self.check_type(RBRACE) then
+        let c1 be self.expect(IDENTIFIER)
+        node.constraints.append(c1.literal)
+        while self.check_type(COMMA) do
+          self.advance() -- consume ','
+          let c be self.expect(IDENTIFIER)
+          node.constraints.append(c.literal)
+        end
+      end
+      self.expect(RBRACE)
+    end
+
+    return node
+  end
+
+  -- =====================================================================
+  -- FUNCTION CALL PARSING
+  -- =====================================================================
+  -- Parses: name(arg1, arg2, ...)
+  -- The name has already been consumed; only the argument list remains.
+  -- =====================================================================
+
+  fn parse_call(self, name: String) -> CallNode do
+    let start_line be self.peek().line
+    let start_col be self.peek().column
+
+    let node be CallNode{}
+    node.line = start_line
+    node.column = start_col
+    node.callee = name
+    node.arguments = []
+    node.is_cognitive = false
+    node.cognitive_keyword = ""
+
+    self.expect(LPAREN)
+
+    if not self.check_type(RPAREN) then
+      let arg be self.parse_expression()
+      node.arguments.append(arg)
+      while self.check_type(COMMA) do
+        self.advance() -- consume ','
+        let a be self.parse_expression()
+        node.arguments.append(a)
+      end
+    end
+
+    self.expect(RPAREN)
+    return node
+  end
+
+  -- =====================================================================
+  -- LIST LITERAL PARSING
+  -- =====================================================================
+  -- Parses: [elem1, elem2, ...]
+  -- =====================================================================
+
+  fn parse_list_literal(self) -> ListLiteralNode do
+    let start_line be self.peek().line
+    let start_col be self.peek().column
+
+    let node be ListLiteralNode{}
+    node.line = start_line
+    node.column = start_col
+    node.elements = []
+
+    self.expect(LBRACKET)
+
+    if not self.check_type(RBRACKET) then
+      let elem be self.parse_expression()
+      node.elements.append(elem)
+      while self.check_type(COMMA) do
+        self.advance() -- consume ','
+        if self.check_type(RBRACKET) then
+          break -- trailing comma
+        end
+        let e be self.parse_expression()
+        node.elements.append(e)
+      end
+    end
+
+    self.expect(RBRACKET)
+    return node
+  end
+
+  -- =====================================================================
+  -- MAP LITERAL PARSING
+  -- =====================================================================
+  -- Parses: {key1: value1, key2: value2, ...}
+  -- =====================================================================
+
+  fn parse_map_literal(self) -> MapLiteralNode do
+    let start_line be self.peek().line
+    let start_col be self.peek().column
+
+    let node be MapLiteralNode{}
+    node.line = start_line
+    node.column = start_col
+    node.entries = []
+
+    self.expect(LBRACE)
+
+    if not self.check_type(RBRACE) then
+      let entry be self.parse_map_entry()
+      node.entries.append(entry)
+      while self.check_type(COMMA) do
+        self.advance() -- consume ','
+        if self.check_type(RBRACE) then
+          break -- trailing comma
+        end
+        let e be self.parse_map_entry()
+        node.entries.append(e)
+      end
+    end
+
+    self.expect(RBRACE)
+    return node
+  end
+
+  -- Parse a single map entry: key: value
+  fn parse_map_entry(self) -> MapEntry do
+    let start_line be self.peek().line
+    let start_col be self.peek().column
+
+    let node be MapEntry{}
+    node.line = start_line
+    node.column = start_col
+
+    let key_token be self.expect(STRING)
+    node.key = key_token.literal
+
+    self.expect(COLON)
+    node.value = self.parse_expression()
+
+    return node
+  end
+
+  -- =====================================================================
+  -- TOKEN HELPER METHODS
+  -- =====================================================================
+  -- These methods wrap the TokenStream operations with error recovery.
+  -- =====================================================================
+
+  -- Check if the current token matches the given type without consuming.
+  fn check_type(self, token_type: TokenType) -> Bool do
+    return self.tokens.current().type == token_type
+  end
+
+  -- Advance past the current token and return it.
+  fn advance(self) -> Token do
+    return self.tokens.advance()
+  end
+
+  -- Look at the current token without consuming it.
+  fn peek(self) -> Token do
+    return self.tokens.current()
+  end
+
+  -- Consume the current token, expecting it to be the given type.
+  -- If it does not match, record an error and return a synthetic token.
+  fn expect(self, expected_type: TokenType) -> Token do
+    let current be self.tokens.current()
+    if current.type == expected_type then
+      return self.tokens.advance()
+    end
+
+    -- Record the error.
+    let err be ParseError{}
+    err.message = "Expected " + token_type_to_string(expected_type)
+      + " but found " + token_type_to_string(current.type)
+    err.line = current.line
+    err.column = current.column
+    err.near = current.lexeme
+    self.errors.append(err)
+
+    -- Return a synthetic token and do not advance to allow recovery.
+    let synthetic be Token{}
+    synthetic.type = expected_type
+    synthetic.lexeme = ""
+    synthetic.literal = ""
+    synthetic.line = current.line
+    synthetic.column = current.column
+    return synthetic
+  end
+
+  -- Check if the current token matches the given type without consuming.
+  -- Alias for check_type for consistency with TokenStream interface.
+  fn match_type(self, token_type: TokenType) -> Bool do
+    return self.tokens.current().type == token_type
+  end
+end
+
+-- =========================================================================
+-- HELPER: string_to_cognitive_keyword
+-- =========================================================================
+-- Maps a cognitive keyword string to the corresponding CognitiveKeywordType.
+-- Used by the parser when it encounters a cognitive keyword token.
+-- =========================================================================
+
+fn string_to_cognitive_keyword(s: String) -> CognitiveKeywordType do
+  if s == "reason" then return REASON end
+  if s == "believe" then return BELIEVE end
+  if s == "intend" then return INTEND end
+  if s == "know" then return KNOW end
+  if s == "perceive" then return PERCEIVE end
+  if s == "reflect" then return REFLECT end
+  if s == "plan" then return PLAN end
+  if s == "evolve" then return EVOLVE end
+  if s == "recall" then return RECALL end
+  if s == "deliberate" then return DELIBERATE end
+  return REASON
+end
+
+-- =========================================================================
+-- HELPER: parse
+-- =========================================================================
+-- Convenience function that tokenizes and parses a source string in one step.
+-- Creates a lexer, tokenizes the source, wraps the tokens in a TokenStream,
+-- creates a parser, and returns the parse result.
+-- =========================================================================
+
+fn parse(source: String) -> ProgramNode do
+  let lexer be Lexer{}
+  let config be LexicalConfig{}
+  let initialized be lexer.init(source, config)
+  let tokens be initialized.tokenize()
+  let stream be TokenStream{}
+  stream.tokens = tokens
+  stream.position = 0
+  let parser be Parser.init(stream)
+  return parser.parse()
+end
+
+-- =========================================================================
+-- EXPORTS
+-- =========================================================================
+-- All parser types and functions are exported. The parser is the central
+-- bridge between the lexer's token stream and the compiler's AST.
+-- =========================================================================
+
+export {
+  ParseError,
+  Parser,
+  string_to_cognitive_keyword,
+  parse
+}

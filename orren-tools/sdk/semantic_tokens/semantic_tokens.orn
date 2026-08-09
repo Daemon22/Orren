@@ -1,0 +1,471 @@
+-- semantic_tokens.orn: Semantic token generation for the Orren LSP.
+-- Produces LSP-compliant semantic tokens with delta encoding and
+-- incremental update support.
+
+module orren_tools.sdk.semantic_tokens
+
+import module::{String, Int, Bool, List, Map, Result, File, Path, Time}
+import orren.core.language.foundation::{SourceLocation, ModuleResolver}
+
+-- Token types for LSP semantic highlighting.
+enum SemanticTokenType
+    ENTITY
+    FUNCTION
+    PROPERTY
+    ENUM
+    COGNITIVE
+    SEMANTIC_ATTR
+    INTENT
+    MODULE
+    PARAMETER
+    TYPE
+    KEYWORD
+    COGNITIVE_KEYWORD
+end
+
+-- Token modifiers for LSP semantic highlighting.
+enum SemanticTokenModifier
+    DECLARATION
+    DEFINITION
+    STATIC
+    ABSTRACT
+    DEPRECATED
+    COGNITIVE_ACTIVE
+    SEMANTIC_RICH
+end
+
+-- A single semantic token with absolute position and encoding.
+entity SemanticToken
+    property line: Int = 0
+    property start_col: Int = 0
+    property length: Int = 0
+    property type_idx: Int = 0
+    property modifier_mask: Int = 0
+
+    -- Encodes this token into delta encoding relative to a previous token.
+    fn encode_delta(self, prev_line: Int, prev_col: Int) -> List<Int> do
+        let encoded be List<Int>.new()
+        let delta_line be self.line - prev_line
+        encoded.append(delta_line)
+        if delta_line == 0 then
+            encoded.append(self.start_col - prev_col)
+        else
+            encoded.append(self.start_col)
+        end
+        encoded.append(self.length)
+        encoded.append(self.type_idx)
+        encoded.append(self.modifier_mask)
+        return encoded
+    end
+
+    -- Returns a formatted string for debugging.
+    fn to_string(self) -> String do
+        return "SemanticToken(line=" + String.from_int(self.line).to_string() + ", col=" + String.from_int(self.start_col).to_string() + ", len=" + String.from_int(self.length).to_string() + ", type=" + String.from_int(self.type_idx).to_string() + ", mod=" + String.from_int(self.modifier_mask).to_string() + ")"
+    end
+end
+
+-- The full result of semantic token generation for a file.
+entity SemanticTokensResult
+    property tokens: List<SemanticToken> = List<SemanticToken>.new()
+    property result_id: String = ""
+
+    -- Encodes all tokens into LSP delta-encoded format.
+    fn encode(self) -> List<Int> do
+        let data be List<Int>.new()
+        let prev_line be 0
+        let prev_col be 0
+        for token in self.tokens do
+            let delta be token.encode_delta(prev_line, prev_col)
+            for val in delta do
+                data.append(val)
+            end
+            prev_line = token.line
+            prev_col = token.start_col
+        end
+        return data
+    end
+
+    -- Returns the total number of semantic tokens.
+    fn count(self) -> Int do
+        return self.tokens.length
+    end
+end
+
+-- The semantic token provider producing LSP-compliant tokens.
+entity SemanticTokenProvider
+    property legend: SemanticTokenLegend = SemanticTokenLegend.new()
+    property config: Map<String, String> = Map<String, String>.new()
+
+    -- Produces semantic tokens for an entire source file.
+    fn produce_tokens(self, file_path: String) -> Result<SemanticTokensResult> do
+        let raw be File.read(file_path)
+        if raw.is_error then
+            return Result.error("Failed to read file: " + file_path)
+        end
+        let result be SemanticTokensResult.new()
+        result.result_id = file_path + ":" + String.from_int(Time.now()).to_string()
+        let lines be raw.value.split_lines()
+        let known_entities be self.collect_entity_names(lines)
+        let known_functions be self.collect_function_names(lines)
+        let known_enums be self.collect_enum_names(lines)
+        let known_properties be self.collect_property_names(lines)
+        let idx be 0
+        while idx < lines.length do
+            let line be lines.get(idx)
+            let trimmed be line.strip()
+            -- Highlight module declaration.
+            if trimmed.starts_with("module ") then
+                let mod_name be trimmed.substring(7).strip()
+                let mod_col be line.find(mod_name)
+                let tok be SemanticToken.new()
+                tok.line = idx
+                tok.start_col = mod_col
+                tok.length = mod_name.length
+                tok.type_idx = self.legend.type_index("module")
+                tok.modifier_mask = self.legend.modifier_mask("definition")
+                result.tokens.append(tok)
+            end
+            -- Highlight entity names.
+            if trimmed.starts_with("entity ") then
+                let parts be trimmed.split(" ")
+                if parts.length >= 2 then
+                    let name be parts.get(1)
+                    let col be line.find(name)
+                    let tok be SemanticToken.new()
+                    tok.line = idx
+                    tok.start_col = col
+                    tok.length = name.length
+                    tok.type_idx = self.legend.type_index("entity")
+                    tok.modifier_mask = self.legend.modifier_mask("definition")
+                    result.tokens.append(tok)
+                end
+            end
+            -- Highlight enum names.
+            if trimmed.starts_with("enum ") then
+                let parts be trimmed.split(" ")
+                if parts.length >= 2 then
+                    let name be parts.get(1)
+                    let col be line.find(name)
+                    let tok be SemanticToken.new()
+                    tok.line = idx
+                    tok.start_col = col
+                    tok.length = name.length
+                    tok.type_idx = self.legend.type_index("enum")
+                    tok.modifier_mask = self.legend.modifier_mask("definition")
+                    result.tokens.append(tok)
+                end
+            end
+            -- Highlight enum variants.
+            if known_enums.contains(trimmed) then
+                let tok be SemanticToken.new()
+                tok.line = idx
+                tok.start_col = 0
+                tok.length = trimmed.length
+                tok.type_idx = self.legend.type_index("enum")
+                tok.modifier_mask = 0
+                result.tokens.append(tok)
+            end
+            -- Highlight function declarations.
+            if trimmed.contains("fn ") and trimmed.contains(" do") then
+                let fn_name be self.parse_fn_name(trimmed)
+                if fn_name.length > 0 then
+                    let col be line.find(fn_name)
+                    let tok be SemanticToken.new()
+                    tok.line = idx
+                    tok.start_col = col
+                    tok.length = fn_name.length
+                    tok.type_idx = self.legend.type_index("function")
+                    tok.modifier_mask = self.legend.modifier_mask("declaration")
+                    result.tokens.append(tok)
+                end
+            end
+            -- Highlight property declarations.
+            if trimmed.starts_with("property ") then
+                let rest be trimmed.substring(9).strip()
+                let colon_pos be rest.find(":")
+                if colon_pos > 0 then
+                    let prop_name be rest.substring(0, colon_pos).strip()
+                    let col be line.find(prop_name)
+                    let tok be SemanticToken.new()
+                    tok.line = idx
+                    tok.start_col = col
+                    tok.length = prop_name.length
+                    tok.type_idx = self.legend.type_index("property")
+                    tok.modifier_mask = self.legend.modifier_mask("declaration")
+                    result.tokens.append(tok)
+                end
+            end
+            -- Highlight intent blocks.
+            if trimmed.starts_with("intent ") then
+                let intent_col be line.find("intent")
+                let tok be SemanticToken.new()
+                tok.line = idx
+                tok.start_col = intent_col
+                tok.length = 6
+                tok.type_idx = self.legend.type_index("intent")
+                tok.modifier_mask = 0
+                result.tokens.append(tok)
+            end
+            -- Highlight cognitive keywords in usage.
+            let cog_keywords be self.cognitive_keyword_list()
+            for ck in cog_keywords do
+                let col be line.find(ck)
+                while col >= 0 then
+                    let before_ok be col == 0 or not self.is_id_char(line.char_at(col - 1))
+                    let after_ok be col + ck.length >= line.length or not self.is_id_char(line.char_at(col + ck.length))
+                    if before_ok and after_ok then
+                        let tok be SemanticToken.new()
+                        tok.line = idx
+                        tok.start_col = col
+                        tok.length = ck.length
+                        tok.type_idx = self.legend.type_index("cognitive-keyword")
+                        tok.modifier_mask = self.legend.modifier_mask("cognitive-active")
+                        result.tokens.append(tok)
+                    end
+                    col = line.find_from(ck, col + ck.length)
+                end
+            end
+            idx = idx + 1
+        end
+        return Result.ok(result)
+    end
+
+    -- Collects all entity names from the source.
+    fn collect_entity_names(self, lines: List<String>) -> List<String> do
+        let names be List<String>.new()
+        for line in lines do
+            let trimmed be line.strip()
+            if trimmed.starts_with("entity ") then
+                let parts be trimmed.split(" ")
+                if parts.length >= 2 then
+                    names.append(parts.get(1))
+                end
+            end
+        end
+        return names
+    end
+
+    -- Collects all function names from the source.
+    fn collect_function_names(self, lines: List<String>) -> List<String> do
+        let names be List<String>.new()
+        for line in lines do
+            let trimmed be line.strip()
+            if trimmed.contains("fn ") and trimmed.contains(" do") then
+                let fn_name be self.parse_fn_name(trimmed)
+                if fn_name.length > 0 then
+                    names.append(fn_name)
+                end
+            end
+        end
+        return names
+    end
+
+    -- Collects all enum names from the source.
+    fn collect_enum_names(self, lines: List<String>) -> List<String> do
+        let names be List<String>.new()
+        for line in lines do
+            let trimmed be line.strip()
+            if trimmed.starts_with("enum ") then
+                let parts be trimmed.split(" ")
+                if parts.length >= 2 then
+                    names.append(parts.get(1))
+                end
+            end
+        end
+        return names
+    end
+
+    -- Collects all property names from the source.
+    fn collect_property_names(self, lines: List<String>) -> List<String> do
+        let names be List<String>.new()
+        for line in lines do
+            let trimmed be line.strip()
+            if trimmed.starts_with("property ") then
+                let rest be trimmed.substring(9).strip()
+                let colon_pos be rest.find(":")
+                if colon_pos > 0 then
+                    names.append(rest.substring(0, colon_pos).strip())
+                end
+            end
+        end
+        return names
+    end
+
+    -- Parses a function name from a declaration line.
+    fn parse_fn_name(self, line: String) -> String do
+        let fn_pos be line.find("fn ")
+        if fn_pos < 0 then
+            return ""
+        end
+        let after_fn be line.substring(fn_pos + 3).strip()
+        let paren_pos be after_fn.find("(")
+        if paren_pos < 0 then
+            return after_fn
+        end
+        return after_fn.substring(0, paren_pos).strip()
+    end
+
+    -- Returns the list of cognitive keywords.
+    fn cognitive_keyword_list(self) -> List<String> do
+        let list be List<String>.new()
+        list.append("believe")
+        list.append("doubt")
+        list.append("desire")
+        list.append("fear")
+        list.append("hope")
+        list.append("assume")
+        list.append("trust")
+        list.append("wonder")
+        list.append("imagine")
+        list.append("intend")
+        return list
+    end
+
+    -- Checks if a character is an identifier character.
+    fn is_id_char(self, ch: String) -> Bool do
+        return ch.is_alpha() or ch.is_digit() or ch == "_"
+    end
+
+    -- Produces incremental semantic tokens for changed lines only.
+    fn produce_incremental(self, prev_result: SemanticTokensResult, source: String, changed_lines: List<Int>) -> SemanticTokensResult do
+        let result be SemanticTokensResult.new()
+        result.result_id = prev_result.result_id + ":incr:" + String.from_int(Time.now()).to_string()
+        let unchanged_tokens be List<SemanticToken>.new()
+        for token in prev_result.tokens do
+            let is_changed be false
+            for cl in changed_lines do
+                if token.line == cl then
+                    is_changed = true
+                end
+            end
+            if not is_changed then
+                unchanged_tokens.append(token)
+            end
+        end
+        for token in unchanged_tokens do
+            result.tokens.append(token)
+        end
+        return result
+    end
+
+    -- Decodes delta-encoded semantic tokens back to absolute positions.
+    fn decode_delta(self, data: List<Int>, legend: SemanticTokenLegend) -> List<SemanticToken> do
+        let tokens be List<SemanticToken>.new()
+        let prev_line be 0
+        let prev_col be 0
+        let idx be 0
+        while idx + 4 < data.length do
+            let delta_line be data.get(idx)
+            let delta_col be data.get(idx + 1)
+            let length be data.get(idx + 2)
+            let type_idx be data.get(idx + 3)
+            let modifier_mask be data.get(idx + 4)
+            let tok be SemanticToken.new()
+            tok.line = prev_line + delta_line
+            if delta_line == 0 then
+                tok.start_col = prev_col + delta_col
+            else
+                tok.start_col = delta_col
+            end
+            tok.length = length
+            tok.type_idx = type_idx
+            tok.modifier_mask = modifier_mask
+            tokens.append(tok)
+            prev_line = tok.line
+            prev_col = tok.start_col
+            idx = idx + 5
+        end
+        return tokens
+    end
+end
+
+-- The token legend mapping token types and modifiers to indices.
+entity SemanticTokenLegend
+    property token_types: List<String> = List<String>.new()
+    property token_modifiers: List<String> = List<String>.new()
+
+    fn init(self) do
+        self.token_types.append("entity")
+        self.token_types.append("function")
+        self.token_types.append("property")
+        self.token_types.append("enum")
+        self.token_types.append("cognitive")
+        self.token_types.append("semantic-attr")
+        self.token_types.append("intent")
+        self.token_types.append("module")
+        self.token_types.append("parameter")
+        self.token_types.append("type")
+        self.token_types.append("keyword")
+        self.token_types.append("cognitive-keyword")
+        self.token_modifiers.append("declaration")
+        self.token_modifiers.append("definition")
+        self.token_modifiers.append("static")
+        self.token_modifiers.append("abstract")
+        self.token_modifiers.append("deprecated")
+        self.token_modifiers.append("cognitive-active")
+        self.token_modifiers.append("semantic-rich")
+    end
+
+    -- Returns the type index for a given type string.
+    fn type_index(self, type_name: String) -> Int do
+        let idx be 0
+        while idx < self.token_types.length do
+            if self.token_types.get(idx) == type_name then
+                return idx
+            end
+            idx = idx + 1
+        end
+        return 0
+    end
+
+    -- Returns the modifier bitmask for a given modifier.
+    fn modifier_mask(self, modifier_name: String) -> Int do
+        let idx be 0
+        while idx < self.token_modifiers.length do
+            if self.token_modifiers.get(idx) == modifier_name then
+                return 1 << idx
+            end
+            idx = idx + 1
+        end
+        return 0
+    end
+
+    -- Resolves a type index to its string name.
+    fn type_name(self, idx: Int) -> String do
+        if idx >= 0 and idx < self.token_types.length then
+            return self.token_types.get(idx)
+        end
+        return "unknown"
+    end
+
+    -- Resolves a modifier bitmask to a list of modifier names.
+    fn decode_modifiers(self, mask: Int) -> List<String> do
+        let names be List<String>.new()
+        let idx be 0
+        while idx < self.token_modifiers.length do
+            if (mask & (1 << idx)) != 0 then
+                names.append(self.token_modifiers.get(idx))
+            end
+            idx = idx + 1
+        end
+        return names
+    end
+
+    -- Returns the legend as a structured string for LSP initialization.
+    fn to_lsp_legend(self) -> String do
+        let lines be List<String>.new()
+        lines.append("TokenTypes: [")
+        for ttype in self.token_types do
+            lines.append("  \"" + ttype + "\"")
+        end
+        lines.append("]")
+        lines.append("TokenModifiers: [")
+        for mod in self.token_modifiers do
+            lines.append("  \"" + mod + "\"")
+        end
+        lines.append("]")
+        return lines.join("\n")
+    end
+end
+
+export {SemanticTokenType, SemanticTokenModifier, SemanticToken, SemanticTokensResult, SemanticTokenProvider, SemanticTokenLegend}

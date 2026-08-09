@@ -1,0 +1,462 @@
+-- completion.orn: Code completion engine for the Orren SDK.
+-- Provides intelligent autocomplete suggestions for keywords, entities,
+-- functions, properties, module paths, cognitive keywords, and snippets.
+
+module orren_tools.sdk.completion
+
+import module::{String, Int, Bool, Float, List, Map, Result, File, Path, Time}
+import orren.core.language.foundation::{SourceLocation, ModuleResolver, Manifest}
+
+-- The kind of completion item being suggested.
+enum CompletionKind
+    KEYWORD
+    ENTITY
+    FUNCTION
+    PROPERTY
+    MODULE
+    COGNITIVE_KEYWORD
+    SNIPPET
+    PATH
+end
+
+-- What triggered the completion request.
+enum CompletionTrigger
+    INVOKED
+    TRIGGER_CHARACTER
+    AUTOMATIC
+end
+
+-- A single completion suggestion.
+entity CompletionItem
+    property label: String = ""
+    property kind: CompletionKind = CompletionKind.KEYWORD
+    property detail: String = ""
+    property documentation: String = ""
+    property insert_text: String = ""
+    property sort_priority: Int = 0
+    property module_path: String = ""
+
+    -- Returns the kind as a human-readable string.
+    fn kind_label(self) -> String do
+        return match self.kind with
+            CompletionKind.KEYWORD => "keyword"
+            CompletionKind.ENTITY => "entity"
+            CompletionKind.FUNCTION => "function"
+            CompletionKind.PROPERTY => "property"
+            CompletionKind.MODULE => "module"
+            CompletionKind.COGNITIVE_KEYWORD => "cognitive-keyword"
+            CompletionKind.SNIPPET => "snippet"
+            CompletionKind.PATH => "path"
+        end
+    end
+
+    -- Returns a formatted display string for the completion.
+    fn display_string(self) -> String do
+        if self.detail.length > 0 then
+            return self.label + " (" + self.kind_label() + ") " + self.detail
+        end
+        return self.label + " (" + self.kind_label() + ")"
+    end
+
+    -- Checks whether this item matches a given prefix.
+    fn matches_prefix(self, prefix: String) -> Bool do
+        if prefix.length == 0 then
+            return true
+        end
+        return self.label.starts_with(prefix) or self.label.contains(prefix)
+    end
+end
+
+-- Context in which the completion was requested.
+entity CompletionContext
+    property file: String = ""
+    property line: Int = 0
+    property column: Int = 0
+    property trigger: CompletionTrigger = CompletionTrigger.INVOKED
+    property trigger_char: String = ""
+    property prefix: String = ""
+    property enclosing_entity: String = ""
+
+    -- Determines the most likely completion kind based on context.
+    fn infer_expected_kind(self) -> CompletionKind do
+        if self.prefix.length == 0 then
+            return CompletionKind.KEYWORD
+        end
+        if self.trigger_char == "." then
+            return CompletionKind.PROPERTY
+        end
+        if self.trigger_char == ":" and self.prefix.starts_with("::") then
+            return CompletionKind.ENTITY
+        end
+        if self.enclosing_entity.length > 0 then
+            return CompletionKind.PROPERTY
+        end
+        if self.trigger_char == "/" then
+            return CompletionKind.PATH
+        end
+        return CompletionKind.KEYWORD
+    end
+
+    -- Checks if the context is within an import statement.
+    fn is_in_import(self) -> Bool do
+        return self.enclosing_entity == "import" or self.prefix.contains("import")
+    end
+
+    -- Checks if the context is within an intent block.
+    fn is_in_intent(self) -> Bool do
+        return self.enclosing_entity == "intent"
+    end
+end
+
+-- The result of a completion request.
+entity CompletionResult
+    property items: List<CompletionItem> = List<CompletionItem>.new()
+    property start_column: Int = 0
+    property end_column: Int = 0
+    property is_incomplete: Bool = false
+    property completion_time: Float = 0.0
+
+    -- Sorts completion items by priority then alphabetically.
+    fn sort_items(self) do
+        let sorted be List<CompletionItem>.new()
+        let remaining be List<CompletionItem>.new()
+        for item in self.items do
+            remaining.append(item)
+        end
+        while remaining.length > 0 do
+            let best_idx be 0
+            let idx be 1
+            while idx < remaining.length do
+                let current be remaining.get(idx)
+                let best be remaining.get(best_idx)
+                if current.sort_priority > best.sort_priority then
+                    best_idx = idx
+                else if current.sort_priority == best.sort_priority then
+                    if current.label < best.label then
+                        best_idx = idx
+                    end
+                end
+                idx = idx + 1
+            end
+            sorted.append(remaining.get(best_idx))
+            remaining.remove_at(best_idx)
+        end
+        self.items = sorted
+    end
+
+    -- Filters items by prefix matching.
+    fn filter_by_prefix(self, prefix: String) do
+        let filtered be List<CompletionItem>.new()
+        for item in self.items do
+            if item.matches_prefix(prefix) then
+                filtered.append(item)
+            end
+        end
+        self.items = filtered
+    end
+
+    -- Returns the number of completion suggestions.
+    fn count(self) -> Int do
+        return self.items.length
+    end
+end
+
+-- The main completion engine.
+entity CompletionEngine
+    property index: Map<String, List<CompletionItem>> = Map<String, List<CompletionItem>>.new()
+    property config: Map<String, String> = Map<String, String>.new()
+    property cache: Map<String, CompletionResult> = Map<String, CompletionResult>.new()
+
+    -- Initializes the completion engine with built-in keywords.
+    fn initialize(self) do
+        self.register_keywords()
+        self.register_cognitive_keywords()
+    end
+
+    -- Registers all Orren language keywords as completion items.
+    fn register_keywords(self) do
+        let keywords be List<String>.new()
+        keywords.append("module")
+        keywords.append("import")
+        keywords.append("export")
+        keywords.append("enum")
+        keywords.append("entity")
+        keywords.append("property")
+        keywords.append("fn")
+        keywords.append("intent")
+        keywords.append("let")
+        keywords.append("be")
+        keywords.append("if")
+        keywords.append("then")
+        keywords.append("else")
+        keywords.append("for")
+        keywords.append("in")
+        keywords.append("while")
+        keywords.append("do")
+        keywords.append("end")
+        keywords.append("match")
+        keywords.append("with")
+        keywords.append("return")
+        keywords.append("self")
+        keywords.append("true")
+        keywords.append("false")
+        keywords.append("nothing")
+        keywords.append("continue")
+        let items be List<CompletionItem>.new()
+        for kw in keywords do
+            let item be CompletionItem.new()
+            item.label = kw
+            item.kind = CompletionKind.KEYWORD
+            item.insert_text = kw
+            item.sort_priority = 100
+            items.append(item)
+        end
+        self.index.set("keywords", items)
+    end
+
+    -- Registers cognitive keywords as completion items.
+    fn register_cognitive_keywords(self) do
+        let cog_keywords be List<String>.new()
+        cog_keywords.append("believe")
+        cog_keywords.append("doubt")
+        cog_keywords.append("desire")
+        cog_keywords.append("fear")
+        cog_keywords.append("hope")
+        cog_keywords.append("assume")
+        cog_keywords.append("trust")
+        cog_keywords.append("wonder")
+        cog_keywords.append("imagine")
+        cog_keywords.append("intend")
+        let items be List<CompletionItem>.new()
+        for kw in cog_keywords do
+            let item be CompletionItem.new()
+            item.label = kw
+            item.kind = CompletionKind.COGNITIVE_KEYWORD
+            item.insert_text = kw
+            item.sort_priority = 90
+            item.documentation = "Cognitive keyword: " + kw
+            items.append(item)
+        end
+        self.index.set("cognitive", items)
+    end
+
+    -- Indexes entities from a parsed module for completion.
+    fn index_module(self, module_path: String, source: String) do
+        let lines be source.split_lines()
+        let items be List<CompletionItem>.new()
+        for line in lines do
+            let trimmed be line.strip()
+            if trimmed.starts_with("entity ") then
+                let parts be trimmed.split(" ")
+                if parts.length >= 2 then
+                    let name be parts.get(1)
+                    let item be CompletionItem.new()
+                    item.label = name
+                    item.kind = CompletionKind.ENTITY
+                    item.insert_text = name
+                    item.sort_priority = 80
+                    item.module_path = module_path
+                    item.detail = "entity in " + module_path
+                    items.append(item)
+                end
+            end
+            if trimmed.contains("fn ") and trimmed.contains(" do") then
+                let fn_name be self.extract_fn_name(trimmed)
+                if fn_name.length > 0 then
+                    let item be CompletionItem.new()
+                    item.label = fn_name
+                    item.kind = CompletionKind.FUNCTION
+                    item.insert_text = fn_name + "($0)"
+                    item.sort_priority = 70
+                    item.module_path = module_path
+                    item.detail = "fn in " + module_path
+                    items.append(item)
+                end
+            end
+        end
+        let existing be self.index.get(module_path)
+        if existing != nothing then
+            for ex_item in existing do
+                items.append(ex_item)
+            end
+        end
+        self.index.set(module_path, items)
+    end
+
+    -- Extracts a function name from a declaration line.
+    fn extract_fn_name(self, line: String) -> String do
+        let fn_pos be line.find("fn ")
+        if fn_pos < 0 then
+            return ""
+        end
+        let after_fn be line.substring(fn_pos + 3).strip()
+        let paren_pos be after_fn.find("(")
+        if paren_pos < 0 then
+            return after_fn
+        end
+        return after_fn.substring(0, paren_pos).strip()
+    end
+
+    -- Gets completions for a given context.
+    fn get_completions(self, ctx: CompletionContext) -> CompletionResult do
+        let start_time be Time.now()
+        let cache_key be ctx.file + ":" + String.from_int(ctx.line).to_string() + ":" + ctx.column.to_string()
+        let cached be self.cache.get(cache_key)
+        if cached != nothing then
+            return cached
+        end
+        let result be CompletionResult.new()
+        result.start_column = ctx.column - ctx.prefix.length
+        result.end_column = ctx.column
+        let keyword_items be self.index.get("keywords")
+        if keyword_items != nothing then
+            for item in keyword_items do
+                if item.matches_prefix(ctx.prefix) then
+                    result.items.append(item)
+                end
+            end
+        end
+        if ctx.is_in_intent() then
+            let cog_items be self.index.get("cognitive")
+            if cog_items != nothing then
+                for item in cog_items do
+                    if item.matches_prefix(ctx.prefix) then
+                        result.items.append(item)
+                    end
+                end
+            end
+        end
+        let all_keys be self.index.keys()
+        for key in all_keys do
+            if key != "keywords" and key != "cognitive" then
+                let module_items be self.index.get(key)
+                if module_items != nothing then
+                    for item in module_items do
+                        if item.matches_prefix(ctx.prefix) then
+                            result.items.append(item)
+                        end
+                    end
+                end
+            end
+        end
+        result.sort_items()
+        let end_time be Time.now()
+        result.completion_time = Float.from_int(end_time - start_time) / 1000.0
+        self.cache.set(cache_key, result)
+        return result
+    end
+
+    -- Provides completions for property access after a dot.
+    fn complete_property_access(self, entity_name: String, prefix: String) -> List<CompletionItem> do
+        let items be List<CompletionItem>.new()
+        let all_keys be self.index.keys()
+        for key in all_keys do
+            let module_items be self.index.get(key)
+            if module_items != nothing then
+                for item in module_items do
+                    if item.kind == CompletionKind.ENTITY and item.label == entity_name then
+                        let props be self.get_entity_properties(item.module_path, entity_name)
+                        for prop in props do
+                            let prop_item be CompletionItem.new()
+                            prop_item.label = prop.name
+                            prop_item.kind = CompletionKind.PROPERTY
+                            prop_item.insert_text = prop.name
+                            prop_item.detail = prop.type_str
+                            prop_item.sort_priority = 60
+                            if prop_item.matches_prefix(prefix) then
+                                items.append(prop_item)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        return items
+    end
+
+    -- Retrieves properties for a named entity from its source.
+    fn get_entity_properties(self, module_path: String, entity_name: String) -> List<PropertyInfo> do
+        let props be List<PropertyInfo>.new()
+        let file_path be self.module_path_to_file(module_path)
+        let raw be File.read(file_path)
+        if raw.is_error then
+            return props
+        end
+        let lines be raw.value.split_lines()
+        let in_entity be false
+        for line in lines do
+            let trimmed be line.strip()
+            if not in_entity then
+                if trimmed.starts_with("entity " + entity_name) then
+                    in_entity = true
+                end
+            else
+                if trimmed.starts_with("property ") then
+                    let info be PropertyInfo.new()
+                    let rest be trimmed.substring(9).strip()
+                    let colon_pos be rest.find(":")
+                    if colon_pos > 0 then
+                        info.name = rest.substring(0, colon_pos).strip()
+                        let after_colon be rest.substring(colon_pos + 1).strip()
+                        let eq_pos be after_colon.find("=")
+                        if eq_pos > 0 then
+                            info.type_str = after_colon.substring(0, eq_pos).strip()
+                        else
+                            info.type_str = after_colon.strip()
+                        end
+                    end
+                    props.append(info)
+                end
+                if trimmed == "end" then
+                    return props
+                end
+            end
+        end
+        return props
+    end
+
+    -- Converts a dotted module path to a file system path.
+    fn module_path_to_file(self, module_path: String) -> String do
+        let dotted be module_path.replace(".", "/")
+        return dotted + ".orn"
+    end
+
+    -- Provides module path completions for import statements.
+    fn complete_module_paths(self, prefix: String) -> List<CompletionItem> do
+        let items be List<CompletionItem>.new()
+        let all_keys be self.index.keys()
+        for key in all_keys do
+            if key != "keywords" and key != "cognitive" then
+                if key.starts_with(prefix) then
+                    let item be CompletionItem.new()
+                    item.label = key
+                    item.kind = CompletionKind.MODULE
+                    item.insert_text = key
+                    item.sort_priority = 50
+                    item.detail = "module"
+                    items.append(item)
+                end
+            end
+        end
+        return items
+    end
+
+    -- Invalidates the completion cache.
+    fn invalidate_cache(self) do
+        self.cache = Map<String, CompletionResult>.new()
+    end
+
+    -- Clears all indexed completion data.
+    fn clear_index(self) do
+        self.index = Map<String, List<CompletionItem>>.new()
+        self.invalidate_cache()
+    end
+end
+
+-- Describes a property discovered during entity indexing.
+entity PropertyInfo
+    property name: String = ""
+    property type_str: String = ""
+end
+
+export {CompletionKind, CompletionTrigger, CompletionItem, CompletionContext, CompletionResult, CompletionEngine, PropertyInfo}

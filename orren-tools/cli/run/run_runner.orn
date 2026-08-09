@@ -1,0 +1,346 @@
+-- orren_tools.cli.run
+-- Enhanced run command with watch mode, hot-reload capabilities,
+-- environment management, and incremental recompilation support.
+
+module orren_tools.cli.run
+
+import orren.core.language.foundation::{String, Int, Float, Bool, List, Map}
+import orren.core.language.foundation::{Result, Ok, Err, Option, Some, None}
+import orren.core.language.foundation::{File, Path, DateTime, Duration, Timer}
+import orren.core.compiler::{Compiler, CompileConfig, CompileResult, CompileError}
+import orren.core.runtime::{Runtime, ProcessHandle, ProcessConfig}
+import orren.core.watcher::{FileWatcher, WatchEvent, WatchEventKind}
+
+intent "Run Orren programs with watch mode, hot-reload, and environment management"
+
+enum RunMode
+  SINGLE
+  WATCH
+  INTERACTIVE
+end
+
+enum ReloadStrategy
+  FULL
+  INCREMENTAL
+  SEMANTIC_DIFF
+end
+
+entity RunConfig
+  property input_file: String = ""
+  property args: List<String> = []
+  property env_vars: Map<String, String> = {}
+  property mode: RunMode = RunMode.SINGLE
+  property reload_strategy: ReloadStrategy = ReloadStrategy.INCREMENTAL
+  property watch_paths: List<String> = ["src"]
+  property watch_exclude: List<String> = ["target", "node_modules", ".git"]
+  property verbose: Bool = false
+  property compile_config: CompileConfig = CompileConfig{}
+end
+
+entity RunSession
+  property config: RunConfig = RunConfig{}
+  property process_id: Int = 0
+  property start_time: String = ""
+  property reload_count: Int = 0
+  property last_compile_time: String = ""
+  property exit_code: Int = 0
+end
+
+entity EnhancedRunner
+  property config: RunConfig = RunConfig{}
+  property session: RunSession = RunSession{}
+  property file_watcher: FileWatcher = FileWatcher{}
+  property compiler: Compiler = Compiler{}
+end
+
+-- ── Compilation pipeline ────────────────────────────────────────────────
+
+fn compile(self) -> Result<CompileResult, String>
+  if self.config.input_file.is_empty() then
+    return Err("No input file specified")
+  end
+  if !File.exists(self.config.input_file) then
+    return Err("Input file not found: " + self.config.input_file)
+  end
+  let timer be Timer.start()
+  let result be self.compiler.compile(self.config.input_file, self.config.compile_config)
+  let elapsed be timer.elapsed()
+  self.session.last_compile_time = elapsed.to_string()
+  match result with
+  case Ok(cr) do
+    if cr.has_errors then
+      return Err("Compilation failed with " + cr.errors.length.to_string() + " errors")
+    end
+    if self.config.verbose then
+      orren.core.log.info("Compiled in " + elapsed.to_string())
+    end
+    return Ok(cr)
+  end
+  case Err(e) do
+    return Err("Compiler error: " + e)
+  end
+  end
+end
+
+fn incremental_compile(self, changed_files: List<String>) -> Result<CompileResult, String>
+  if self.config.verbose then
+    orren.core.log.info("Incremental recompile: " + changed_files.length.to_string() + " files changed")
+  end
+  let incremental_config be self.config.compile_config.copy()
+  incremental_config.changed_files = changed_files
+  incremental_config.incremental = true
+  let timer be Timer.start()
+  let result be self.compiler.compile(self.config.input_file, incremental_config)
+  self.session.last_compile_time = timer.elapsed().to_string()
+  match result with
+  case Ok(cr) do
+    if cr.has_errors then
+      return Err("Incremental compilation failed")
+    end
+    return Ok(cr)
+  end
+  case Err(e) do
+    return Err("Incremental compile error: " + e)
+  end
+  end
+end
+
+fn semantic_diff_compile(self, changed_files: List<String>) -> Result<CompileResult, String>
+  let impacted be List<String>[]
+  for file_path in changed_files do
+    let impact be self.compiler.analyze_impact(file_path)
+    match impact with
+    case Ok(modules) do
+      for mod_name in modules do impacted.append(mod_name) end
+    end
+    case Err(e) do
+      if self.config.verbose then
+        orren.core.log.warn("Impact analysis failed for " + file_path + ": " + e)
+      end
+      impacted.append(file_path)
+    end
+    end
+  end
+  return self.incremental_compile(self.deduplicate(impacted))
+end
+
+fn deduplicate(self, items: List<String>) -> List<String>
+  let seen be Map<String, Bool>{}
+  let result be List<String>[]
+  for item in items do
+    if !seen.has(item) then
+      seen.put(item, true)
+      result.append(item)
+    end
+  end
+  return result
+end
+
+-- ── Execution ───────────────────────────────────────────────────────────
+
+fn execute(self, binary_path: String) -> Result<ProcessHandle, String>
+  let process_config be ProcessConfig{
+    executable: binary_path,
+    args: self.config.args,
+    env: self.config.env_vars
+  }
+  let runtime be Runtime{}
+  let process be runtime.spawn(process_config)
+  match process with
+  case Ok(handle) do
+    self.session.process_id = handle.pid()
+    self.session.start_time = DateTime.now().to_string()
+    return Ok(handle)
+  end
+  case Err(e) do
+    return Err("Failed to start process: " + e)
+  end
+  end
+end
+
+fn wait_for_exit(self, handle: ProcessHandle) -> Int
+  let code be handle.wait()
+  self.session.exit_code = code
+  return code
+end
+
+fn stop_process(self, handle: ProcessHandle) -> Unit
+  handle.terminate()
+  let _ be handle.wait()
+  self.session.process_id = 0
+  return Unit{}
+end
+
+-- ── Single run mode ─────────────────────────────────────────────────────
+
+fn run_single(self) -> Result<Int, String>
+  let compile_result be self.compile()
+  match compile_result with
+  case Err(e) do return Err(e) end
+  case Ok(cr) do
+    let process be self.execute(cr.output_binary)
+    match process with
+    case Err(e) do return Err(e) end
+    case Ok(handle) do
+      return Ok(self.wait_for_exit(handle))
+    end
+    end
+  end
+  end
+end
+
+-- ── Watch mode ──────────────────────────────────────────────────────────
+
+fn is_excluded(self, path: String) -> Bool
+  for pattern in self.config.watch_exclude do
+    if path.contains(pattern) then
+      return true
+    end
+  end
+  return false
+end
+
+fn filter_events(self, events: List<WatchEvent>) -> List<WatchEvent>
+  let filtered be List<WatchEvent>[]
+  for event in events do
+    let relevant be false
+    for watch_path in self.config.watch_paths do
+      if event.path.starts_with(watch_path) then
+        relevant = true
+      end
+    end
+    if self.is_excluded(event.path) then
+      relevant = false
+    end
+    match event.kind with
+    case WatchEventKind.MODIFY do if relevant then filtered.append(event) end end
+    case WatchEventKind.CREATE do if relevant then filtered.append(event) end end
+    case WatchEventKind.REMOVE do if relevant then filtered.append(event) end end
+    case WatchEventKind.OTHER do end
+    end
+  end
+  return filtered
+end
+
+fn handle_events(self, events: List<WatchEvent>, current_handle: Option<ProcessHandle>) -> Result<Option<ProcessHandle>, String>
+  let changed_files be List<String>[]
+  for event in events do
+    changed_files.append(event.path)
+  end
+  if changed_files.length == 0 then
+    return Ok(current_handle)
+  end
+  if self.config.verbose then
+    orren.core.log.info("Detected " + changed_files.length.to_string() + " file changes")
+  end
+  -- Stop the running process before recompiling.
+  match current_handle with
+  case Some(handle) do self.stop_process(handle) end
+  case None do end
+  end
+  -- Recompile based on strategy.
+  let compile_result be match self.config.reload_strategy with
+  case ReloadStrategy.FULL do self.compile() end
+  case ReloadStrategy.INCREMENTAL do self.incremental_compile(changed_files) end
+  case ReloadStrategy.SEMANTIC_DIFF do self.semantic_diff_compile(changed_files) end
+  end
+  match compile_result with
+  case Err(e) do
+    orren.core.log.error("Reload compilation failed: " + e)
+    return Err(e)
+  end
+  case Ok(cr) do
+    let process be self.execute(cr.output_binary)
+    match process with
+    case Err(e) do return Err(e) end
+    case Ok(handle) do
+      self.session.reload_count = self.session.reload_count + 1
+      orren.core.log.info("Hot-reload #" + self.session.reload_count.to_string() + " complete")
+      return Ok(Some(handle))
+    end
+    end
+  end
+  end
+end
+
+fn run_watch(self) -> Result<Int, String>
+  let compile_result be self.compile()
+  match compile_result with
+  case Err(e) do return Err(e) end
+  case Ok(cr) do
+    let process be self.execute(cr.output_binary)
+    match process with
+    case Err(e) do return Err(e) end
+    case Ok(handle) do
+      let current be Some(handle)
+      -- Set up watchers for configured paths.
+      for watch_path in self.config.watch_paths do
+        if Path.is_dir(watch_path) then
+          self.file_watcher.watch(watch_path)
+        end
+      end
+      orren.core.log.info("Watching for changes... (Ctrl-C to stop)")
+      -- Main event loop.
+      let running be true
+      while running do
+        let events be self.file_watcher.poll(Duration.from_millis(500))
+        let relevant be self.filter_events(events)
+        if relevant.length > 0 then
+          let result be self.handle_events(relevant, current)
+          match result with
+          case Ok(new_handle) do current = new_handle end
+          case Err(e) do orren.core.log.error("Reload error: " + e) end
+          end
+        end
+      end
+      return Ok(self.session.exit_code)
+    end
+    end
+  end
+  end
+end
+
+-- ── Interactive mode ────────────────────────────────────────────────────
+
+fn run_interactive(self) -> Result<Int, String>
+  orren.core.log.info("Entering interactive mode. Type expressions or :quit to exit.")
+  let repl be orren.core.repl.Repl{config: self.config.compile_config}
+  let result be repl.run()
+  self.session.exit_code = result
+  return Ok(result)
+end
+
+-- ── Environment management ──────────────────────────────────────────────
+
+fn set_env(self, key: String, value: String) -> Unit
+  self.config.env_vars.put(key, value)
+  return Unit{}
+end
+
+fn unset_env(self, key: String) -> Unit
+  if self.config.env_vars.has(key) then
+    self.config.env_vars.remove(key)
+  end
+  return Unit{}
+end
+
+fn merge_env(self, vars: Map<String, String>) -> Unit
+  let keys be vars.keys()
+  for key in keys do
+    let value be vars.get(key)
+    self.config.env_vars.put(key, value)
+  end
+  return Unit{}
+end
+
+-- ── Main entry point ────────────────────────────────────────────────────
+
+fn run(self) -> Result<Int, String>
+  match self.config.mode with
+  case RunMode.SINGLE do return self.run_single() end
+  case RunMode.WATCH do return self.run_watch() end
+  case RunMode.INTERACTIVE do return self.run_interactive() end
+  end
+end
+
+export {RunMode, ReloadStrategy, RunConfig, RunSession, EnhancedRunner}

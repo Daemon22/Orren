@@ -1,0 +1,921 @@
+module orren.parser.ast
+
+import orren.primitive::{Float, Int, Bool, String, List}
+import orren.core.language.foundation::{
+  SemanticDomainType,
+  SemanticAttributes,
+  CognitiveKeywordType
+}
+import orren.core.semantic.model::{*}
+import orren.parser.tokens::{
+  TokenType,
+  Token,
+  TokenStream
+}
+
+intent "The cognition-aware Abstract Syntax Tree for the Orren language.
+  Every AST node carries semantic attributes and domain annotations,
+  ensuring that the structural representation of code preserves meaning
+  at every level. The AST is the bridge between raw syntax and the
+  semantic structures that the runtime operates upon."
+
+-- =========================================================================
+-- ENTITY: ASTNode
+-- =========================================================================
+-- The base entity for all nodes in the Orren AST. Every node, regardless
+-- of its specific role in the syntax tree, inherits the properties defined
+-- here: a type name for identification, source location for error reporting
+-- and debugging, semantic attributes for meaning tracking, and a semantic
+-- domain for cognitive classification. The default attributes have all
+-- dimensions at 1.0 and confidence at 0.0, following the SemanticAttributes
+-- convention from the foundation module.
+-- =========================================================================
+
+entity ASTNode
+  -- A string identifying the kind of AST node, e.g. "Program", "Entity",
+  -- "Function", "Binary". Used for type dispatch and debugging.
+  property node_type: String = "ASTNode"
+
+  -- The one-based line number in the source where this node begins.
+  property line: Int = 1
+
+  -- The one-based column number where this node begins.
+  property column: Int = 1
+
+  -- Full semantic attributes attached to this node. Default: all dimensions
+  -- at 1.0, confidence at 0.0.
+  property attributes: SemanticAttributes = SemanticAttributes{}
+
+  -- The primary semantic domain this node belongs to.
+  property semantic_domain: SemanticDomainType = COGNITIVE
+
+  -- Return a string summary of this node for debugging.
+  fn to_summary(self) -> String do
+    return self.node_type + " @ " + int_to_string(self.line)
+      + ":" + int_to_string(self.column)
+  end
+end
+
+-- =========================================================================
+-- ENTITY: ProgramNode
+-- =========================================================================
+-- The root node of a complete Orren source file. Contains the module
+-- declaration, all imports, intents, top-level declarations, and
+-- exports. A ProgramNode represents the full parse tree of a single
+-- compilation unit.
+-- =========================================================================
+
+entity ProgramNode
+  -- Node identification and source location.
+  property node_type: String = "Program"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = COGNITIVE
+
+  -- The fully qualified module name declared at the top of the file.
+  property module_name: String = ""
+
+  -- All import declarations in the file, in order of appearance.
+  property imports: List<ImportNode> = []
+
+  -- All intent declarations describing the module's purpose.
+  property intents: List<IntentNode> = []
+
+  -- All top-level declarations: entities, enums, functions, constants.
+  property declarations: List<ASTNode> = []
+
+  -- All export declarations specifying the public API.
+  property exports: List<ExportNode> = []
+
+  fn to_summary(self) -> String do
+    return "Program '" + self.module_name + "' with "
+      + int_to_string(self.declarations.length()) + " declarations"
+  end
+end
+
+-- =========================================================================
+-- ENTITY: ImportNode
+-- =========================================================================
+-- Represents a single import declaration. Imports bring external symbols
+-- into scope, either as specific named symbols or as a wildcard import.
+-- =========================================================================
+
+entity ImportNode
+  property node_type: String = "Import"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = COMMUNICATION
+
+  -- The module path being imported, e.g. "orren.core.language.foundation".
+  property module_path: String = ""
+
+  -- The list of specific symbols imported, e.g. ["Type1", "Type2"].
+  property symbols: List<String> = []
+
+  -- Whether this import uses a wildcard (*) to import all symbols.
+  property is_wildcard: Bool = false
+
+  fn to_summary(self) -> String do
+    if self.is_wildcard then
+      return "import " + self.module_path + "::{*}"
+    end
+    let syms be join_string_list_with(self.symbols, ", ")
+    return "import " + self.module_path + "::{" + syms + "}"
+  end
+end
+
+-- =========================================================================
+-- ENTITY: ExportNode
+-- =========================================================================
+-- Represents a single export declaration that specifies which symbols
+-- from the current module are part of its public API.
+-- =========================================================================
+
+entity ExportNode
+  property node_type: String = "Export"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = COMMUNICATION
+
+  -- The list of symbol names being exported.
+  property symbols: List<String> = []
+
+  fn to_summary(self) -> String do
+    let syms be join_string_list_with(self.symbols, ", ")
+    return "export {" + syms + "}"
+  end
+end
+
+-- =========================================================================
+-- ENTITY: IntentNode
+-- =========================================================================
+-- Represents an intent declaration that describes the purpose and
+-- meaning of the containing module or entity. Intents are a first-class
+-- mechanism for documenting cognitive intent.
+-- =========================================================================
+
+entity IntentNode
+  property node_type: String = "Intent"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = COGNITIVE
+
+  -- The full text of the intent description.
+  property description: String = ""
+
+  fn to_summary(self) -> String do
+    return "intent \"" + truncate_string(self.description, 60) + "\""
+  end
+end
+
+-- =========================================================================
+-- ENTITY: EntityNode
+-- =========================================================================
+-- Represents an entity declaration: a named collection of properties
+-- and methods. Entities may extend super-entities, forming an inheritance
+-- hierarchy. EntityNode is one of the primary structural nodes in the AST.
+-- =========================================================================
+
+entity EntityNode
+  property node_type: String = "Entity"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = COGNITIVE
+
+  -- The name of the entity.
+  property name: String = ""
+
+  -- All property declarations within this entity.
+  property properties: List<PropertyNode> = []
+
+  -- All method declarations within this entity.
+  property methods: List<FunctionNode> = []
+
+  -- The list of super-entity names this entity extends, if any.
+  property super_entities: List<String> = []
+
+  fn to_summary(self) -> String do
+    return "entity " + self.name + " ("
+      + int_to_string(self.properties.length()) + " properties, "
+      + int_to_string(self.methods.length()) + " methods)"
+  end
+end
+
+-- =========================================================================
+-- ENTITY: PropertyNode
+-- =========================================================================
+-- Represents a single property declaration within an entity. Each
+-- property has a name, a type annotation, and an optional default value.
+-- =========================================================================
+
+entity PropertyNode
+  property node_type: String = "Property"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = COGNITIVE
+
+  -- The name of the property.
+  property name: String = ""
+
+  -- The type annotation for this property, e.g. "Int", "String".
+  property type_name: String = ""
+
+  -- The default value expression as a string representation.
+  property default_value: String = ""
+
+  fn to_summary(self) -> String do
+    let default_part be ""
+    if self.default_value != "" then
+      default_part = " = " + self.default_value
+    end
+    return "property " + self.name + ": " + self.type_name + default_part
+  end
+end
+
+-- =========================================================================
+-- ENTITY: FunctionNode
+-- =========================================================================
+-- Represents a function declaration, either as a standalone function or as
+-- a method within an entity. Functions carry optional cognitive keyword
+-- annotations that indicate their role in the cognitive architecture.
+-- =========================================================================
+
+entity FunctionNode
+  property node_type: String = "Function"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = COGNITIVE
+
+  -- The name of the function.
+  property name: String = ""
+
+  -- The ordered list of parameter declarations.
+  property params: List<ParamNode> = []
+
+  -- The return type annotation, or empty if inferred.
+  property return_type: String = ""
+
+  -- The body of the function: a block of statements.
+  property body: BlockNode = BlockNode{}
+
+  -- Whether this function is annotated with a cognitive keyword.
+  property is_cognitive: Bool = false
+
+  -- The cognitive keyword if this function is cognitive, empty otherwise.
+  property cognitive_keyword: String = ""
+
+  fn to_summary(self) -> String do
+    let cognitive_prefix be ""
+    if self.is_cognitive then
+      cognitive_prefix = self.cognitive_keyword + " "
+    end
+    return cognitive_prefix + "fn " + self.name + "() -> " + self.return_type
+  end
+end
+
+-- =========================================================================
+-- ENTITY: ParamNode
+-- =========================================================================
+-- Represents a single parameter in a function declaration.
+-- Each parameter has a name and a type annotation.
+-- =========================================================================
+
+entity ParamNode
+  property node_type: String = "Param"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = COGNITIVE
+
+  -- The parameter name.
+  property name: String = ""
+
+  -- The parameter's type annotation.
+  property type_name: String = ""
+
+  fn to_summary(self) -> String do
+    return self.name + ": " + self.type_name
+  end
+end
+
+-- =========================================================================
+-- ENTITY: BlockNode
+-- =========================================================================
+-- Represents a block of statements enclosed by do...end or similar
+-- delimiters. Blocks are the primary structural grouping mechanism in
+-- Orren and serve as function bodies, conditional branches, loop bodies,
+-- and match results.
+-- =========================================================================
+
+entity BlockNode
+  property node_type: String = "Block"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = COGNITIVE
+
+  -- The ordered list of statements within this block.
+  property statements: List<ASTNode> = []
+
+  fn to_summary(self) -> String do
+    return "block (" + int_to_string(self.statements.length()) + " statements)"
+  end
+end
+
+-- =========================================================================
+-- ENTITY: LetNode
+-- =========================================================================
+-- Represents a let binding: an immutable name bound to a value.
+-- Let bindings introduce new names into the current scope.
+-- =========================================================================
+
+entity LetNode
+  property node_type: String = "Let"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = REASONING
+
+  -- The name being bound.
+  property name: String = ""
+
+  -- The expression whose value is bound to the name.
+  property value: ASTNode = ASTNode{}
+
+  fn to_summary(self) -> String do
+    return "let " + self.name + " be ..."
+  end
+end
+
+-- =========================================================================
+-- ENTITY: ConstNode
+-- =========================================================================
+-- Represents a constant declaration at the module or entity level.
+-- Constants carry a type annotation and an initializer value.
+-- =========================================================================
+
+entity ConstNode
+  property node_type: String = "Const"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = REASONING
+
+  -- The constant name.
+  property name: String = ""
+
+  -- The type annotation for the constant.
+  property type_name: String = ""
+
+  -- The initializer expression.
+  property value: ASTNode = ASTNode{}
+
+  fn to_summary(self) -> String do
+    return "const " + self.name + ": " + self.type_name
+  end
+end
+
+-- =========================================================================
+-- ENTITY: IfNode
+-- =========================================================================
+-- Represents a conditional expression with a then-branch and an optional
+-- else-branch. The condition is evaluated to determine which branch
+-- executes.
+-- =========================================================================
+
+entity IfNode
+  property node_type: String = "If"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = REASONING
+
+  -- The condition expression.
+  property condition: ASTNode = ASTNode{}
+
+  -- The block executed when the condition is truthy.
+  property then_branch: BlockNode = BlockNode{}
+
+  -- The block executed when the condition is falsy. May be empty
+  -- if there is no else clause.
+  property else_branch: BlockNode = BlockNode{}
+
+  fn to_summary(self) -> String do
+    let else_part be ""
+    if self.else_branch.statements.length() > 0 then
+      else_part = " else ..."
+    end
+    return "if ... then ..." + else_part
+  end
+end
+
+-- =========================================================================
+-- ENTITY: ForNode
+-- =========================================================================
+-- Represents a for-in loop that iterates over an iterable expression,
+-- binding each element to a variable name and executing the body block.
+-- =========================================================================
+
+entity ForNode
+  property node_type: String = "For"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = TEMPORAL
+
+  -- The loop variable name that receives each element.
+  property variable: String = ""
+
+  -- The iterable expression to loop over.
+  property iterable: ASTNode = ASTNode{}
+
+  -- The body block executed for each iteration.
+  property body: BlockNode = BlockNode{}
+
+  fn to_summary(self) -> String do
+    return "for " + self.variable + " in ..."
+  end
+end
+
+-- =========================================================================
+-- ENTITY: LoopNode
+-- =========================================================================
+-- Represents an unconditional loop that executes its body repeatedly
+-- until a break statement is encountered.
+-- =========================================================================
+
+entity LoopNode
+  property node_type: String = "Loop"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = TEMPORAL
+
+  -- The body block executed on each iteration.
+  property body: BlockNode = BlockNode{}
+
+  fn to_summary(self) -> String do
+    return "loop ..."
+  end
+end
+
+-- =========================================================================
+-- ENTITY: MatchNode
+-- =========================================================================
+-- Represents a match expression that evaluates a subject value against
+-- a series of pattern branches. The first matching branch determines the
+-- result. A wildcard branch can serve as a default fallback.
+-- =========================================================================
+
+entity MatchNode
+  property node_type: String = "Match"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = REASONING
+
+  -- The expression whose value is being matched.
+  property subject: ASTNode = ASTNode{}
+
+  -- The ordered list of match branches to evaluate.
+  property branches: List<MatchBranch> = []
+
+  fn to_summary(self) -> String do
+    return "match ... with " + int_to_string(self.branches.length()) + " branches"
+  end
+end
+
+-- =========================================================================
+-- ENTITY: MatchBranch
+-- =========================================================================
+-- A single branch in a match expression. Contains a pattern string and
+-- the result expression to evaluate if the pattern matches.
+-- =========================================================================
+
+entity MatchBranch
+  property node_type: String = "MatchBranch"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = REASONING
+
+  -- The pattern to match against, e.g. "SOME", "NONE", "_", or a literal.
+  property pattern: String = ""
+
+  -- The result expression if this pattern matches.
+  property result: ASTNode = ASTNode{}
+
+  fn to_summary(self) -> String do
+    return self.pattern + " => ..."
+  end
+end
+
+-- =========================================================================
+-- ENTITY: ReturnNode
+-- =========================================================================
+-- Represents a return statement that exits the current function with
+-- a value expression.
+-- =========================================================================
+
+entity ReturnNode
+  property node_type: String = "Return"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = COMMUNICATION
+
+  -- The value expression to return. May be a LiteralNode for void returns.
+  property value: ASTNode = ASTNode{}
+
+  fn to_summary(self) -> String do
+    return "return ..."
+  end
+end
+
+-- =========================================================================
+-- ENTITY: RaiseNode
+-- =========================================================================
+-- Represents a raise statement that signals an error or exception.
+-- Carries the error type and a message describing the failure.
+-- =========================================================================
+
+entity RaiseNode
+  property node_type: String = "Raise"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = COMMUNICATION
+
+  -- The type or category of the error being raised.
+  property error_type: String = ""
+
+  -- A human-readable message describing the error.
+  property message: String = ""
+
+  fn to_summary(self) -> String do
+    return "raise " + self.error_type + ": " + self.message
+  end
+end
+
+-- =========================================================================
+-- ENTITY: CallNode
+-- =========================================================================
+-- Represents a function or method call. Calls may be cognitive in
+-- nature, carrying a cognitive keyword prefix that indicates which
+-- cognitive primitive is being invoked.
+-- =========================================================================
+
+entity CallNode
+  property node_type: String = "Call"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = COGNITIVE
+
+  -- The name of the function or method being called.
+  property callee: String = ""
+
+  -- The ordered list of argument expressions.
+  property arguments: List<ASTNode> = []
+
+  -- Whether this call is a cognitive keyword invocation.
+  property is_cognitive: Bool = false
+
+  -- The cognitive keyword if this is a cognitive call, empty otherwise.
+  property cognitive_keyword: String = ""
+
+  fn to_summary(self) -> String do
+    let prefix be ""
+    if self.is_cognitive then
+      prefix = self.cognitive_keyword + "."
+    end
+    return prefix + self.callee + "("
+      + int_to_string(self.arguments.length()) + " args)"
+  end
+end
+
+-- =========================================================================
+-- ENTITY: CognitiveNode
+-- =========================================================================
+-- Represents an invocation of one of the ten cognitive primitives
+-- as a first-class expression. Cognitive nodes carry rich metadata
+-- including the target expression, cognitive context, strategy, depth,
+-- modality, constraints, and memory type. These nodes are the bridge
+-- between the language syntax and the cognitive runtime.
+-- =========================================================================
+
+entity CognitiveNode
+  property node_type: String = "Cognitive"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = COGNITIVE
+
+  -- Which of the ten cognitive keywords this node represents.
+  property keyword: CognitiveKeywordType = REASON
+
+  -- The textual context in which this cognitive operation occurs.
+  property context: String = ""
+
+  -- The reasoning or processing strategy to employ.
+  property strategy: String = ""
+
+  -- The target expression this cognitive operation acts upon.
+  property target: ASTNode = ASTNode{}
+
+  -- The depth of cognitive processing, controlling recursion and effort.
+  property depth: Int = 0
+
+  -- The modality of the cognitive operation: analytical, intuitive, etc.
+  property modality: String = ""
+
+  -- Additional constraints governing the cognitive operation.
+  property constraints: List<String> = []
+
+  -- The memory type for recall operations: episodic, semantic, etc.
+  property memory_type: String = ""
+
+  fn to_summary(self) -> String do
+    let kw be cognitive_keyword_to_string(self.keyword)
+    let strategy_part be ""
+    if self.strategy != "" then
+      strategy_part = " strategy=" + self.strategy
+    end
+    let depth_part be " depth=" + int_to_string(self.depth)
+    return kw + strategy_part + depth_part
+  end
+end
+
+-- =========================================================================
+-- ENTITY: BinaryNode
+-- =========================================================================
+-- Represents a binary expression: two operands combined by an operator.
+-- Binary nodes are the primary mechanism for arithmetic, comparison,
+-- and logical operations.
+-- =========================================================================
+
+entity BinaryNode
+  property node_type: String = "Binary"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = REASONING
+
+  -- The left operand.
+  property left: ASTNode = ASTNode{}
+
+  -- The operator string, e.g. "+", "-", "*", "/", "==", "/=", "<", ">".
+  property operator: String = ""
+
+  -- The right operand.
+  property right: ASTNode = ASTNode{}
+
+  fn to_summary(self) -> String do
+    return "(... " + self.operator + " ...)"
+  end
+end
+
+-- =========================================================================
+-- ENTITY: UnaryNode
+-- =========================================================================
+-- Represents a unary expression: a single operand modified by a prefix
+-- operator. Used for negation, logical NOT, and other single-operand
+-- transformations.
+-- =========================================================================
+
+entity UnaryNode
+  property node_type: String = "Unary"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = REASONING
+
+  -- The unary operator string, e.g. "-", "not".
+  property operator: String = ""
+
+  -- The operand expression.
+  property operand: ASTNode = ASTNode{}
+
+  fn to_summary(self) -> String do
+    return "(" + self.operator + " ...)"
+  end
+end
+
+-- =========================================================================
+-- ENTITY: LiteralNode
+-- =========================================================================
+-- Represents a literal value in the source code. Literals are the atomic
+-- data values: integers, floats, strings, booleans, and nil. The
+-- literal_type field classifies which kind of literal this is.
+-- =========================================================================
+
+entity LiteralNode
+  property node_type: String = "Literal"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = REASONING
+
+  -- The textual representation of the literal value.
+  property value: String = ""
+
+  -- The kind of literal: "integer", "float", "string", "bool", "nil".
+  property literal_type: String = "integer"
+
+  fn to_summary(self) -> String do
+    return self.literal_type + " '" + truncate_string(self.value, 30) + "'"
+  end
+end
+
+-- =========================================================================
+-- ENTITY: IdentifierNode
+-- =========================================================================
+-- Represents a named reference to a variable, function, entity, or
+-- other named entity in the current scope. Identifiers are the primary
+-- means of referring to bindings in Orren.
+-- =========================================================================
+
+entity IdentifierNode
+  property node_type: String = "Identifier"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = COGNITIVE
+
+  -- The name being referenced.
+  property name: String = ""
+
+  fn to_summary(self) -> String do
+    return self.name
+  end
+end
+
+-- =========================================================================
+-- ENTITY: ListLiteralNode
+-- =========================================================================
+-- Represents a list literal expression: an ordered collection of
+-- element expressions enclosed in square brackets.
+-- =========================================================================
+
+entity ListLiteralNode
+  property node_type: String = "ListLiteral"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = REASONING
+
+  -- The ordered list of element expressions.
+  property elements: List<ASTNode> = []
+
+  fn to_summary(self) -> String do
+    return "[" + int_to_string(self.elements.length()) + " elements]"
+  end
+end
+
+-- =========================================================================
+-- ENTITY: MapLiteralNode
+-- =========================================================================
+-- Represents a map (dictionary) literal expression: an unordered
+-- collection of key-value pairs. Keys are strings; values are arbitrary
+-- expressions.
+-- =========================================================================
+
+entity MapLiteralNode
+  property node_type: String = "MapLiteral"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = REASONING
+
+  -- The ordered list of key-value entries.
+  property entries: List<MapEntry> = []
+
+  fn to_summary(self) -> String do
+    return "{" + int_to_string(self.entries.length()) + " entries}"
+  end
+end
+
+-- =========================================================================
+-- ENTITY: MapEntry
+-- =========================================================================
+-- A single key-value pair within a map literal.
+-- =========================================================================
+
+entity MapEntry
+  property node_type: String = "MapEntry"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = REASONING
+
+  -- The key string.
+  property key: String = ""
+
+  -- The value expression.
+  property value: ASTNode = ASTNode{}
+
+  fn to_summary(self) -> String do
+    return self.key + ": ..."
+  end
+end
+
+-- =========================================================================
+-- ENTITY: AccessNode
+-- =========================================================================
+-- Represents a field or method access on an object: object.field or
+-- object.method. Access nodes form chains that navigate through the
+-- object structure.
+-- =========================================================================
+
+entity AccessNode
+  property node_type: String = "Access"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = COGNITIVE
+
+  -- The object expression being accessed.
+  property object: ASTNode = ASTNode{}
+
+  -- The name of the field or method being accessed.
+  property field: String = ""
+
+  fn to_summary(self) -> String do
+    return "... ." + self.field
+  end
+end
+
+-- =========================================================================
+-- ENTITY: EnumNode
+-- =========================================================================
+-- Represents an enum declaration: a named type with a fixed set of
+-- variants. Enum variants are represented as strings and form the
+-- complete set of values for the enum type.
+-- =========================================================================
+
+entity EnumNode
+  property node_type: String = "Enum"
+  property line: Int = 1
+  property column: Int = 1
+  property attributes: SemanticAttributes = SemanticAttributes{}
+  property semantic_domain: SemanticDomainType = COGNITIVE
+
+  -- The name of the enum type.
+  property name: String = ""
+
+  -- The ordered list of variant names.
+  property variants: List<String> = []
+
+  fn to_summary(self) -> String do
+    let vars be join_string_list_with(self.variants, " ")
+    return "enum " + self.name + " " + vars + " end"
+  end
+end
+
+-- =========================================================================
+-- EXPORTS
+-- =========================================================================
+-- All AST node types are exported. The AST is consumed by the semantic
+-- analyzer, type checker, code generator, and every downstream phase
+-- of the Orren compilation pipeline.
+-- =========================================================================
+
+export {
+  ASTNode,
+  ProgramNode,
+  ImportNode,
+  ExportNode,
+  IntentNode,
+  EntityNode,
+  PropertyNode,
+  FunctionNode,
+  ParamNode,
+  BlockNode,
+  LetNode,
+  ConstNode,
+  IfNode,
+  ForNode,
+  LoopNode,
+  MatchNode,
+  MatchBranch,
+  ReturnNode,
+  RaiseNode,
+  CallNode,
+  CognitiveNode,
+  BinaryNode,
+  UnaryNode,
+  LiteralNode,
+  IdentifierNode,
+  ListLiteralNode,
+  MapLiteralNode,
+  MapEntry,
+  AccessNode,
+  EnumNode
+}

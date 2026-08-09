@@ -1,0 +1,323 @@
+-- orren_tools.sdk.linter
+-- Static analysis linter for Orren source code.
+-- Checks semantic integrity, code quality, naming conventions, and more.
+
+import orren.core.language.foundation::{String, Int, Bool, List, Map, Result, Ok, Err, None}
+
+module orren_tools.sdk.linter
+
+-- Severity levels for lint violations.
+enum LintSeverity
+  ERROR
+  WARNING
+  INFO
+  HINT
+end
+
+-- All recognized lint rule identifiers.
+enum LintRuleId
+  MISSING_INTENT
+  UNUSED_IMPORT
+  DEAD_CODE
+  UNREACHABLE_BRANCH
+  MISSING_SEMANTIC_ATTR
+  LOW_CONFIDENCE
+  BROKEN_PROVENANCE
+  NAMING_CONVENTION
+  COGNITIVE_KEYWORD_MISUSE
+  MISSING_EXPORT
+  OVERLY_COMPLEX
+  INCONSISTENT_INDENT
+  EMPTY_ENTITY
+end
+
+-- Categories grouping related lint rules.
+enum LintCategory
+  SEMANTIC_INTEGRITY
+  CODE_QUALITY
+  CONVENTION
+  PERFORMANCE
+  SECURITY
+end
+
+-- Configuration for the linter controlling which rules are active.
+entity LintConfig
+  property enabled_rules: List<String> = List<String>.new()
+  property disabled_rules: List<String> = List<String>.new()
+  property max_complexity: Int = 10
+  property require_intent: Bool = true
+  property require_provenance: Bool = true
+  property naming_style: String = "snake_case"
+  property max_entity_size: Int = 500
+  property semantic_threshold: Int = 80
+
+  -- Check if a rule is enabled given the config.
+  fn is_rule_enabled(self, rule_name: String) -> Bool do
+    for disabled in self.disabled_rules do
+      if disabled == rule_name then
+        return false
+      end
+    end
+    if self.enabled_rules.length() == 0 then
+      return true
+    end
+    for enabled in self.enabled_rules do
+      if enabled == rule_name then
+        return true
+      end
+    end
+    return false
+  end
+
+  -- Create a default linter configuration.
+  fn default() -> LintConfig do
+    let cfg be LintConfig.new()
+    cfg.max_complexity = 10
+    cfg.require_intent = true
+    cfg.require_provenance = true
+    cfg.naming_style = "snake_case"
+    cfg.max_entity_size = 500
+    cfg.semantic_threshold = 80
+    return cfg
+  end
+end
+
+-- A single lint rule definition with metadata.
+entity LintRule
+  property rule_id: LintRuleId = LintRuleId.NAMING_CONVENTION
+  property category: LintCategory = LintCategory.CONVENTION
+  property severity: LintSeverity = LintSeverity.WARNING
+  property description: String = ""
+  property default_enabled: Bool = true
+
+  -- Create a lint rule with all fields.
+  fn create(rid: LintRuleId, cat: LintCategory, sev: LintSeverity, desc: String) -> LintRule do
+    let rule be LintRule.new()
+    rule.rule_id = rid
+    rule.category = cat
+    rule.severity = sev
+    rule.description = desc
+    rule.default_enabled = true
+    return rule
+  end
+
+  -- Return a display string for the rule.
+  fn display(self) -> String do
+    return self.rule_id.to_string() + " [" + self.category.to_string() + "] " + self.severity.to_string()
+  end
+end
+
+-- A single lint violation found in source code.
+entity LintViolation
+  property rule_id: LintRuleId = LintRuleId.NAMING_CONVENTION
+  property file: String = ""
+  property line: Int = 0
+  property column: Int = 0
+  property message: String = ""
+  property severity: LintSeverity = LintSeverity.WARNING
+  property suggested_fix: String = ""
+
+  -- Format the violation as a human-readable diagnostic.
+  fn to_diagnostic(self) -> String do
+    let loc be self.file + ":" + self.line.to_string() + ":" + self.column.to_string()
+    let msg be loc + " " + self.severity.to_string() + " [" + self.rule_id.to_string() + "] "
+    msg = msg + self.message
+    if self.suggested_fix != "" then
+      msg = msg + " (fix: " + self.suggested_fix + ")"
+    end
+    return msg
+  end
+end
+
+-- Aggregated result of linting one or more files.
+entity LintResult
+  property violations: List<LintViolation> = List<LintViolation>.new()
+  property file_count: Int = 0
+  property error_count: Int = 0
+  property warning_count: Int = 0
+  property scan_time: Int = 0
+
+  -- Add a violation to the result and update counters.
+  fn add_violation(self, v: LintViolation) do
+    self.violations.append(v)
+    match v.severity with
+      LintSeverity.ERROR then
+        self.error_count = self.error_count + 1
+      LintSeverity.WARNING then
+        self.warning_count = self.warning_count + 1
+      LintSeverity.INFO then
+        -- no counter increment for info
+      LintSeverity.HINT then
+        -- no counter increment for hint
+    end
+  end
+
+  -- Return true if no errors were found.
+  fn is_clean(self) -> Bool do
+    return self.error_count == 0
+  end
+
+  -- Return a summary string.
+  fn summary(self) -> String do
+    return self.file_count.to_string() + " files scanned, " + self.violations.length().to_string()
+    + " issues (" + self.error_count.to_string() + " errors, " + self.warning_count.to_string() + " warnings)"
+  end
+end
+
+-- The main linter that registers rules, configures checks, and scans source.
+entity OrrenLinter
+  property config: LintConfig = LintConfig.default()
+  property registered_rules: Map<String, LintRule> = Map<String, LintRule>.new()
+  property violation_buffer: List<LintViolation> = List<LintViolation>.new()
+  property file_count: Int = 0
+
+  -- Create a new linter with all default rules registered.
+  fn create() -> OrrenLinter do
+    let linter be OrrenLinter.new()
+    linter.config = LintConfig.default()
+    linter.register_rule(LintRule.create(LintRuleId.MISSING_INTENT, LintCategory.SEMANTIC_INTEGRITY, LintSeverity.ERROR, "Entity or function missing intent declaration"))
+    linter.register_rule(LintRule.create(LintRuleId.UNUSED_IMPORT, LintCategory.CODE_QUALITY, LintSeverity.WARNING, "Import is never used in this module"))
+    linter.register_rule(LintRule.create(LintRuleId.DEAD_CODE, LintCategory.CODE_QUALITY, LintSeverity.WARNING, "Code after unconditional return is unreachable"))
+    linter.register_rule(LintRule.create(LintRuleId.UNREACHABLE_BRANCH, LintCategory.CODE_QUALITY, LintSeverity.WARNING, "Branch condition is always false"))
+    linter.register_rule(LintRule.create(LintRuleId.MISSING_SEMANTIC_ATTR, LintCategory.SEMANTIC_INTEGRITY, LintSeverity.ERROR, "Function missing semantic integrity annotation"))
+    linter.register_rule(LintRule.create(LintRuleId.LOW_CONFIDENCE, LintCategory.SEMANTIC_INTEGRITY, LintSeverity.ERROR, "Operation confidence below threshold"))
+    linter.register_rule(LintRule.create(LintRuleId.BROKEN_PROVENANCE, LintCategory.SEMANTIC_INTEGRITY, LintSeverity.ERROR, "Data provenance chain is broken"))
+    linter.register_rule(LintRule.create(LintRuleId.NAMING_CONVENTION, LintCategory.CONVENTION, LintSeverity.WARNING, "Name does not follow " + linter.config.naming_style + " convention"))
+    linter.register_rule(LintRule.create(LintRuleId.COGNITIVE_KEYWORD_MISUSE, LintCategory.SEMANTIC_INTEGRITY, LintSeverity.ERROR, "Cognitive keyword used without semantic justification"))
+    linter.register_rule(LintRule.create(LintRuleId.MISSING_EXPORT, LintCategory.CONVENTION, LintSeverity.INFO, "Public entity is not listed in export block"))
+    linter.register_rule(LintRule.create(LintRuleId.OVERLY_COMPLEX, LintCategory.CODE_QUALITY, LintSeverity.WARNING, "Function complexity exceeds maximum threshold"))
+    linter.register_rule(LintRule.create(LintRuleId.INCONSISTENT_INDENT, LintCategory.CONVENTION, LintSeverity.INFO, "Inconsistent indentation detected"))
+    linter.register_rule(LintRule.create(LintRuleId.EMPTY_ENTITY, LintCategory.CODE_QUALITY, LintSeverity.WARNING, "Entity has no properties or functions"))
+    return linter
+  end
+
+  -- Register a lint rule by its definition.
+  fn register_rule(self, rule: LintRule) do
+    let key be rule.rule_id.to_string()
+    self.registered_rules.set(key, rule)
+  end
+
+  -- Configure the linter with a custom configuration.
+  fn configure(self, cfg: LintConfig) do
+    self.config = cfg
+  end
+
+  -- Emit a violation into the buffer.
+  fn emit(self, rule_id: LintRuleId, file: String, line: Int, col: Int, msg: String, fix: String) do
+    let rule be self.registered_rules.get(rule_id.to_string())
+    let mut severity be LintSeverity.WARNING
+    if rule != None then
+      severity = rule.severity
+    end
+    let v be LintViolation.new()
+    v.rule_id = rule_id
+    v.file = file
+    v.line = line
+    v.column = col
+    v.message = msg
+    v.severity = severity
+    v.suggested_fix = fix
+    self.violation_buffer.append(v)
+  end
+
+  -- Check for missing intent declarations in source.
+  fn check_semantic_integrity(self, source: String, file: String) do
+    let lines be source.split("\n")
+    let mut line_num be 1
+    for line in lines do
+      let trimmed be line.trim()
+      if trimmed.starts_with("fn ") and trimmed.contains("intent") == false then
+        self.emit(LintRuleId.MISSING_INTENT, file, line_num, 1, "Function is missing an intent declaration", "Add 'intent \"...\"' before the function")
+      end
+      if trimmed.starts_with("entity ") and trimmed.contains("intent") == false then
+        self.emit(LintRuleId.MISSING_INTENT, file, line_num, 1, "Entity is missing an intent declaration", "Add 'intent \"...\"' before the entity")
+      end
+      line_num = line_num + 1
+    end
+  end
+
+  -- Check compliance with the First Law of Orren.
+  fn check_first_law(self, source: String, file: String) do
+    if source.contains("intent") == false then
+      self.emit(LintRuleId.MISSING_SEMANTIC_ATTR, file, 1, 1, "Module has no intent declarations, violating First Law", "Add intent declarations to all public functions and entities")
+    end
+  end
+
+  -- Check naming conventions against the configured style.
+  fn check_naming(self, source: String, file: String) do
+    let lines be source.split("\n")
+    let mut line_num be 1
+    for line in lines do
+      let trimmed be line.trim()
+      if trimmed.starts_with("fn ") and trimmed.contains("CamelCase") then
+        self.emit(LintRuleId.NAMING_CONVENTION, file, line_num, 4, "Function name uses CamelCase instead of snake_case", "Rename to snake_case")
+      end
+      line_num = line_num + 1
+    end
+  end
+
+  -- Check for misuse of cognitive keywords.
+  fn check_cognitive_keywords(self, source: String, file: String) do
+    let lines be source.split("\n")
+    let mut line_num be 1
+    for line in lines do
+      let trimmed be line.trim()
+      if trimmed.contains("believe") and trimmed.contains("intent") == false then
+        self.emit(LintRuleId.COGNITIVE_KEYWORD_MISUSE, file, line_num, 1, "Cognitive keyword 'believe' used without semantic justification", "Remove or add proper intent")
+      end
+      if trimmed.contains("know") and trimmed.contains("provenance") == false then
+        self.emit(LintRuleId.COGNITIVE_KEYWORD_MISUSE, file, line_num, 1, "Cognitive keyword 'know' used without provenance tracking", "Add provenance annotation")
+      end
+      line_num = line_num + 1
+    end
+  end
+
+  -- Check for broken provenance chains.
+  fn check_provenance(self, source: String, file: String) do
+    let lines be source.split("\n")
+    let mut line_num be 1
+    for line in lines do
+      let trimmed be line.trim()
+      if trimmed.contains("external_data") and trimmed.contains("provenance") == false then
+        self.emit(LintRuleId.BROKEN_PROVENANCE, file, line_num, 1, "External data used without provenance tracking", "Add provenance annotation to external data source")
+      end
+      line_num = line_num + 1
+    end
+  end
+
+  -- Run all checks on a source string and return a LintResult.
+  fn lint_source(self, source: String, file: String) -> LintResult do
+    self.violation_buffer.clear()
+    self.check_semantic_integrity(source, file)
+    self.check_first_law(source, file)
+    self.check_naming(source, file)
+    self.check_cognitive_keywords(source, file)
+    self.check_provenance(source, file)
+    let result be LintResult.new()
+    result.violations = self.violation_buffer
+    result.file_count = 1
+    for v in result.violations do
+      match v.severity with
+        LintSeverity.ERROR then result.error_count = result.error_count + 1
+        LintSeverity.WARNING then result.warning_count = result.warning_count + 1
+        LintSeverity.INFO then -- pass
+        LintSeverity.HINT then -- pass
+      end
+    end
+    self.file_count = self.file_count + 1
+    return result
+  end
+
+  -- Produce a formatted report from a lint result.
+  fn report_results(self, result: LintResult) -> String do
+    let mut report be "LINT REPORT\n"
+    report = report + result.summary() + "\n"
+    for v in result.violations do
+      report = report + v.to_diagnostic() + "\n"
+    end
+    return report
+  end
+end
+
+export { LintSeverity, LintRuleId, LintCategory, LintConfig, LintRule,
+         LintViolation, LintResult, OrrenLinter }

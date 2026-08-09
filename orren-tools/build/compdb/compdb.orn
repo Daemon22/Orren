@@ -1,0 +1,343 @@
+-- compdb.orn: Compilation database for IDE/editor integration in the Orren build system.
+-- Tracks compilation commands for each source file, enabling go-to-definition and
+-- other language server features.
+
+module orren_tools.build.compdb
+
+import module::{String, Int, Bool, List, Map, Result, File, Path, Json}
+import orren.core.language.foundation::{SourceLocation, ModuleResolver}
+
+-- The kind of compilation a command represents.
+enum CompileCommandKind
+    COMPILE
+    PARSE_ONLY
+    SEMANTIC_ONLY
+    TYPE_CHECK
+end
+
+-- A single compilation command associated with a source file.
+entity CompileCommand
+    property directory: String = ""
+    property file: String = ""
+    property arguments: List<String> = List<String>.new()
+    property output: String = ""
+    property kind: CompileCommandKind = CompileCommandKind.COMPILE
+    property module_path: String = ""
+    property dependencies: List<String> = List<String>.new()
+    property semantic_flags: List<String> = List<String>.new()
+
+    -- Returns the command as a single string joining all arguments.
+    fn command_line(self) -> String do
+        return self.arguments.join(" ")
+    end
+
+    -- Returns a canonical key for this command based on file and directory.
+    fn canonical_key(self) -> String do
+        return self.directory + ":" + self.file
+    end
+
+    -- Adds a semantic flag to the command.
+    fn add_semantic_flag(self, flag: String) do
+        self.semantic_flags.append(flag)
+    end
+
+    -- Checks whether the command targets a specific file path.
+    fn targets_file(self, path: String) -> Bool do
+        return self.file == path or self.file == Path.absolute(path)
+    end
+
+    -- Converts the command kind to a display string.
+    fn kind_label(self) -> String do
+        return match self.kind with
+            CompileCommandKind.COMPILE => "compile"
+            CompileCommandKind.PARSE_ONLY => "parse-only"
+            CompileCommandKind.SEMANTIC_ONLY => "semantic-only"
+            CompileCommandKind.TYPE_CHECK => "type-check"
+        end
+    end
+
+    -- Adds a dependency on another source file.
+    fn add_dependency(self, dep_path: String) do
+        if not self.dependencies.contains(dep_path) then
+            self.dependencies.append(dep_path)
+        end
+    end
+
+    -- Checks if this command depends on the given file.
+    fn depends_on(self, path: String) -> Bool do
+        for dep in self.dependencies do
+            if dep == path then
+                return true
+            end
+        end
+        return false
+    end
+end
+
+-- A database of compilation commands, mapping source files to their build actions.
+entity CompilationDatabase
+    property commands: List<CompileCommand> = List<CompileCommand>.new()
+    property version: Int = 1
+    property build_dir: String = ""
+    property projects: Map<String, String> = Map<String, String>.new()
+    property source_index: Map<String, Int> = Map<String, Int>.new()
+
+    -- Rebuilds the source file to command index from the current command list.
+    fn rebuild_index(self) do
+        self.source_index = Map<String, Int>.new()
+        let idx be 0
+        for cmd in self.commands do
+            self.source_index.set(cmd.canonical_key(), idx)
+            idx = idx + 1
+        end
+    end
+
+    -- Loads a compilation database from a JSON-like file on disk.
+    fn load(self, path: String) -> Result<Bool> do
+        let raw be File.read(path)
+        if raw.is_error then
+            return Result.error("Failed to read compdb file: " + path)
+        end
+        let parsed be Json.parse(raw.value)
+        if parsed.is_error then
+            return Result.error("Failed to parse compdb JSON: " + parsed.error_message)
+        end
+        let root be parsed.value
+        let ver be root.get_int("version")
+        if ver != nothing then
+            self.version = ver
+        end
+        let bdir be root.get_string("build_dir")
+        if bdir != nothing then
+            self.build_dir = bdir
+        end
+        let cmds be root.get_array("commands")
+        if cmds != nothing then
+            for item in cmds do
+                let cmd be self.parse_command(item)
+                if cmd != nothing then
+                    self.commands.append(cmd)
+                end
+            end
+        end
+        self.rebuild_index()
+        return Result.ok(true)
+    end
+
+    -- Parses a single command object from a JSON-like structure.
+    fn parse_command(self, obj: Json.Value) -> CompileCommand do
+        let cmd be CompileCommand.new()
+        let dir be obj.get_string("directory")
+        if dir != nothing then
+            cmd.directory = dir
+        end
+        let file be obj.get_string("file")
+        if file != nothing then
+            cmd.file = file
+        end
+        let args be obj.get_array("arguments")
+        if args != nothing then
+            for a in args do
+                cmd.arguments.append(a.to_string())
+            end
+        end
+        let output be obj.get_string("output")
+        if output != nothing then
+            cmd.output = output
+        end
+        let kind_str be obj.get_string("kind")
+        if kind_str != nothing then
+            cmd.kind = self.parse_kind(kind_str)
+        end
+        let mod_path be obj.get_string("module_path")
+        if mod_path != nothing then
+            cmd.module_path = mod_path
+        end
+        return cmd
+    end
+
+    -- Converts a kind string to the enum value.
+    fn parse_kind(self, kind_str: String) -> CompileCommandKind do
+        if kind_str == "compile" then
+            return CompileCommandKind.COMPILE
+        else if kind_str == "parse-only" then
+            return CompileCommandKind.PARSE_ONLY
+        else if kind_str == "semantic-only" then
+            return CompileCommandKind.SEMANTIC_ONLY
+        else if kind_str == "type-check" then
+            return CompileCommandKind.TYPE_CHECK
+        end
+        return CompileCommandKind.COMPILE
+    end
+
+    -- Saves the compilation database to a JSON-like file.
+    fn save(self, path: String) -> Result<Bool> do
+        let root be Json.object_new()
+        root.set_int("version", self.version)
+        root.set_string("build_dir", self.build_dir)
+        let arr be Json.array_new()
+        for cmd in self.commands do
+            let obj be self.command_to_json(cmd)
+            arr.add(obj)
+        end
+        root.set_array("commands", arr)
+        let serialized be Json.serialize(root)
+        let write_ok be File.write(path, serialized)
+        if not write_ok then
+            return Result.error("Failed to write compdb file: " + path)
+        end
+        return Result.ok(true)
+    end
+
+    -- Converts a CompileCommand into a JSON-like object.
+    fn command_to_json(self, cmd: CompileCommand) -> Json.Value do
+        let obj be Json.object_new()
+        obj.set_string("directory", cmd.directory)
+        obj.set_string("file", cmd.file)
+        obj.set_string("output", cmd.output)
+        obj.set_string("kind", cmd.kind_label())
+        obj.set_string("module_path", cmd.module_path)
+        let args be Json.array_new()
+        for a in cmd.arguments do
+            args.add_string(a)
+        end
+        obj.set_array("arguments", args)
+        let deps be Json.array_new()
+        for d in cmd.dependencies do
+            deps.add_string(d)
+        end
+        obj.set_array("dependencies", deps)
+        return obj
+    end
+
+    -- Looks up a compilation command by source file path.
+    fn lookup_by_file(self, file_path: String) -> Result<CompileCommand> do
+        let abs_path be Path.absolute(file_path)
+        for key in self.source_index.keys() do
+            let idx be self.source_index.get(key)
+            if idx != nothing then
+                let cmd be self.commands.get(idx)
+                if cmd != nothing then
+                    if cmd.file == file_path or cmd.file == abs_path then
+                        return Result.ok(cmd)
+                    end
+                end
+            end
+        end
+        return Result.error("No compilation command for file: " + file_path)
+    end
+
+    -- Looks up all commands belonging to a given module path.
+    fn lookup_by_module(self, module_path: String) -> List<CompileCommand> do
+        let results be List<CompileCommand>.new()
+        for cmd in self.commands do
+            if cmd.module_path == module_path then
+                results.append(cmd)
+            end
+        end
+        return results
+    end
+
+    -- Adds a new compilation command to the database.
+    fn add_command(self, cmd: CompileCommand) do
+        let key be cmd.canonical_key()
+        let existing be self.source_index.get(key)
+        if existing != nothing then
+            self.commands.set(existing, cmd)
+        else
+            self.source_index.set(key, self.commands.length)
+            self.commands.append(cmd)
+        end
+    end
+
+    -- Removes a compilation command by source file path.
+    fn remove_command(self, file_path: String) -> Bool do
+        let abs_path be Path.absolute(file_path)
+        let idx_to_remove be -1
+        for key in self.source_index.keys() do
+            let idx be self.source_index.get(key)
+            if idx != nothing then
+                let cmd be self.commands.get(idx)
+                if cmd != nothing and (cmd.file == file_path or cmd.file == abs_path) then
+                    idx_to_remove = idx
+                end
+            end
+        end
+        if idx_to_remove < 0 then
+            return false
+        end
+        self.commands.remove_at(idx_to_remove)
+        self.rebuild_index()
+        return true
+    end
+
+    -- Merges another compilation database into this one.
+    fn merge(self, other: CompilationDatabase) do
+        for cmd in other.commands do
+            let key be cmd.canonical_key()
+            let existing_idx be self.source_index.get(key)
+            if existing_idx != nothing then
+                let existing be self.commands.get(existing_idx)
+                if existing != nothing then
+                    for dep in cmd.dependencies do
+                        existing.add_dependency(dep)
+                    end
+                end
+            else
+                self.add_command(cmd)
+            end
+        end
+        for proj_key in other.projects.keys() do
+            let proj_val be other.projects.get(proj_key)
+            if proj_val != nothing then
+                if not self.projects.has_key(proj_key) then
+                    self.projects.set(proj_key, proj_val)
+                end
+            end
+        end
+        self.rebuild_index()
+    end
+
+    -- Detects entries that reference files no longer present on disk.
+    fn detect_stale_entries(self) -> List<CompileCommand> do
+        let stale be List<CompileCommand>.new()
+        for cmd in self.commands do
+            if not File.exists(cmd.file) then
+                stale.append(cmd)
+            end
+        end
+        return stale
+    end
+
+    -- Removes all stale entries detected by detect_stale_entries.
+    fn prune_stale(self) -> Int do
+        let stale be self.detect_stale_entries()
+        let count be 0
+        for cmd in stale do
+            let removed be self.remove_command(cmd.file)
+            if removed then
+                count = count + 1
+            end
+        end
+        return count
+    end
+
+    -- Returns the total number of commands in the database.
+    fn command_count(self) -> Int do
+        return self.commands.length
+    end
+
+    -- Returns a summary string describing the database.
+    fn summary(self) -> String do
+        let stale be self.detect_stale_entries()
+        let lines be List<String>.new()
+        lines.append("Compilation Database v" + String.from_int(self.version).to_string())
+        lines.append("  Build dir: " + self.build_dir)
+        lines.append("  Commands: " + String.from_int(self.command_count()).to_string())
+        lines.append("  Projects: " + String.from_int(self.projects.size()).to_string())
+        lines.append("  Stale entries: " + String.from_int(stale.length).to_string())
+        return lines.join("\n")
+    end
+end
+
+export {CompileCommandKind, CompileCommand, CompilationDatabase}

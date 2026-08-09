@@ -1,0 +1,355 @@
+-- markdown_renderer.orn
+-- Renders Orren documentation as Markdown with configurable flavors
+-- Supports table of contents, cross-references, and semantic annotations
+
+module orren_tools.docs.markdown
+
+import orren.core.language.foundation::{String, Int, Float, Bool, List, Map}
+import orren.core.language.foundation::{FileSystem, Path}
+
+-- Supported Markdown flavor variants
+enum MarkdownFlavor
+  STANDARD
+  GITHUB
+  GITLAB
+end
+
+-- Header levels for document structure
+enum HeaderLevel
+  H1
+  H2
+  H3
+  H4
+end
+
+-- Configuration for Markdown rendering behavior
+entity MarkdownConfig
+  property flavor: MarkdownFlavor = MarkdownFlavor.GITHUB
+  property toc_enabled: Bool = true
+  property header_prefix: String = ""
+  property code_block_language: String = "orn"
+  property link_base_url: String = ""
+  property include_breadcrumbs: Bool = true
+  property max_toc_depth: Int = 3
+end
+
+-- Main Markdown renderer that converts module documentation to Markdown text
+entity MarkdownRenderer
+  property config: MarkdownConfig = MarkdownConfig{}
+  property output_buffer: List<String> = List<String>{}
+  property current_indent: Int = 0
+end
+
+intent "render Orren module documentation as Markdown with TOC, cross-references, and flavor-specific formatting"
+
+-- Render a complete module documentation to Markdown
+fn render(self: MarkdownRenderer, module_name: String, description: String, elements: List<Map<String, String>>, intents: List<String>, imports: List<String>, exports: List<String>) -> String do
+  self.output_buffer = List<String>{}
+  self.current_indent = 0
+  self.output_buffer.append(self.render_header(HeaderLevel.H1, module_name))
+  self.output_buffer.append("")
+  if description.length() > 0 then
+    self.output_buffer.append(description)
+    self.output_buffer.append("")
+  end
+  -- Render intents
+  for intent_text in intents do
+    self.output_buffer.append("> " + intent_text)
+  end
+  if intents.length() > 0 then
+    self.output_buffer.append("")
+  end
+  -- Render table of contents
+  if self.config.toc_enabled then
+    let toc be self.generate_toc(elements)
+    for line in toc do
+      self.output_buffer.append(line)
+    end
+    self.output_buffer.append("")
+  end
+  -- Render imports
+  if imports.length() > 0 then
+    self.output_buffer.append(self.render_header(HeaderLevel.H2, "Imports"))
+    self.output_buffer.append("")
+    for imp in imports do
+      self.output_buffer.append("- `" + imp + "`")
+    end
+    self.output_buffer.append("")
+  end
+  -- Render elements
+  for elem in elements do
+    let kind be elem["kind"]
+    match kind with
+      "entity" then
+        let entity_lines be self.render_entity_table(elem)
+        for line in entity_lines do
+          self.output_buffer.append(line)
+        end
+        self.output_buffer.append("")
+      end
+      "enum" then
+        let enum_lines be self.render_enum_documentation(elem)
+        for line in enum_lines do
+          self.output_buffer.append(line)
+        end
+        self.output_buffer.append("")
+      end
+      "function" then
+        let func_lines be self.render_function_signature(elem)
+        for line in func_lines do
+          self.output_buffer.append(line)
+        end
+        self.output_buffer.append("")
+      end
+    end
+  end
+  -- Render exports
+  if exports.length() > 0 then
+    self.output_buffer.append(self.render_header(HeaderLevel.H2, "Exports"))
+    self.output_buffer.append("")
+    for exp in exports do
+      self.output_buffer.append("- `" + exp + "`")
+    end
+  end
+  return self.output_buffer.join("\n")
+end
+
+-- Render an entity with its property table
+fn render_entity_table(self: MarkdownRenderer, elem: Map<String, String>) -> List<String> do
+  let lines be List<String>{}
+  let name be elem["name"]
+  lines.append(self.render_header(HeaderLevel.H2, "Entity: " + name))
+  let desc be elem["description"]
+  if desc.length() > 0 then
+    lines.append("")
+    lines.append(desc)
+    lines.append("")
+  end
+  let props_str be elem["properties"]
+  if props_str.length() > 0 then
+    lines.append(self.render_header(HeaderLevel.H3, "Properties"))
+    lines.append("")
+    lines.append("| Name | Type | Default |")
+    lines.append("|------|------|---------|")
+    let props be props_str.split(";")
+    for prop in props do
+      let parts be prop.split(",")
+      if parts.length() >= 3 then
+        let prop_name be parts[0].trim()
+        let prop_type be parts[1].trim()
+        let prop_default be parts[2].trim()
+        lines.append("| `" + prop_name + "` | `" + prop_type + "` | `" + prop_default + "` |")
+      end
+    end
+  end
+  return lines
+end
+
+-- Render a function with its full signature
+fn render_function_signature(self: MarkdownRenderer, elem: Map<String, String>) -> List<String> do
+  let lines be List<String>{}
+  let name be elem["name"]
+  let sig be elem["signature"]
+  lines.append(self.render_header(HeaderLevel.H3, name))
+  let desc be elem["description"]
+  if desc.length() > 0 then
+    lines.append("")
+    lines.append(desc)
+  end
+  if sig.length() > 0 then
+    lines.append("")
+    lines.append("```" + self.config.code_block_language)
+    lines.append("fn " + sig)
+    lines.append("```")
+  end
+  return lines
+end
+
+-- Render an intent block as a blockquote
+fn render_intent_block(self: MarkdownRenderer, intent_text: String) -> String do
+  let lines be intent_text.split("\n")
+  let result be List<String>{}
+  for line in lines do
+    result.append("> " + line)
+  end
+  return result.join("\n")
+end
+
+-- Generate a table of contents from element list
+fn generate_toc(self: MarkdownRenderer, elements: List<Map<String, String>>) -> List<String> do
+  let toc be List<String>{}
+  toc.append(self.render_header(HeaderLevel.H2, "Table of Contents"))
+  toc.append("")
+  let depth be 0
+  for elem in elements do
+    if depth >= self.config.max_toc_depth then break end
+    let name be elem["name"]
+    let kind be elem["kind"]
+    let slug be self.slugify(name)
+    let indent be "  "
+    let label be "- [" + name + "](#" + slug + ")"
+    match kind with
+      "entity" then toc.append(indent + label + " _entity_") end
+      "enum" then toc.append(indent + label + " _enum_") end
+      "function" then toc.append(indent + indent + label) end
+    end
+    depth = depth + 1
+  end
+  return toc
+end
+
+-- Generate cross-reference links for a list of referenced names
+fn generate_cross_references(self: MarkdownRenderer, refs: List<String>) -> List<String> do
+  let lines be List<String>{}
+  if refs.length() == 0 then return lines end
+  lines.append(self.render_header(HeaderLevel.H3, "See Also"))
+  lines.append("")
+  for ref in refs do
+    let slug be self.slugify(ref)
+    let link be "[" + ref + "](#" + slug + ")"
+    lines.append("- " + link)
+  end
+  return lines
+end
+
+-- Render a semantic relevance table for an element
+fn render_semantic_table(self: MarkdownRenderer, elem: Map<String, String>) -> List<String> do
+  let lines be List<String>{}
+  let name be elem["name"]
+  let semantic be elem["semantic_relevance"]
+  if semantic.length() == 0 then return lines end
+  lines.append(self.render_header(HeaderLevel.H4, "Semantic Context: " + name))
+  lines.append("")
+  lines.append("| Aspect | Value |")
+  lines.append("|--------|-------|")
+  let pairs be semantic.split(";")
+  for pair in pairs do
+    let kv be pair.split("=")
+    if kv.length() == 2 then
+      lines.append("| " + kv[0].trim() + " | " + kv[1].trim() + " |")
+    end
+  end
+  return lines
+end
+
+-- Render enum variant documentation
+fn render_enum_documentation(self: MarkdownRenderer, elem: Map<String, String>) -> List<String> do
+  let lines be List<String>{}
+  let name be elem["name"]
+  lines.append(self.render_header(HeaderLevel.H2, "Enum: " + name))
+  let desc be elem["description"]
+  if desc.length() > 0 then
+    lines.append("")
+    lines.append(desc)
+  end
+  let variants_str be elem["variants"]
+  if variants_str.length() > 0 then
+    lines.append("")
+    lines.append("**Variants:**")
+    lines.append("")
+    let variants be variants_str.split(",")
+    for variant in variants do
+      let v be variant.trim()
+      if v.length() > 0 then
+        lines.append("- `" + v + "`")
+      end
+    end
+  end
+  return lines
+end
+
+-- Render a header at the specified level
+fn render_header(self: MarkdownRenderer, level: HeaderLevel, text: String) -> String do
+  let prefix be self.config.header_prefix
+  match level with
+    HeaderLevel.H1 then return prefix + "# " + text end
+    HeaderLevel.H2 then return prefix + "## " + text end
+    HeaderLevel.H3 then return prefix + "### " + text end
+    HeaderLevel.H4 then return prefix + "#### " + text end
+  end
+  return text
+end
+
+-- Convert a name to a URL-safe slug
+fn slugify(self: MarkdownRenderer, text: String) -> String do
+  let result be text.to_lower()
+  let buf be ""
+  for i in 0 .. result.length() do
+    let ch be result.substring(i, i + 1)
+    if ch == " " then
+      buf = buf + "-"
+    else if ch == "." then
+      buf = buf + ""
+    else if ch == "_" then
+      buf = buf + "-"
+    else
+      buf = buf + ch
+    end end end
+  end
+  return buf
+end
+
+-- Render a breadcrumbs trail for a module path
+fn render_breadcrumbs(self: MarkdownRenderer, module_path: String) -> String do
+  if not self.config.include_breadcrumbs then return "" end
+  let parts be module_path.split(".")
+  let crumbs be List<String>{}
+  let accumulated be ""
+  for i in 0 .. parts.length() do
+    let part be parts[i]
+    if accumulated.length() > 0 then
+      accumulated = accumulated + "." + part
+    else
+      accumulated = part
+    end
+    let slug be self.slugify(part)
+    if self.config.link_base_url.length() > 0 then
+      let url be self.config.link_base_url + "/" + self.slugify(accumulated)
+      crumbs.append("[" + part + "](" + url + ")")
+    else
+      crumbs.append("**" + part + "**")
+    end
+  end
+  return crumbs.join(" / ")
+end
+
+-- Render a source link for an element if source links are enabled
+fn render_source_link(self: MarkdownRenderer, file_path: String, line: Int) -> String do
+  if not self.config.include_source_links then return "" end
+  if self.config.link_base_url.length() == 0 then return "" end
+  let url be self.config.link_base_url + "/" + file_path + "#L" + line.to_string()
+  return "[source](" + url + ")"
+end
+
+-- Apply flavor-specific formatting adjustments
+fn apply_flavor(self: MarkdownRenderer, content: String) -> String do
+  match self.config.flavor with
+    MarkdownFlavor.STANDARD then return content end
+    MarkdownFlavor.GITHUB then return self.apply_github_extensions(content) end
+    MarkdownFlavor.GITLAB then return self.apply_gitlab_extensions(content) end
+  end
+  return content
+end
+
+-- Apply GitHub-specific markdown extensions
+fn apply_github_extensions(self: MarkdownRenderer, content: String) -> String do
+  -- GitHub supports alerts via > [!NOTE] syntax
+  let lines be content.split("\n")
+  let result be List<String>{}
+  for line in lines do
+    result.append(line)
+  end
+  return result.join("\n")
+end
+
+-- Apply GitLab-specific markdown extensions
+fn apply_gitlab_extensions(self: MarkdownRenderer, content: String) -> String do
+  let lines be content.split("\n")
+  let result be List<String>{}
+  for line in lines do
+    result.append(line)
+  end
+  return result.join("\n")
+end
+
+export {MarkdownFlavor, HeaderLevel, MarkdownConfig, MarkdownRenderer}

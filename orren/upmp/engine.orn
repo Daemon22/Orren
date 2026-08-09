@@ -1,0 +1,1384 @@
+module orren.upmp.engine
+import orren.core.language.foundation::{*}
+import orren.core.semantic.model::{*}
+
+## =============================================================================
+## ORREN Universal Process Monitor (UPMP) — Self-Verification Substrate
+## =============================================================================
+## The 15-layer monitoring engine responsible for continuous self-assessment,
+## drift detection, quality synthesis, and autonomous intervention within
+## the ORREN cognitive runtime. This module is the sentinel substrate of the
+## HELIX LAND architecture, ensuring that Orren remains aligned with its own
+## intent, goals, and cognitive health across all operational dimensions.
+##
+## LAYER ALLOCATION (authoritative):
+##   Layer  1 — Intent Preservation          (implemented)
+##   Layer  2 — Contextual Baseline          (NO dedicated function)
+##   Layer  3 — Capability Verification      (NO dedicated function)
+##   Layer  4 — Goal Distance                 (implemented)
+##   Layer  5 — Progress Score                (implemented)
+##   Layer  6 — Trajectory Quality           (implemented)
+##   Layer  7 — Adaptation Integrity         (NO dedicated function)
+##   Layer  8 — Context Integrity             (implemented)
+##   Layer  9 — Growth Velocity               (implemented)
+##   Layer 10 — Acceleration                  (implemented)
+##   Layer 11 — State Health                  (implemented)
+##   Layer 12 — Drift Detection               (implemented)
+##   Layer 13 — Future Projection             (implemented)
+##   Layer 14 — Quality Assessment            (implemented)
+##   Layer 15 — Intervention                 (implemented)
+##
+## Layers 2, 3, and 7 have NO dedicated functions as per the authoritative
+## specification and HELIX LAND architecture. This discrepancy MUST remain
+## documented. These layers are implicitly accounted for within the composite
+## scoring of adjacent layers but do not possess standalone evaluation methods.
+## =============================================================================
+
+intent "The 15-layer Universal Process Monitor — Orren's self-verification substrate"
+
+## -----------------------------------------------------------------------------
+## Constants
+## -----------------------------------------------------------------------------
+
+const MAX_DIMENSIONS: Int = 18
+const COGNITIVE_DIM_COUNT: Int = 10
+const STANDARD_DIM_COUNT: Int = 8
+const WARNING_THRESHOLD: Float = 0.65
+const CRITICAL_THRESHOLD: Float = 0.40
+const INTERVENTION_THRESHOLD: Float = 0.25
+const COSINE_EPSILON: Float = 0.000001
+const DEFAULT_CONFIDENCE: Float = 0.85
+
+## -----------------------------------------------------------------------------
+## Enums
+## -----------------------------------------------------------------------------
+
+enum DriftType
+  GOAL
+  CONTEXT
+  CAPABILITY
+  SEMANTIC
+  COGNITIVE
+end
+
+enum InterventionAction
+  CONTINUE
+  MONITOR
+  WARN
+  HALT
+  ROLLBACK
+  REMEDIATE
+end
+
+## -----------------------------------------------------------------------------
+## DriftDimension — measures a single axis of drift against a threshold
+## -----------------------------------------------------------------------------
+
+entity DriftDimension
+  property dimension: String = ""
+  property drift_amount: Float = 0.0
+  property threshold: Float = 1.0
+
+  fn exceeds_threshold(self) -> Bool do
+    if self.drift_amount > self.threshold then
+      return true
+    else
+      return false
+    end
+  end
+
+  fn severity(self) -> String do
+    let ratio be self.drift_amount / self.threshold
+    if ratio > 1.0 then
+      return "intervention"
+    else
+      if ratio > 0.75 then
+        return "critical"
+      else
+        if ratio > 0.5 then
+          return "warning"
+        else
+          return "nominal"
+        end
+      end
+    end
+  end
+end
+
+## -----------------------------------------------------------------------------
+## Intervention — a single intervention decision produced by the engine
+## -----------------------------------------------------------------------------
+
+entity Intervention
+  property action: InterventionAction = InterventionAction.CONTINUE
+  property reason: String = ""
+  property drift_dimensions: List<String> = []
+  property confidence: Float = 0.0
+  property recommended_action: String = ""
+
+  fn is_critical(self) -> Bool do
+    if self.action == InterventionAction.HALT then
+      return true
+    else
+      if self.action == InterventionAction.ROLLBACK then
+        return true
+      else
+        return false
+      end
+    end
+  end
+end
+
+## -----------------------------------------------------------------------------
+## QualityReport — composite quality across five weighted dimensions
+## -----------------------------------------------------------------------------
+
+entity QualityReport
+  property composite: Float = 1.0
+  property semantic_integrity: Float = 1.0
+  property cognitive_health: Float = 1.0
+  property progress_score: Float = 1.0
+  property trajectory_quality: Float = 1.0
+  property context_integrity: Float = 1.0
+
+  fn overall(self) -> Float do
+    let w_semantic be 0.25
+    let w_cognitive be 0.25
+    let w_progress be 0.20
+    let w_trajectory be 0.15
+    let w_context be 0.15
+    let weighted be (w_semantic * self.semantic_integrity)
+                  + (w_cognitive * self.cognitive_health)
+                  + (w_progress * self.progress_score)
+                  + (w_trajectory * self.trajectory_quality)
+                  + (w_context * self.context_integrity)
+    self.composite = weighted
+    return weighted
+  end
+end
+
+## -----------------------------------------------------------------------------
+## Checkpoint — a point-in-time snapshot of Orren's full state for rollback
+## -----------------------------------------------------------------------------
+
+entity Checkpoint
+  property checkpoint_id: String = ""
+  property timestamp: String = ""
+  property state_snapshot: Map<String, Float> = {}
+  property cognitive_snapshot: Map<String, Float> = {}
+  property intent_record: String = ""
+
+  fn restore(self) -> Map<String, Float> do
+    let merged be {}
+    for entry in self.state_snapshot do
+      merged[entry.key] = entry.value
+    end
+    for entry in self.cognitive_snapshot do
+      merged[entry.key] = entry.value
+    end
+    return merged
+  end
+end
+
+## -----------------------------------------------------------------------------
+## Alert — a structured alert emitted during monitoring evaluation
+## -----------------------------------------------------------------------------
+
+entity Alert
+  property alert_id: String = ""
+  property level: String = "info"
+  property message: String = ""
+  property layer: Int = 0
+  property timestamp: String = ""
+
+  fn is_critical(self) -> Bool do
+    if self.level == "critical" then
+      return true
+    else
+      return false
+    end
+  end
+end
+
+## -----------------------------------------------------------------------------
+## OrrenState — the 18-dimensional state vector
+##
+## 8 Standard Dimensions:
+##   knowledge, reasoning, memory, performance,
+##   confidence, adaptability, creativity, efficiency
+##
+## 10 Cognitive Dimensions:
+##   reason, believe, intend, know, perceive,
+##   reflect, plan, evolve, recall, deliberate
+## -----------------------------------------------------------------------------
+## Complete internal reference of all 18 dimension names:
+##   "knowledge", "reasoning", "memory", "performance",
+##   "confidence", "adaptability", "creativity", "efficiency",
+##   "reason", "believe", "intend", "know",
+##   "perceive", "reflect", "plan", "evolve",
+##   "recall", "deliberate"
+## -----------------------------------------------------------------------------
+
+entity OrrenState
+  ## 8 standard dimensions
+  property knowledge: Float = 0.0
+  property reasoning: Float = 0.0
+  property memory: Float = 0.0
+  property performance: Float = 0.0
+  property confidence: Float = 0.0
+  property adaptability: Float = 0.0
+  property creativity: Float = 0.0
+  property efficiency: Float = 0.0
+
+  ## 10 cognitive dimensions
+  property reason: Float = 0.0
+  property believe: Float = 0.0
+  property intend: Float = 0.0
+  property know: Float = 0.0
+  property perceive: Float = 0.0
+  property reflect: Float = 0.0
+  property plan: Float = 0.0
+  property evolve: Float = 0.0
+  property recall: Float = 0.0
+  property deliberate: Float = 0.0
+
+  fn cognitive_dims(self) -> Map<String, Float> do
+    let dims be {}
+    dims["reason"] = self.reason
+    dims["believe"] = self.believe
+    dims["intend"] = self.intend
+    dims["know"] = self.know
+    dims["perceive"] = self.perceive
+    dims["reflect"] = self.reflect
+    dims["plan"] = self.plan
+    dims["evolve"] = self.evolve
+    dims["recall"] = self.recall
+    dims["deliberate"] = self.deliberate
+    return dims
+  end
+
+  fn standard_dims(self) -> Map<String, Float> do
+    let dims be {}
+    dims["knowledge"] = self.knowledge
+    dims["reasoning"] = self.reasoning
+    dims["memory"] = self.memory
+    dims["performance"] = self.performance
+    dims["confidence"] = self.confidence
+    dims["adaptability"] = self.adaptability
+    dims["creativity"] = self.creativity
+    dims["efficiency"] = self.efficiency
+    return dims
+  end
+
+  fn all_dims(self) -> Map<String, Float> do
+    let combined be {}
+    let standard be self.standard_dims()
+    let cognitive be self.cognitive_dims()
+    for key in standard do
+      combined[key] = standard[key]
+    end
+    for key in cognitive do
+      combined[key] = cognitive[key]
+    end
+    return combined
+  end
+
+  fn distance(self, other: OrrenState) -> Float do
+    let a be self.all_dims()
+    let b be other.all_dims()
+    let sum_sq be 0.0
+    for key in a do
+      let diff be a[key] - b[key]
+      let sq be diff * diff
+      sum_sq = sum_sq + sq
+    end
+    let dist be sum_sq
+    if dist > 0.0 then
+      dist = sqrt(dist)
+    end
+    return dist
+  end
+
+  fn cognitive_distance(self, other: OrrenState) -> Float do
+    let a be self.cognitive_dims()
+    let b be other.cognitive_dims()
+    let sum_sq be 0.0
+    for key in a do
+      let diff be a[key] - b[key]
+      let sq be diff * diff
+      sum_sq = sum_sq + sq
+    end
+    let dist be sum_sq
+    if dist > 0.0 then
+      dist = sqrt(dist)
+    end
+    return dist
+  end
+
+  fn health_score(self) -> Float do
+    let dims be self.all_dims()
+    let sum be 0.0
+    let count be 0
+    for key in dims do
+      sum = sum + dims[key]
+      count = count + 1
+    end
+    if count > 0 then
+      return sum / count
+    else
+      return 0.0
+    end
+  end
+
+  fn snapshot(self) -> Map<String, Float> do
+    return self.all_dims()
+  end
+end
+
+## -----------------------------------------------------------------------------
+## OrrenDesiredState — the target state, same 18 dimensions
+## -----------------------------------------------------------------------------
+
+entity OrrenDesiredState
+  ## 8 standard dimensions — target values
+  property knowledge: Float = 1.0
+  property reasoning: Float = 1.0
+  property memory: Float = 1.0
+  property performance: Float = 1.0
+  property confidence: Float = 1.0
+  property adaptability: Float = 1.0
+  property creativity: Float = 1.0
+  property efficiency: Float = 1.0
+
+  ## 10 cognitive dimensions — target values
+  property reason: Float = 1.0
+  property believe: Float = 1.0
+  property intend: Float = 1.0
+  property know: Float = 1.0
+  property perceive: Float = 1.0
+  property reflect: Float = 1.0
+  property plan: Float = 1.0
+  property evolve: Float = 1.0
+  property recall: Float = 1.0
+  property deliberate: Float = 1.0
+
+  fn cognitive_dims(self) -> Map<String, Float> do
+    let dims be {}
+    dims["reason"] = self.reason
+    dims["believe"] = self.believe
+    dims["intend"] = self.intend
+    dims["know"] = self.know
+    dims["perceive"] = self.perceive
+    dims["reflect"] = self.reflect
+    dims["plan"] = self.plan
+    dims["evolve"] = self.evolve
+    dims["recall"] = self.recall
+    dims["deliberate"] = self.deliberate
+    return dims
+  end
+
+  fn standard_dims(self) -> Map<String, Float> do
+    let dims be {}
+    dims["knowledge"] = self.knowledge
+    dims["reasoning"] = self.reasoning
+    dims["memory"] = self.memory
+    dims["performance"] = self.performance
+    dims["confidence"] = self.confidence
+    dims["adaptability"] = self.adaptability
+    dims["creativity"] = self.creativity
+    dims["efficiency"] = self.efficiency
+    return dims
+  end
+
+  fn all_dims(self) -> Map<String, Float> do
+    let combined be {}
+    let standard be self.standard_dims()
+    let cognitive be self.cognitive_dims()
+    for key in standard do
+      combined[key] = standard[key]
+    end
+    for key in cognitive do
+      combined[key] = cognitive[key]
+    end
+    return combined
+  end
+end
+
+## -----------------------------------------------------------------------------
+## ProvenanceChain — tracks the origin and transformation history of an intent
+## -----------------------------------------------------------------------------
+
+entity ProvenanceChain
+  property origin: String = ""
+  property transformations: List<String> = []
+  property chain_id: String = ""
+  property depth: Int = 0
+
+  fn append(self, step: String) -> ProvenanceChain do
+    self.transformations.push(step)
+    self.depth = self.depth + 1
+    return self
+  end
+
+  fn to_string(self) -> String do
+    let parts be [self.origin]
+    for step in self.transformations do
+      parts.push(step)
+    end
+    return join(parts, " -> ")
+  end
+end
+
+## -----------------------------------------------------------------------------
+## OrrenIntent — the active goal, criteria, provenance, and priority
+## -----------------------------------------------------------------------------
+
+entity OrrenIntent
+  property goal: String = ""
+  property success_criteria: String = ""
+  property provenance: ProvenanceChain = ProvenanceChain{}
+  property priority: String = "medium"
+
+  fn to_state(self) -> OrrenDesiredState do
+    let desired be OrrenDesiredState{}
+    desired.knowledge = 0.90
+    desired.reasoning = 0.90
+    desired.memory = 0.85
+    desired.performance = 0.85
+    desired.confidence = 0.80
+    desired.adaptability = 0.85
+    desired.creativity = 0.80
+    desired.efficiency = 0.85
+    desired.reason = 0.90
+    desired.believe = 0.70
+    desired.intend = 0.95
+    desired.know = 0.90
+    desired.perceive = 0.85
+    desired.reflect = 0.80
+    desired.plan = 0.85
+    desired.evolve = 0.75
+    desired.recall = 0.85
+    desired.deliberate = 0.80
+    return desired
+  end
+end
+
+## -----------------------------------------------------------------------------
+## UPMPLayer — base entity for each monitoring layer
+## -----------------------------------------------------------------------------
+
+entity UPMPLayer
+  property layer_number: Int = 0
+  property name: String = ""
+
+  fn evaluate(self, current: OrrenState, desired: OrrenState, intent: OrrenIntent) -> Float do
+    return 1.0
+  end
+end
+
+## -----------------------------------------------------------------------------
+## UPMPDriftHaltError — raised when drift exceeds tolerable limits
+## -----------------------------------------------------------------------------
+
+entity UPMPDriftHaltError
+  property message: String = ""
+  property drift_report: String = ""
+
+  fn to_string(self) -> String do
+    let buf be "UPMPDriftHaltError: "
+    buf = buf + self.message
+    buf = buf + "\n"
+    buf = buf + "Drift Report:\n"
+    buf = buf + self.drift_report
+    return buf
+  end
+end
+
+## =============================================================================
+## OrrenMonitoringEngine — the central 15-layer evaluation orchestrator
+## =============================================================================
+## This engine instantiates all 15 monitoring layers, runs them sequentially
+## against the current vs desired state, and synthesizes a unified MonitorReport
+## with drift dimensions, quality scores, and an optional Intervention.
+##
+## LAYER NOTE (authoritative):
+##   Layer  2 (Contextual Baseline)       — NO dedicated function
+##   Layer  3 (Capability Verification)   — NO dedicated function
+##   Layer  7 (Adaptation Integrity)      — NO dedicated function
+## These layers are absorbed into the composite scoring of neighboring layers.
+## =============================================================================
+
+entity OrrenMonitoringEngine
+  property layers: List<UPMPLayer> = []
+  property checkpoints: List<Checkpoint> = []
+  property alerts: List<Alert> = []
+  property interventions: List<Intervention> = []
+  property strict_mode: Bool = true
+
+  ## --------------------------------------------------------------------------
+  ## init — creates and registers all 15 monitoring layers
+  ## --------------------------------------------------------------------------
+
+  fn init(self, strict_mode: Bool) -> OrrenMonitoringEngine do
+    self.strict_mode = strict_mode
+    self.layers = []
+    self.checkpoints = []
+    self.alerts = []
+    self.interventions = []
+
+    let l1 be UPMPLayer{}
+    l1.layer_number = 1
+    l1.name = "Intent Preservation"
+    self.layers.push(l1)
+
+    let l2 be UPMPLayer{}
+    l2.layer_number = 2
+    l2.name = "Contextual Baseline"
+    self.layers.push(l2)
+
+    let l3 be UPMPLayer{}
+    l3.layer_number = 3
+    l3.name = "Capability Verification"
+    self.layers.push(l3)
+
+    let l4 be UPMPLayer{}
+    l4.layer_number = 4
+    l4.name = "Goal Distance"
+    self.layers.push(l4)
+
+    let l5 be UPMPLayer{}
+    l5.layer_number = 5
+    l5.name = "Progress Score"
+    self.layers.push(l5)
+
+    let l6 be UPMPLayer{}
+    l6.layer_number = 6
+    l6.name = "Trajectory Quality"
+    self.layers.push(l6)
+
+    let l7 be UPMPLayer{}
+    l7.layer_number = 7
+    l7.name = "Adaptation Integrity"
+    self.layers.push(l7)
+
+    let l8 be UPMPLayer{}
+    l8.layer_number = 8
+    l8.name = "Context Integrity"
+    self.layers.push(l8)
+
+    let l9 be UPMPLayer{}
+    l9.layer_number = 9
+    l9.name = "Growth Velocity"
+    self.layers.push(l9)
+
+    let l10 be UPMPLayer{}
+    l10.layer_number = 10
+    l10.name = "Acceleration"
+    self.layers.push(l10)
+
+    let l11 be UPMPLayer{}
+    l11.layer_number = 11
+    l11.name = "State Health"
+    self.layers.push(l11)
+
+    let l12 be UPMPLayer{}
+    l12.layer_number = 12
+    l12.name = "Drift Detection"
+    self.layers.push(l12)
+
+    let l13 be UPMPLayer{}
+    l13.layer_number = 13
+    l13.name = "Future Projection"
+    self.layers.push(l13)
+
+    let l14 be UPMPLayer{}
+    l14.layer_number = 14
+    l14.name = "Quality Assessment"
+    self.layers.push(l14)
+
+    let l15 be UPMPLayer{}
+    l15.layer_number = 15
+    l15.name = "Intervention"
+    self.layers.push(l15)
+
+    return self
+  end
+
+  ## --------------------------------------------------------------------------
+  ## euclidean_distance — generic Euclidean over two dimension maps
+  ## --------------------------------------------------------------------------
+
+  fn euclidean_distance(self, a: Map<String, Float>, b: Map<String, Float>) -> Float do
+    let sum_sq be 0.0
+    for key in a do
+      if b.has(key) then
+        let diff be a[key] - b[key]
+        let sq be diff * diff
+        sum_sq = sum_sq + sq
+      end
+    end
+    let dist be sum_sq
+    if dist > 0.0 then
+      dist = sqrt(dist)
+    end
+    return dist
+  end
+
+  ## --------------------------------------------------------------------------
+  ## cosine_similarity — generic cosine similarity over two dimension maps
+  ## --------------------------------------------------------------------------
+
+  fn cosine_similarity(self, a: Map<String, Float>, b: Map<String, Float>) -> Float do
+    let dot be 0.0
+    let mag_a be 0.0
+    let mag_b be 0.0
+    for key in a do
+      if b.has(key) then
+        let va be a[key]
+        let vb be b[key]
+        dot = dot + (va * vb)
+        mag_a = mag_a + (va * va)
+        mag_b = mag_b + (vb * vb)
+      end
+    end
+    if mag_a < COSINE_EPSILON then
+      mag_a = COSINE_EPSILON
+    end
+    if mag_b < COSINE_EPSILON then
+      mag_b = COSINE_EPSILON
+    end
+    let denom be sqrt(mag_a) * sqrt(mag_b)
+    if denom < COSINE_EPSILON then
+      denom = COSINE_EPSILON
+    end
+    return dot / denom
+  end
+
+  ## --------------------------------------------------------------------------
+  ## detect_drift — computes per-dimension drift against desired state
+  ## --------------------------------------------------------------------------
+
+  fn detect_drift(self, current: OrrenState, desired: OrrenState) -> List<DriftDimension> do
+    let drifts be []
+    let cur be current.all_dims()
+    let des be desired.all_dims()
+    for key in cur do
+      if des.has(key) then
+        let dd be DriftDimension{}
+        dd.dimension = key
+        dd.drift_amount = abs(cur[key] - des[key])
+        dd.threshold = CRITICAL_THRESHOLD
+        drifts.push(dd)
+      end
+    end
+    return drifts
+  end
+
+  ## --------------------------------------------------------------------------
+  ## create_checkpoint — snapshots current state and intent
+  ## --------------------------------------------------------------------------
+
+  fn create_checkpoint(self, current: OrrenState, intent: OrrenIntent) -> Checkpoint do
+    let cp be Checkpoint{}
+    cp.checkpoint_id = generate_uuid()
+    cp.timestamp = current_timestamp()
+    cp.state_snapshot = current.standard_dims()
+    cp.cognitive_snapshot = current.cognitive_dims()
+    cp.intent_record = intent.goal
+    self.checkpoints.push(cp)
+    return cp
+  end
+
+  ## --------------------------------------------------------------------------
+  ## rollback — restores state from a checkpoint
+  ## --------------------------------------------------------------------------
+
+  fn rollback(self, checkpoint: Checkpoint) -> OrrenState do
+    let restored be checkpoint.restore()
+    let state be OrrenState{}
+    if restored.has("knowledge") then state.knowledge = restored["knowledge"] end
+    if restored.has("reasoning") then state.reasoning = restored["reasoning"] end
+    if restored.has("memory") then state.memory = restored["memory"] end
+    if restored.has("performance") then state.performance = restored["performance"] end
+    if restored.has("confidence") then state.confidence = restored["confidence"] end
+    if restored.has("adaptability") then state.adaptability = restored["adaptability"] end
+    if restored.has("creativity") then state.creativity = restored["creativity"] end
+    if restored.has("efficiency") then state.efficiency = restored["efficiency"] end
+    if restored.has("reason") then state.reason = restored["reason"] end
+    if restored.has("believe") then state.believe = restored["believe"] end
+    if restored.has("intend") then state.intend = restored["intend"] end
+    if restored.has("know") then state.know = restored["know"] end
+    if restored.has("perceive") then state.perceive = restored["perceive"] end
+    if restored.has("reflect") then state.reflect = restored["reflect"] end
+    if restored.has("plan") then state.plan = restored["plan"] end
+    if restored.has("evolve") then state.evolve = restored["evolve"] end
+    if restored.has("recall") then state.recall = restored["recall"] end
+    if restored.has("deliberate") then state.deliberate = restored["deliberate"] end
+    return state
+  end
+
+  ## ==========================================================================
+  ## LAYER EVALUATION METHODS
+  ## ==========================================================================
+
+  ## --------------------------------------------------------------------------
+  ## Layer 1: Intent Preservation
+  ## Measures how much of the original intent survives in the current state.
+  ## Compares intent-derived desired state against actual state alignment.
+  ## --------------------------------------------------------------------------
+
+  fn layer1_intent_preservation(self, current: OrrenState, desired: OrrenState, intent: OrrenIntent) -> Float do
+    let intent_state be intent.to_state()
+    let current_dims be current.all_dims()
+    let intent_dims be intent_state.all_dims()
+    let similarity be self.cosine_similarity(current_dims, intent_dims)
+    let desired_dims be desired.all_dims()
+    let desired_sim be self.cosine_similarity(current_dims, desired_dims)
+    let combined be (similarity * 0.6) + (desired_sim * 0.4)
+    return clamp(combined, 0.0, 1.0)
+  end
+
+  ## --------------------------------------------------------------------------
+  ## Layer 2: Contextual Baseline — NO dedicated function
+  ##
+  ## As per the authoritative specification and HELIX LAND architecture, Layer 2
+  ## has no standalone evaluation method. Contextual baseline assessment is
+  ## implicitly captured within Layer 1 (Intent Preservation) and Layer 8
+  ## (Context Integrity). This layer exists structurally within the 15-layer
+  ## enumeration but delegates its evaluative responsibility to adjacent layers.
+  ## --------------------------------------------------------------------------
+
+  ## --------------------------------------------------------------------------
+  ## Layer 3: Capability Verification — NO dedicated function
+  ##
+  ## As per the authoritative specification and HELIX LAND architecture, Layer 3
+  ## has no standalone evaluation method. Capability verification is implicitly
+  ## accounted for within Layer 4 (Goal Distance) and Layer 11 (State Health).
+  ## This layer exists structurally within the 15-layer enumeration but delegates
+  ## its evaluative responsibility to adjacent layers.
+  ## --------------------------------------------------------------------------
+
+  ## --------------------------------------------------------------------------
+  ## Layer 4: Goal Distance
+  ## Normalized Euclidean distance over all 18 dimensions between current
+  ## and desired state. A score of 1.0 means no distance; 0.0 means maximal.
+  ## --------------------------------------------------------------------------
+
+  fn layer4_goal_distance(self, current: OrrenState, desired: OrrenState, intent: OrrenIntent) -> Float do
+    let cur be current.all_dims()
+    let des be desired.all_dims()
+    let dist be self.euclidean_distance(cur, des)
+    let max_dist be sqrt(to_float(MAX_DIMENSIONS))
+    let normalized be dist / max_dist
+    let closeness be 1.0 - normalized
+    return clamp(closeness, 0.0, 1.0)
+  end
+
+  ## --------------------------------------------------------------------------
+  ## Layer 5: Progress Score
+  ## Achieved/required ratio per dimension, cognitively weighted.
+  ## Dimensions that exceed their target are capped at 1.0 to prevent
+  ## over-achievement from masking deficiencies elsewhere.
+  ## --------------------------------------------------------------------------
+
+  fn layer5_progress_score(self, current: OrrenState, desired: OrrenState, intent: OrrenIntent) -> Float do
+    let cur be current.all_dims()
+    let des be desired.all_dims()
+    let cog_keys be ["reason", "believe", "intend", "know", "perceive",
+                     "reflect", "plan", "evolve", "recall", "deliberate"]
+    let total be 0.0
+    let count be 0
+    for key in cur do
+      if des.has(key) then
+        let target be des[key]
+        let achieved be cur[key]
+        if target > 0.0 then
+          let ratio be achieved / target
+          if ratio > 1.0 then
+            ratio = 1.0
+          end
+          let weight be 1.0
+          for ck in cog_keys do
+            if ck == key then
+              weight = 1.2
+            end
+          end
+          total = total + (ratio * weight)
+          count = count + 1
+        else
+          total = total + 1.0
+          count = count + 1
+        end
+      end
+    end
+    if count > 0 then
+      return clamp(total / to_float(count), 0.0, 1.0)
+    else
+      return 1.0
+    end
+  end
+
+  ## --------------------------------------------------------------------------
+  ## Layer 6: Trajectory Quality
+  ## Cosine alignment of movement vector vs desired direction vector.
+  ## Measures whether Orren is moving in the right direction across all dims.
+  ## --------------------------------------------------------------------------
+
+  fn layer6_trajectory_quality(self, current: OrrenState, desired: OrrenState, intent: OrrenIntent) -> Float do
+    let cur be current.all_dims()
+    let des be desired.all_dims()
+    let movement be {}
+    let direction be {}
+    for key in cur do
+      if des.has(key) then
+        let diff be des[key] - cur[key]
+        movement[key] = diff
+        direction[key] = diff
+      end
+    end
+    let alignment be self.cosine_similarity(movement, direction)
+    let mag be 0.0
+    for key in movement do
+      mag = mag + (movement[key] * movement[key])
+    end
+    mag = sqrt(mag)
+    let stasis_penalty be 1.0
+    if mag < 0.01 then
+      stasis_penalty = 0.5
+    end
+    return clamp(alignment * stasis_penalty, 0.0, 1.0)
+  end
+
+  ## --------------------------------------------------------------------------
+  ## Layer 7: Adaptation Integrity — NO dedicated function
+  ##
+  ## As per the authoritative specification and HELIX LAND architecture, Layer 7
+  ## has no standalone evaluation method. Adaptation integrity assessment is
+  ## implicitly absorbed within Layer 6 (Trajectory Quality) and Layer 8
+  ## (Context Integrity). This layer exists structurally within the 15-layer
+  ## enumeration but delegates its evaluative responsibility to adjacent layers.
+  ## --------------------------------------------------------------------------
+
+  ## --------------------------------------------------------------------------
+  ## Layer 8: Context Integrity
+  ## Measures how much of the original context (desired state) is retained
+  ## in the current state. Computes overlap ratio across all dimensions.
+  ## --------------------------------------------------------------------------
+
+  fn layer8_context_integrity(self, current: OrrenState, desired: OrrenState, intent: OrrenIntent) -> Float do
+    let cur be current.all_dims()
+    let des be desired.all_dims()
+    let retained be 0.0
+    let total be 0.0
+    for key in des do
+      if cur.has(key) then
+        let d_val be des[key]
+        let c_val be cur[key]
+        let overlap be min(d_val, c_val)
+        retained = retained + overlap
+        total = total + d_val
+      end
+    end
+    if total > 0.0 then
+      return clamp(retained / total, 0.0, 1.0)
+    else
+      return 1.0
+    end
+  end
+
+  ## --------------------------------------------------------------------------
+  ## Layer 9: Growth Velocity
+  ## Rate of state change per unit time delta. Compares current health score
+  ## against a baseline to determine velocity of improvement or degradation.
+  ## --------------------------------------------------------------------------
+
+  fn layer9_growth_velocity(self, current: OrrenState, desired: OrrenState, intent: OrrenIntent) -> Float do
+    let current_health be current.health_score()
+    let desired_health be 1.0
+    let gap be desired_health - current_health
+    let time_delta be 1.0
+    let velocity be gap / time_delta
+    let max_velocity be 1.0
+    let normalized be velocity / max_velocity
+    let score be 1.0 - clamp(normalized, -1.0, 1.0)
+    if normalized < 0.0 then
+      score = 1.0 + normalized
+    else
+      score = 1.0 - (normalized * 0.5)
+    end
+    return clamp(score, 0.0, 1.0)
+  end
+
+  ## --------------------------------------------------------------------------
+  ## Layer 10: Acceleration
+  ## Rate of change of velocity — second derivative of state health.
+  ## Positive acceleration means improving improvement rate.
+  ## --------------------------------------------------------------------------
+
+  fn layer10_acceleration(self, current: OrrenState, desired: OrrenState, intent: OrrenIntent) -> Float do
+    let health be current.health_score()
+    let cog_health be 0.0
+    let cog_dims be current.cognitive_dims()
+    for key in cog_dims do
+      cog_health = cog_health + cog_dims[key]
+    end
+    if COGNITIVE_DIM_COUNT > 0 then
+      cog_health = cog_health / to_float(COGNITIVE_DIM_COUNT)
+    end
+    let composite_velocity be (health + cog_health) / 2.0
+    let acceleration be 0.0
+    if self.checkpoints.length() > 0 then
+      let last be self.checkpoints[self.checkpoints.length() - 1]
+      let prev_health be 0.0
+      let prev_state be self.rollback(last)
+      prev_health = prev_state.health_score()
+      let prev_vel be 1.0 - prev_health
+      let curr_vel be 1.0 - composite_velocity
+      acceleration = curr_vel - prev_vel
+    end
+    let accel_score be 1.0 - clamp(abs(acceleration), 0.0, 1.0)
+    return clamp(accel_score, 0.0, 1.0)
+  end
+
+  ## --------------------------------------------------------------------------
+  ## Layer 11: State Health
+  ## Semantically weighted composite of all 18 dimensions with domain-specific
+  ## importance factors applied to cognitive vs standard dimensions.
+  ## --------------------------------------------------------------------------
+
+  fn layer11_state_health(self, current: OrrenState, desired: OrrenState, intent: OrrenIntent) -> Float do
+    let std_dims be current.standard_dims()
+    let cog_dims be current.cognitive_dims()
+    let std_health be 0.0
+    let std_count be 0
+    for key in std_dims do
+      std_health = std_health + std_dims[key]
+      std_count = std_count + 1
+    end
+    if std_count > 0 then
+      std_health = std_health / to_float(std_count)
+    end
+    let cog_health be 0.0
+    let cog_count be 0
+    for key in cog_dims do
+      cog_health = cog_health + cog_dims[key]
+      cog_count = cog_count + 1
+    end
+    if cog_count > 0 then
+      cog_health = cog_health / to_float(cog_count)
+    end
+    let weighted be (std_health * 0.45) + (cog_health * 0.55)
+    return clamp(weighted, 0.0, 1.0)
+  end
+
+  ## --------------------------------------------------------------------------
+  ## Layer 12: Drift Detection
+  ## Multi-dimensional drift analysis: goal, context, capability, semantic,
+  ## and cognitive drift. Aggregates into a single inversely-proportional score.
+  ## --------------------------------------------------------------------------
+
+  fn layer12_drift_detection(self, current: OrrenState, desired: OrrenState, intent: OrrenIntent) -> Float do
+    let drifts be self.detect_drift(current, desired)
+    let max_drift be 0.0
+    let total_drift be 0.0
+    let count be 0
+    for d in drifts do
+      if d.drift_amount > max_drift then
+        max_drift = d.drift_amount
+      end
+      total_drift = total_drift + d.drift_amount
+      count = count + 1
+    end
+    let avg_drift be 0.0
+    if count > 0 then
+      avg_drift = total_drift / to_float(count)
+    end
+    let penalty be (max_drift * 0.6) + (avg_drift * 0.4)
+    let score be 1.0 - penalty
+    return clamp(score, 0.0, 1.0)
+  end
+
+  ## --------------------------------------------------------------------------
+  ## Layer 13: Future Projection
+  ## Projects current trajectory at 7/30/90-day horizons and evaluates
+  ## whether the projected states converge toward the desired state.
+  ## --------------------------------------------------------------------------
+
+  fn layer13_future_projection(self, current: OrrenState, desired: OrrenState, intent: OrrenIntent) -> Float do
+    let cur be current.all_dims()
+    let des be desired.all_dims()
+    let movement be {}
+    for key in cur do
+      if des.has(key) then
+        movement[key] = des[key] - cur[key]
+      end
+    end
+    let horizons be [7.0, 30.0, 90.0]
+    let weights be [0.5, 0.3, 0.2]
+    let horizon_scores be []
+    let h_idx be 0
+    while h_idx < horizons.length() do
+      let projected be {}
+      let factor be horizons[h_idx] / 90.0
+      for key in cur do
+        if movement.has(key) then
+          let proj_val be cur[key] + (movement[key] * factor)
+          projected[key] = clamp(proj_val, 0.0, 1.0)
+        end
+      end
+      let dist be self.euclidean_distance(projected, des)
+      let max_dist be sqrt(to_float(MAX_DIMENSIONS))
+      let norm_dist be dist / max_dist
+      let score be 1.0 - norm_dist
+      horizon_scores.push(score)
+      h_idx = h_idx + 1
+    end
+    let weighted_score be 0.0
+    let w_sum be 0.0
+    let i be 0
+    while i < horizon_scores.length() do
+      if i < weights.length() then
+        weighted_score = weighted_score + (horizon_scores[i] * weights[i])
+        w_sum = w_sum + weights[i]
+      end
+      i = i + 1
+    end
+    if w_sum > 0.0 then
+      return clamp(weighted_score / w_sum, 0.0, 1.0)
+    else
+      return 1.0
+    end
+  end
+
+  ## --------------------------------------------------------------------------
+  ## Layer 14: Quality Assessment
+  ## Composite quality score aggregating semantic integrity, cognitive health,
+  ## progress, trajectory, and context integrity into a weighted blend.
+  ## --------------------------------------------------------------------------
+
+  fn layer14_quality_assessment(self, current: OrrenState, desired: OrrenState, intent: OrrenIntent) -> Float do
+    let qr be QualityReport{}
+    qr.semantic_integrity = self.layer1_intent_preservation(current, desired, intent)
+    let cog_dims be current.cognitive_dims()
+    let cog_sum be 0.0
+    let cog_count be 0
+    for key in cog_dims do
+      cog_sum = cog_sum + cog_dims[key]
+      cog_count = cog_count + 1
+    end
+    if cog_count > 0 then
+      qr.cognitive_health = cog_sum / to_float(cog_count)
+    end
+    qr.progress_score = self.layer5_progress_score(current, desired, intent)
+    qr.trajectory_quality = self.layer6_trajectory_quality(current, desired, intent)
+    qr.context_integrity = self.layer8_context_integrity(current, desired, intent)
+    return clamp(qr.overall(), 0.0, 1.0)
+  end
+
+  ## --------------------------------------------------------------------------
+  ## Layer 15: Intervention
+  ## The final decision layer. Synthesizes all prior layer scores to produce
+  ## a halt/rollback/remediate decision with confidence and reasoning.
+  ## --------------------------------------------------------------------------
+
+  fn layer15_intervention(self, current: OrrenState, desired: OrrenState, intent: OrrenIntent) -> Intervention do
+    let iv be Intervention{}
+    let s1 be self.layer1_intent_preservation(current, desired, intent)
+    let s4 be self.layer4_goal_distance(current, desired, intent)
+    let s5 be self.layer5_progress_score(current, desired, intent)
+    let s12 be self.layer12_drift_detection(current, desired, intent)
+    let drifts be self.detect_drift(current, desired)
+    let critical_dims be []
+    for d in drifts do
+      if d.exceeds_threshold() then
+        critical_dims.push(d.dimension)
+      end
+    end
+    let composite be (s1 * 0.25) + (s4 * 0.25) + (s5 * 0.25) + (s12 * 0.25)
+    iv.drift_dimensions = critical_dims
+    iv.confidence = composite
+    if composite < INTERVENTION_THRESHOLD then
+      iv.action = InterventionAction.HALT
+      iv.reason = "Critical drift detected across " + to_string(critical_dims.length()) + " dimensions"
+      iv.recommended_action = "Immediate halt and rollback to last stable checkpoint"
+    else
+      if composite < CRITICAL_THRESHOLD then
+        iv.action = InterventionAction.ROLLBACK
+        iv.reason = "Significant drift exceeds critical threshold on " + to_string(critical_dims.length()) + " dimensions"
+        iv.recommended_action = "Rollback to last checkpoint and re-evaluate intent"
+      else
+        if composite < WARNING_THRESHOLD then
+          iv.action = InterventionAction.WARN
+          iv.reason = "Drift approaching critical levels on " + to_string(critical_dims.length()) + " dimensions"
+          iv.recommended_action = "Increase monitoring frequency and review context"
+        else
+          if composite < 0.80 then
+            iv.action = InterventionAction.MONITOR
+            iv.reason = "Minor drift detected — continued observation recommended"
+            iv.recommended_action = "Standard monitoring cadence with enhanced logging"
+          else
+            iv.action = InterventionAction.CONTINUE
+            iv.reason = "All layers within acceptable parameters"
+            iv.recommended_action = "Continue normal operations"
+          end
+        end
+      end
+    end
+    if self.strict_mode then
+      if composite < INTERVENTION_THRESHOLD then
+        let err be UPMPDriftHaltError{}
+        err.message = iv.reason
+        let drift_lines be []
+        for d in drifts do
+          if d.exceeds_threshold() then
+            let line be d.dimension + ": drift=" + to_string(d.drift_amount) + " threshold=" + to_string(d.threshold)
+            drift_lines.push(line)
+          end
+        end
+        err.drift_report = join(drift_lines, "\n")
+        self.interventions.push(iv)
+        raise err
+      end
+    end
+    self.interventions.push(iv)
+    return iv
+  end
+
+  ## --------------------------------------------------------------------------
+  ## evaluate — runs all 15 layers and synthesizes the MonitorReport
+  ## --------------------------------------------------------------------------
+
+  fn evaluate(self, current: OrrenState, desired: OrrenState, intent: OrrenIntent) -> MonitorReport do
+    let report be MonitorReport{}
+    report.current_state = current
+    report.desired_state = desired
+    report.layer_scores = {}
+
+    ## Layer 1: Intent Preservation
+    let s1 be self.layer1_intent_preservation(current, desired, intent)
+    report.layer_scores[1] = s1
+
+    ## Layer 2: Contextual Baseline — NO dedicated function
+    ## Score inherited from adjacent layers
+    let s2 be (s1 + 1.0) / 2.0
+    report.layer_scores[2] = s2
+
+    ## Layer 3: Capability Verification — NO dedicated function
+    ## Score inherited from adjacent layers
+    let s4_pre be self.layer4_goal_distance(current, desired, intent)
+    let s3 be (s4_pre + 1.0) / 2.0
+    report.layer_scores[3] = s3
+
+    ## Layer 4: Goal Distance
+    report.layer_scores[4] = s4_pre
+
+    ## Layer 5: Progress Score
+    let s5 be self.layer5_progress_score(current, desired, intent)
+    report.layer_scores[5] = s5
+
+    ## Layer 6: Trajectory Quality
+    let s6 be self.layer6_trajectory_quality(current, desired, intent)
+    report.layer_scores[6] = s6
+
+    ## Layer 7: Adaptation Integrity — NO dedicated function
+    ## Score inherited from adjacent layers
+    let s7 be (s6 + s5) / 2.0
+    report.layer_scores[7] = s7
+
+    ## Layer 8: Context Integrity
+    let s8 be self.layer8_context_integrity(current, desired, intent)
+    report.layer_scores[8] = s8
+
+    ## Layer 9: Growth Velocity
+    let s9 be self.layer9_growth_velocity(current, desired, intent)
+    report.layer_scores[9] = s9
+
+    ## Layer 10: Acceleration
+    let s10 be self.layer10_acceleration(current, desired, intent)
+    report.layer_scores[10] = s10
+
+    ## Layer 11: State Health
+    let s11 be self.layer11_state_health(current, desired, intent)
+    report.layer_scores[11] = s11
+
+    ## Layer 12: Drift Detection
+    let s12 be self.layer12_drift_detection(current, desired, intent)
+    report.layer_scores[12] = s12
+
+    ## Layer 13: Future Projection
+    let s13 be self.layer13_future_projection(current, desired, intent)
+    report.layer_scores[13] = s13
+
+    ## Layer 14: Quality Assessment
+    let s14 be self.layer14_quality_assessment(current, desired, intent)
+    report.layer_scores[14] = s14
+
+    ## Layer 15: Intervention (produces Intervention, not a float)
+    let s15_iv be self.layer15_intervention(current, desired, intent)
+    report.intervention = s15_iv
+    report.layer_scores[15] = s15_iv.confidence
+
+    ## Drift report
+    report.drift_report = self.detect_drift(current, desired)
+
+    ## Quality report
+    report.quality = QualityReport{}
+    report.quality.semantic_integrity = s1
+    report.quality.cognitive_health = s11
+    report.quality.progress_score = s5
+    report.quality.trajectory_quality = s6
+    report.quality.context_integrity = s8
+    report.quality.overall()
+
+    ## Overall health — weighted average of all layer scores
+    let total be 0.0
+    let lcount be 0
+    for key in report.layer_scores do
+      total = total + report.layer_scores[key]
+      lcount = lcount + 1
+    end
+    if lcount > 0 then
+      report.overall_health = total / to_float(lcount)
+    end
+
+    ## Generate alerts for any layer scoring below warning threshold
+    for key in report.layer_scores do
+      if report.layer_scores[key] < WARNING_THRESHOLD then
+        let alert be Alert{}
+        alert.alert_id = generate_uuid()
+        alert.layer = key
+        alert.timestamp = current_timestamp()
+        if report.layer_scores[key] < CRITICAL_THRESHOLD then
+          alert.level = "critical"
+          alert.message = "Layer " + to_string(key) + " critical: score " + to_string(report.layer_scores[key])
+        else
+          alert.level = "warning"
+          alert.message = "Layer " + to_string(key) + " warning: score " + to_string(report.layer_scores[key])
+        end
+        self.alerts.push(alert)
+      end
+    end
+
+    return report
+  end
+end
+
+## =============================================================================
+## MonitorReport — the synthesized output of a full UPMP evaluation
+## =============================================================================
+
+entity MonitorReport
+  property current_state: OrrenState = OrrenState{}
+  property desired_state: OrrenDesiredState = OrrenDesiredState{}
+  property layer_scores: Map<Int, Float> = {}
+  property drift_report: List<DriftDimension> = []
+  property quality: QualityReport = QualityReport{}
+  property intervention: Optional<Intervention> = none
+  property overall_health: Float = 1.0
+
+  fn requires_intervention(self) -> Bool do
+    if self.intervention == none then
+      return false
+    end
+    let iv be self.intervention
+    if iv.action == InterventionAction.HALT then
+      return true
+    end
+    if iv.action == InterventionAction.ROLLBACK then
+      return true
+    end
+    if iv.action == InterventionAction.REMEDIATE then
+      return true
+    end
+    return false
+  end
+
+  fn drift_exceeds_threshold(self, threshold: Float) -> Bool do
+    for d in self.drift_report do
+      if d.drift_amount > threshold then
+        return true
+      end
+    end
+    return false
+  end
+
+  fn summary(self) -> String do
+    let lines be []
+    lines.push("=== ORREN UPMP Monitor Report ===")
+    lines.push("Overall Health: " + to_string(self.overall_health))
+    lines.push("")
+    lines.push("-- Layer Scores --")
+    let sorted_layers be sort_keys(self.layer_scores)
+    for key in sorted_layers do
+      let score be self.layer_scores[key]
+      let status be "OK"
+      if score < WARNING_THRESHOLD then
+        status = "WARNING"
+      end
+      if score < CRITICAL_THRESHOLD then
+        status = "CRITICAL"
+      end
+      lines.push("  Layer " + pad_right(to_string(key), 2) + ": " + pad_left(to_string(score), 6) + " [" + status + "]")
+    end
+    lines.push("")
+    lines.push("-- Quality Report --")
+    lines.push("  Semantic Integrity:   " + to_string(self.quality.semantic_integrity))
+    lines.push("  Cognitive Health:      " + to_string(self.quality.cognitive_health))
+    lines.push("  Progress Score:        " + to_string(self.quality.progress_score))
+    lines.push("  Trajectory Quality:    " + to_string(self.quality.trajectory_quality))
+    lines.push("  Context Integrity:     " + to_string(self.quality.context_integrity))
+    lines.push("  Composite Quality:     " + to_string(self.quality.composite))
+    lines.push("")
+    lines.push("-- Drift Summary --")
+    let drift_count be 0
+    let critical_count be 0
+    for d in self.drift_report do
+      drift_count = drift_count + 1
+      if d.exceeds_threshold() then
+        critical_count = critical_count + 1
+        lines.push("  " + d.dimension + ": " + to_string(d.drift_amount) + " (CRITICAL, threshold=" + to_string(d.threshold) + ")")
+      else
+        if d.severity() == "warning" then
+          lines.push("  " + d.dimension + ": " + to_string(d.drift_amount) + " (WARNING)")
+        end
+      end
+    end
+    lines.push("  Total drifts: " + to_string(drift_count) + ", Critical: " + to_string(critical_count))
+    lines.push("")
+    lines.push("-- Intervention --")
+    if self.intervention == none then
+      lines.push("  No intervention required.")
+    else
+      let iv be self.intervention
+      lines.push("  Action:    " + to_string(iv.action))
+      lines.push("  Reason:    " + iv.reason)
+      lines.push("  Confidence:" + to_string(iv.confidence))
+      lines.push("  Recommended: " + iv.recommended_action)
+    end
+    lines.push("")
+    lines.push("===============================")
+    return join(lines, "\n")
+  end
+end
+
+## =============================================================================
+## Exports — all public types from the UPMP engine module
+## =============================================================================
+
+export {
+  DriftType,
+  InterventionAction,
+  DriftDimension,
+  Intervention,
+  QualityReport,
+  Checkpoint,
+  Alert,
+  OrrenState,
+  OrrenDesiredState,
+  ProvenanceChain,
+  OrrenIntent,
+  UPMPLayer,
+  UPMPDriftHaltError,
+  OrrenMonitoringEngine,
+  MonitorReport
+}

@@ -1,0 +1,381 @@
+module orren_tools.tools.dep_graph
+
+import orren.core.language.foundation::{String, Int, Float, Bool, List, Map}
+
+intent "Visualize and analyze module dependency graphs for Orren projects"
+
+-- Output format for graph rendering
+enum GraphFormat
+  DOT
+  MERMAID
+  PLAIN_TEXT
+  JSON
+end
+
+-- Cycle detection status for a dependency graph
+enum CycleStatus
+  ACYCLIC
+  HAS_CYCLES
+  UNKNOWN
+end
+
+-- Kind of import relationship between modules
+enum ImportKind
+  REGULAR
+  INTENT
+  ENTITY_ONLY
+  ENUM_ONLY
+  TYPE_ONLY
+  COGNITIVE
+end
+
+-- A directed edge representing a dependency between two modules
+entity DependencyEdge
+  property from_module: String = ""
+  property to_module: String = ""
+  property import_kind: ImportKind = ImportKind.REGULAR
+  property strength: Float = 1.0
+end
+
+-- Node data for a module in the graph
+entity GraphNode
+  property name: String = ""
+  property depth: Int = 0
+  property fan_out: Int = 0
+  property fan_in: Int = 0
+end
+
+-- Strongly connected component result
+entity SCCResult
+  property components: List<List<String>> = []
+  property size_distribution: Map<Int, Int> = {}
+end
+
+-- Complete dependency graph with nodes, edges, and analysis results
+entity DependencyGraph
+  property nodes: Map<String, GraphNode> = {}
+  property edges: List<DependencyEdge> = []
+  property cycle_status: CycleStatus = CycleStatus.UNKNOWN
+  property strongly_connected: SCCResult = SCCResult()
+  property max_depth: Int = 0
+  property avg_fan_out: Float = 0.0
+  property connectivity: Float = 0.0
+end
+
+-- Configuration for the graph renderer
+entity RendererConfig
+  property format: GraphFormat = GraphFormat.DOT
+  property show_labels: Bool = true
+  property highlight_cycles: Bool = true
+  property cluster_by_depth: Bool = false
+  property include_stdlib: Bool = false
+  property orientation: String = "LR"
+end
+
+-- Main graph renderer that produces visual output
+entity GraphRenderer
+  property config: RendererConfig = RendererConfig()
+
+  -- Render the dependency graph in the configured format
+  fn render(self, graph: DependencyGraph) -> String do
+    match self.config.format with
+      GraphFormat.DOT do return self.render_dot(graph) end
+      GraphFormat.MERMAID do return self.render_mermaid(graph) end
+      GraphFormat.PLAIN_TEXT do return self.render_text(graph) end
+      GraphFormat.JSON do return self.render_json(graph) end
+    end
+  end
+
+  -- Render as Graphviz DOT format
+  fn render_dot(self, graph: DependencyGraph) -> String do
+    let buf be "digraph dependencies {"
+    buf = buf + "\n  rankdir=" + self.config.orientation + ";"
+    -- Declare all nodes
+    for name in graph.nodes.keys() do
+      let node be graph.nodes.get(name).unwrap()
+      if self.config.cluster_by_depth then
+        buf = buf + "\n  \"" + name + "\" [depth=" + (node.depth as String) + "];"
+      end
+    end
+    -- Declare all edges
+    for edge in graph.edges do
+      let style be ""
+      if self.config.highlight_cycles and graph.cycle_status == CycleStatus.HAS_CYCLES then
+        if self.edge_in_cycle(edge, graph.strongly_connected) then
+          style = " [color=red, style=bold]"
+        end
+      end
+      let label be ""
+      if self.config.show_labels then
+        label = " [label=\"" + (edge.import_kind as String) + "\"]"
+      end
+      buf = buf + "\n  \"" + edge.from_module + "\" -> \"" + edge.to_module + "\"" + label + style + ";"
+    end
+    buf = buf + "\n}"
+    return buf
+  end
+
+  -- Render as Mermaid diagram syntax
+  fn render_mermaid(self, graph: DependencyGraph) -> String do
+    let buf be "graph " + self.config.orientation
+    for edge in graph.edges do
+      let arrow be "-->"
+      if edge.import_kind == ImportKind.INTENT then
+        arrow = "-.->"
+      end
+      buf = buf + "\n  " + edge.from_module + " " + arrow + " " + edge.to_module
+      if self.config.show_labels then
+        buf = buf + "[\"" + (edge.import_kind as String) + "\"]"
+      end
+    end
+    return buf
+  end
+
+  -- Render as plain text adjacency list
+  fn render_text(self, graph: DependencyGraph) -> String do
+    let buf be "Dependency Graph (Adjacency List)"
+    buf = buf + "\nModules: " + (graph.nodes.len() as String)
+    buf = buf + "\nEdges: " + (graph.edges.len() as String)
+    buf = buf + "\nCycle status: " + (graph.cycle_status as String)
+    buf = buf + "\nMax depth: " + (graph.max_depth as String)
+    buf = buf + "\n---"
+    -- Build adjacency map for ordered output
+    let adj be Map<String, List<String>>()
+    for name in graph.nodes.keys() do
+      adj.set(name, List<String>())
+    end
+    for edge in graph.edges do
+      let neighbors be adj.get(edge.from_module).unwrap()
+      neighbors.append(edge.to_module)
+    end
+    for name in adj.keys().sort() do
+      let neighbors be adj.get(name).unwrap()
+      let line be "\n  " + name + " -> ["
+      let idx be 0
+      for n in neighbors do
+        if idx > 0 then
+          line = line + ", "
+        end
+        line = line + n
+        idx = idx + 1
+      end
+      line = line + "]"
+      buf = buf + line
+    end
+    return buf
+  end
+
+  -- Render as JSON structure
+  fn render_json(self, graph: DependencyGraph) -> String do
+    let buf be "{\"nodes\": ["
+    let node_idx be 0
+    for name in graph.nodes.keys() do
+      if node_idx > 0 then
+        buf = buf + ", "
+      end
+      buf = buf + "\"" + name + "\""
+      node_idx = node_idx + 1
+    end
+    buf = buf + "], \"edges\": ["
+    let edge_idx be 0
+    for edge in graph.edges do
+      if edge_idx > 0 then
+        buf = buf + ", "
+      end
+      buf = buf + "{\"from\": \"" + edge.from_module + "\", \"to\": \"" + edge.to_module + "\"}"
+      edge_idx = edge_idx + 1
+    end
+    buf = buf + "]}"
+    return buf
+  end
+
+  -- Check if an edge participates in any cycle (SCC of size > 1)
+  fn edge_in_cycle(self, edge: DependencyEdge, scc: SCCResult) -> Bool do
+    for component in scc.components do
+      if component.len() > 1 then
+        if component.contains(edge.from_module) and component.contains(edge.to_module) then
+          return true
+        end
+      end
+    end
+    return false
+  end
+end
+
+-- Graph builder that constructs dependency graphs from import data
+entity GraphBuilder
+  property graph: DependencyGraph = DependencyGraph()
+
+  -- Add a module node to the graph
+  fn add_node(self, name: String) -> Unit do
+    if not self.graph.nodes.contains(name) then
+      let node be GraphNode()
+      node.name = name
+      self.graph.nodes.set(name, node)
+    end
+  end
+
+  -- Add a dependency edge between two modules
+  fn add_edge(self, from_mod: String, to_mod: String, kind: ImportKind) -> Unit do
+    self.add_node(from_mod)
+    self.add_node(to_mod)
+    let edge be DependencyEdge()
+    edge.from_module = from_mod
+    edge.to_module = to_mod
+    edge.import_kind = kind
+    self.graph.edges.append(edge)
+  end
+
+  -- Build graph from a map of module imports
+  fn build_from_imports(self, imports: Map<String, List<String>>) -> DependencyGraph do
+    for mod_name in imports.keys() do
+      let deps be imports.get(mod_name).unwrap()
+      for dep in deps do
+        self.add_edge(mod_name, dep, ImportKind.REGULAR)
+      end
+    end
+    self.compute_node_metrics()
+    return self.graph
+  end
+
+  -- Compute fan-in, fan-out, and depth for each node
+  fn compute_node_metrics(self) -> Unit do
+    -- Compute fan-out (outgoing edges) and fan-in (incoming edges)
+    for name in self.graph.nodes.keys() do
+      let node be self.graph.nodes.get(name).unwrap()
+      node.fan_out = 0
+      node.fan_in = 0
+    end
+    for edge in self.graph.edges do
+      let from_node be self.graph.nodes.get(edge.from_module).unwrap()
+      from_node.fan_out = from_node.fan_out + 1
+      let to_node be self.graph.nodes.get(edge.to_module).unwrap()
+      to_node.fan_in = to_node.fan_in + 1
+    end
+    -- Compute depths using BFS from root nodes (no incoming edges)
+    let roots be List<String>()
+    for name in self.graph.nodes.keys() do
+      let node be self.graph.nodes.get(name).unwrap()
+      if node.fan_in == 0 then
+        roots.append(name)
+      end
+    end
+    for name in self.graph.nodes.keys() do
+      let node be self.graph.nodes.get(name).unwrap()
+      node.depth = -1
+    end
+    let queue be List<String>()
+    for r in roots do
+      let root_node be self.graph.nodes.get(r).unwrap()
+      root_node.depth = 0
+      queue.append(r)
+    end
+    let max_d be 0
+    while queue.len() > 0 do
+      let current be queue.remove_first()
+      let current_node be self.graph.nodes.get(current).unwrap()
+      if current_node.depth > max_d then
+        max_d = current_node.depth
+      end
+      for edge in self.graph.edges do
+        if edge.from_module == current then
+          let neighbor be self.graph.nodes.get(edge.to_module).unwrap()
+          if neighbor.depth == -1 then
+            neighbor.depth = current_node.depth + 1
+            queue.append(edge.to_module)
+          end
+        end
+      end
+    end
+    self.graph.max_depth = max_d
+  end
+
+  -- Detect cycles using Tarjan's strongly connected components algorithm
+  fn detect_cycles(self) -> CycleStatus do
+    let index_map be Map<String, Int>()
+    let lowlink be Map<String, Int>()
+    let on_stack be Map<String, Bool>()
+    let stack be List<String>()
+    let current_index be 0
+    let components be List<List<String>>()
+    for name in self.graph.nodes.keys() do
+      index_map.set(name, -1)
+      lowlink.set(name, -1)
+      on_stack.set(name, false)
+    end
+    -- Perform Tarjan's SCC for each unvisited node
+    for name in self.graph.nodes.keys() do
+      if index_map.get(name).unwrap() == -1 then
+        -- Recursive SCC visit
+        current_index = self.tarjan_scc(name, current_index, index_map, lowlink, on_stack, stack, components)
+      end
+    end
+    let scc_result be SCCResult()
+    scc_result.components = components
+    -- Compute size distribution
+    for comp in components do
+      let size be comp.len()
+      let count be scc_result.size_distribution.get_or(size, 0)
+      scc_result.size_distribution.set(size, count + 1)
+    end
+    self.graph.strongly_connected = scc_result
+    -- Check for cycles: any SCC with more than one node is a cycle
+    for comp in components do
+      if comp.len() > 1 then
+        self.graph.cycle_status = CycleStatus.HAS_CYCLES
+        return CycleStatus.HAS_CYCLES
+      end
+    end
+    self.graph.cycle_status = CycleStatus.ACYCLIC
+    return CycleStatus.ACYCLIC
+  end
+
+  -- Tarjan's SCC recursive visit
+  fn tarjan_scc(self, node: String, idx: Int, index_map: Map<String, Int>, lowlink: Map<String, Int>, on_stack: Map<String, Bool>, stack: List<String>, components: List<List<String>>) -> Int do
+    index_map.set(node, idx)
+    lowlink.set(node, idx)
+    on_stack.set(node, true)
+    stack.append(node)
+    let next_idx be idx + 1
+    for edge in self.graph.edges do
+      if edge.from_module == node then
+        let neighbor be edge.to_module
+        let neighbor_idx be index_map.get(neighbor).unwrap()
+        if neighbor_idx == -1 then
+          next_idx = self.tarjan_scc(neighbor, next_idx, index_map, lowlink, on_stack, stack, components)
+          let node_low be lowlink.get(node).unwrap()
+          let neighbor_low be lowlink.get(neighbor).unwrap()
+          if neighbor_low < node_low then
+            lowlink.set(node, neighbor_low)
+          end
+        else
+          if on_stack.get(neighbor).unwrap() then
+            let node_low be lowlink.get(node).unwrap()
+            if neighbor_idx < node_low then
+              lowlink.set(node, neighbor_idx)
+            end
+          end
+        end
+      end
+    end
+    -- If node is a root of SCC, pop the component
+    let node_low be lowlink.get(node).unwrap()
+    let node_idx be index_map.get(node).unwrap()
+    if node_low == node_idx then
+      let component be List<String>()
+      let done be false
+      while not done do
+        let w be stack.pop()
+        on_stack.set(w, false)
+        component.append(w)
+        if w == node then
+          done = true
+        end
+      end
+      components.append(component)
+    end
+    return next_idx
+  end
+end
+
+export { GraphFormat, CycleStatus, ImportKind, DependencyEdge, GraphNode, SCCResult, DependencyGraph, RendererConfig, GraphRenderer, GraphBuilder }

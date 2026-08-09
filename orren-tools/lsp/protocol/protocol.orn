@@ -1,0 +1,451 @@
+-- protocol.orn: LSP protocol types for the Orren Language Server.
+-- Defines JSON-RPC message types, LSP request/response types,
+-- positions, ranges, locations, and initialization structures.
+
+module orren_tools.lsp.protocol
+
+import module::{String, Int, Bool, Float, List, Map, Result}
+import orren.core.language.foundation::{SourceLocation}
+
+-- The direction a message can flow in the LSP protocol.
+enum MessageDirection
+    CLIENT_TO_SERVER
+    SERVER_TO_CLIENT
+    BOTH
+end
+
+-- The type of a JSON-RPC message.
+enum MessageType
+    REQUEST
+    RESPONSE
+    NOTIFICATION
+end
+
+-- How the server synchronizes document content with the client.
+enum DocumentSyncKind
+    NONE
+    FULL
+    INCREMENTAL
+end
+
+-- What triggered a completion request.
+enum CompletionTriggerKind
+    INVOKED
+    TRIGGER_CHARACTER
+    TRIGGER_FOR_INCOMPLETE_COMPLETIONS
+end
+
+-- Represents a JSON-RPC message sent between client and server.
+entity JsonRpcMessage
+    property jsonrpc: String = "2.0"
+    property id: Int = 0
+    property method: String = ""
+    property params: DynamicParams = DynamicParams.new()
+    property result: String = ""
+    property error: JsonRpcError = JsonRpcError.new()
+
+    intent "Parse and serialize JSON-RPC messages for the LSP protocol"
+
+    -- Parses a raw JSON string into a JsonRpcMessage.
+    fn parse(raw: String) -> JsonRpcMessage do
+        let msg be JsonRpcMessage.new()
+        if raw.length == 0 then
+            return nothing
+        end
+        let jsonrpc_val be extract_json_string(raw, "jsonrpc")
+        if jsonrpc_val.length > 0 then
+            msg.jsonrpc = jsonrpc_val
+        end
+        let id_val be extract_json_int(raw, "id")
+        if id_val >= 0 then
+            msg.id = id_val
+        end
+        let method_val be extract_json_string(raw, "method")
+        if method_val.length > 0 then
+            msg.method = method_val
+        end
+        msg.params = DynamicParams.parse(raw)
+        return msg
+    end
+
+    -- Determines the type of this message.
+    fn message_type(self) -> MessageType do
+        if self.error.code != 0 then
+            return MessageType.RESPONSE
+        end
+        if self.result.length > 0 then
+            return MessageType.RESPONSE
+        end
+        if self.method.length > 0 and self.id == 0 then
+            return MessageType.NOTIFICATION
+        end
+        if self.method.length > 0 then
+            return MessageType.REQUEST
+        end
+        return MessageType.RESPONSE
+    end
+
+    -- Builds a success response for this request.
+    fn to_response(self, result: Any) -> String do
+        let response be Map<String, String>.new()
+        response.set("jsonrpc", "2.0")
+        response.set("id", String.from_int(self.id))
+        response.set("result", result.to_json())
+        return response.to_json()
+    end
+
+    -- Builds a notification message (no id).
+    fn build_notification(method: String, params: String) -> String do
+        let n be Map<String, String>.new()
+        n.set("jsonrpc", "2.0")
+        n.set("method", method)
+        n.set("params", params)
+        return n.to_json()
+    end
+
+    -- Builds a request message with a given id.
+    fn build_request(id: Int, method: String, params: String) -> String do
+        let r be Map<String, String>.new()
+        r.set("jsonrpc", "2.0")
+        r.set("id", String.from_int(id))
+        r.set("method", method)
+        r.set("params", params)
+        return r.to_json()
+    end
+
+    -- Validates that this message has a valid JSON-RPC structure.
+    fn validate(self) -> Bool do
+        if self.jsonrpc != "2.0" then
+            return false
+        end
+        let mtype be self.message_type()
+        if mtype == MessageType.REQUEST then
+            return self.method.length > 0
+        end
+        if mtype == MessageType.NOTIFICATION then
+            return self.method.length > 0
+        end
+        return self.id >= 0 or self.error.code != 0
+    end
+end
+
+entity JsonRpcError
+    property code: Int = 0
+    property message: String = ""
+    property data: String = ""
+
+    -- Creates an error from code and message.
+    fn new(code: Int, message: String) -> JsonRpcError do
+        let err be JsonRpcError.new()
+        err.code = code
+        err.message = message
+        return err
+    end
+
+    -- Converts the error to a JSON string.
+    fn to_json(self) -> String do
+        let parts be List<String>.new()
+        parts.append("\"code\": " + String.from_int(self.code))
+        parts.append("\"message\": \"" + self.message + "\"")
+        if self.data.length > 0 then
+            parts.append("\"data\": " + self.data)
+        end
+        return "{" + parts.join(", ") + "}"
+    end
+
+end
+
+-- A position in a text document expressed as zero-based line and character.
+entity Position
+    property line: Int = 0
+    property character: Int = 0
+
+    -- Creates a new position from line and character.
+    fn make(line: Int, character: Int) -> Position do
+        let pos be Position.new()
+        pos.line = line
+        pos.character = character
+        return pos
+    end
+
+    -- Compares this position to another, returning -1, 0, or 1.
+    fn compare(self, other: Position) -> Int do
+        if self.line < other.line then
+            return -1
+        end
+        if self.line > other.line then
+            return 1
+        end
+        if self.character < other.character then
+            return -1
+        end
+        if self.character > other.character then
+            return 1
+        end
+        return 0
+    end
+
+    -- Converts the position to a JSON string.
+    fn to_json(self) -> String do
+        return "{\"line\": " + String.from_int(self.line) + ", \"character\": " + String.from_int(self.character) + "}"
+    end
+
+end
+
+-- A range in a text document expressed as start and end positions.
+entity Range
+    property start_line: Int = 0
+    property start_char: Int = 0
+    property end_line: Int = 0
+    property end_char: Int = 0
+
+    -- Creates a range from explicit line and character values.
+    fn make(sl: Int, sc: Int, el: Int, ec: Int) -> Range do
+        let r be Range.new()
+        r.start_line = sl
+        r.start_char = sc
+        r.end_line = el
+        r.end_char = ec
+        return r
+    end
+
+    -- Checks if a position is contained within this range.
+    fn contains(self, pos: Position) -> Bool do
+        if pos.line < self.start_line then
+            return false
+        end
+        if pos.line > self.end_line then
+            return false
+        end
+        if pos.line == self.start_line and pos.character < self.start_char then
+            return false
+        end
+        if pos.line == self.end_line and pos.character > self.end_char then
+            return false
+        end
+        return true
+    end
+
+    -- Checks if this range overlaps with another range.
+    fn overlaps(self, other: Range) -> Bool do
+        let s1 be Position.make(self.start_line, self.start_char)
+        let e1 be Position.make(self.end_line, self.end_char)
+        let s2 be Position.make(other.start_line, other.start_char)
+        let e2 be Position.make(other.end_line, other.end_char)
+        if e1.compare(s2) < 0 then
+            return false
+        end
+        if e2.compare(s1) < 0 then
+            return false
+        end
+        return true
+    end
+
+    -- Converts the range to a JSON string.
+    fn to_json(self) -> String do
+        let start_json be "{\"line\": " + String.from_int(self.start_line) + ", \"character\": " + String.from_int(self.start_char) + "}"
+        let end_json be "{\"line\": " + String.from_int(self.end_line) + ", \"character\": " + String.from_int(self.end_char) + "}"
+        return "{\"start\": " + start_json + ", \"end\": " + end_json + "}"
+    end
+end
+
+-- A location in a workspace represented by a URI and range.
+entity Location
+    property uri: String = ""
+    property range: Range = Range.new()
+
+    -- Creates a new location from URI and range.
+    fn make(uri: String, range: Range) -> Location do
+        let loc be Location.new()
+        loc.uri = uri
+        loc.range = range
+        return loc
+    end
+
+    -- Converts the location to a JSON string.
+    fn to_json(self) -> String do
+        return "{\"uri\": \"" + self.uri + "\", \"range\": " + self.range.to_json() + "}"
+    end
+end
+
+entity TextDocumentIdentifier
+    property uri: String = ""
+
+    -- Creates a new identifier from a URI string.
+    fn make(uri: String) -> TextDocumentIdentifier do
+        let id be TextDocumentIdentifier.new()
+        id.uri = uri
+        return id
+    end
+end
+
+entity TextDocumentPositionParams
+    property text_document: TextDocumentIdentifier = TextDocumentIdentifier.new()
+    property position: Position = Position.new()
+
+    -- Creates position params from a URI, line, and character.
+    fn make(uri: String, line: Int, character: Int) -> TextDocumentPositionParams do
+        let p be TextDocumentPositionParams.new()
+        p.text_document = TextDocumentIdentifier.make(uri)
+        p.position = Position.make(line, character)
+        return p
+    end
+end
+
+-- Parameters sent by the client during the initialize request.
+entity InitializeParams
+    property process_id: Int = 0
+    property root_uri: String = ""
+    property capabilities: Map<String, String> = Map<String, String>.new()
+    property client_info_name: String = ""
+    property client_info_version: String = ""
+    property trace: String = "off"
+
+    -- Parses initialize params from a raw JSON string.
+    fn parse(raw: String) -> InitializeParams do
+        let p be InitializeParams.new()
+        p.process_id = extract_json_int(raw, "processId")
+        p.root_uri = extract_json_string(raw, "rootUri")
+        p.trace = extract_json_string(raw, "trace")
+        if p.trace.length == 0 then
+            p.trace = "off"
+        end
+        return p
+    end
+end
+
+-- Result sent by the server in response to the initialize request.
+entity InitializeResult
+    property capabilities: ServerCapabilities = ServerCapabilities.new()
+    property server_info_name: String = ""
+    property server_info_version: String = ""
+
+    -- Converts the initialize result to a JSON string.
+    fn to_json(self) -> String do
+        let caps be self.capabilities.to_json()
+        let info be "{\"name\": \"" + self.server_info_name + "\", \"version\": \"" + self.server_info_version + "\"}"
+        return "{\"capabilities\": " + caps + ", \"serverInfo\": " + info + "}"
+    end
+end
+
+-- Dynamic parameters extracted from JSON-RPC messages.
+entity DynamicParams
+    property uri: String = ""
+    property language_id: String = ""
+    property version: Int = 0
+    property text: String = ""
+    property content_changes: String = ""
+    property root_uri: String = ""
+    property trace: String = "off"
+    property client_info_name: String = ""
+    property client_info_version: String = ""
+
+    -- Parses dynamic params from a raw JSON string.
+    fn parse(raw: String) -> DynamicParams do
+        let p be DynamicParams.new()
+        p.uri = extract_json_string(raw, "uri")
+        p.language_id = extract_json_string(raw, "languageId")
+        p.version = extract_json_int(raw, "version")
+        p.text = extract_json_string(raw, "text")
+        p.root_uri = extract_json_string(raw, "rootUri")
+        p.trace = extract_json_string(raw, "trace")
+        p.client_info_name = extract_json_string(raw, "name")
+        p.client_info_version = extract_json_string(raw, "version")
+        return p
+    end
+end
+
+-- ServerCapabilities for use in InitializeResult.
+entity ServerCapabilities
+    property text_document_sync: Int = 1
+    property completion_provider: Bool = true
+    property hover_provider: Bool = true
+    property definition_provider: Bool = true
+    property references_provider: Bool = true
+    property rename_provider: Bool = true
+    property document_symbol_provider: Bool = true
+
+    -- Converts capabilities to a JSON string.
+    fn to_json(self) -> String do
+        let parts be List<String>.new()
+        parts.append("\"textDocumentSync\": " + String.from_int(self.text_document_sync))
+        if self.completion_provider then
+            parts.append("\"completionProvider\": {\"triggerCharacters\": [\".\", \":\"]}")
+        end
+        if self.hover_provider then
+            parts.append("\"hoverProvider\": true")
+        end
+        if self.definition_provider then
+            parts.append("\"definitionProvider\": true")
+        end
+        if self.references_provider then
+            parts.append("\"referencesProvider\": true")
+        end
+        if self.rename_provider then
+            parts.append("\"renameProvider\": true")
+        end
+        if self.document_symbol_provider then
+            parts.append("\"documentSymbolProvider\": true")
+        end
+        return "{" + parts.join(", ") + "}"
+    end
+end
+
+-- Helper: extracts a string value from a JSON key.
+fn extract_json_string(json: String, key: String) -> String do
+    let search_key be "\"" + key + "\""
+    let key_pos be json.find(search_key)
+    if key_pos < 0 then
+        return ""
+    end
+    let after_key be json.substring(key_pos + search_key.length).strip()
+    let colon_pos be after_key.find(":")
+    if colon_pos < 0 then
+        return ""
+    end
+    let after_colon be after_key.substring(colon_pos + 1).strip()
+    if after_colon.length == 0 then
+        return ""
+    end
+    if not after_colon.starts_with("\"") then
+        return ""
+    end
+    let after_quote be after_colon.substring(1)
+    let end_quote be after_quote.find("\"")
+    if end_quote < 0 then
+        return ""
+    end
+    return after_quote.substring(0, end_quote)
+end
+
+-- Helper: extracts an integer value from a JSON key.
+fn extract_json_int(json: String, key: String) -> Int do
+    let search_key be "\"" + key + "\""
+    let key_pos be json.find(search_key)
+    if key_pos < 0 then
+        return -1
+    end
+    let after_key be json.substring(key_pos + search_key.length)
+    let colon_pos be after_key.find(":")
+    if colon_pos < 0 then
+        return -1
+    end
+    let after_colon be after_key.substring(colon_pos + 1).strip()
+    let num_str be ""
+    let idx be 0
+    while idx < after_colon.length do
+        let ch be after_colon.at(idx)
+        if (ch >= "0" and ch <= "9") or ch == "-" then
+            num_str = num_str + ch
+        else
+            break
+        end
+        idx = idx + 1
+    end
+    if num_str.length == 0 then
+        return -1
+    end
+    return String.to_int(num_str)
+end
+
+export {MessageDirection, MessageType, DocumentSyncKind, CompletionTriggerKind, JsonRpcMessage, JsonRpcError, Position, Range, Location, TextDocumentIdentifier, TextDocumentPositionParams, InitializeParams, InitializeResult, DynamicParams, ServerCapabilities, extract_json_string, extract_json_int}

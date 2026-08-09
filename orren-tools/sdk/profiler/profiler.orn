@@ -1,0 +1,349 @@
+-- profiler.orn: Execution profiler for Orren programs.
+-- Tracks function calls, memory allocations, semantic operations,
+-- cognitive operations, and UPMP mediation events.
+
+module orren_tools.sdk.profiler
+
+import module::{String, Int, Bool, Float, List, Map}
+
+-- Types of events recorded during profiling.
+enum ProfileEventType
+  FUNCTION_ENTER
+  FUNCTION_EXIT
+  MEMORY_ALLOC
+  MEMORY_FREE
+  SEMANTIC_OP
+  COGNITIVE_OP
+  MEDIATION_OP
+  UPMP_SAMPLE
+  GC_EVENT
+end
+
+-- Visualization modes for profile reports.
+enum ProfileView
+  FLAT
+  CALL_GRAPH
+  FLAME
+  TIMELINE
+  SEMANTIC_HEATMAP
+end
+
+-- A single recorded sample in the profile stream.
+entity ProfileSample
+  property timestamp: Float = 0.0
+  property event_type: ProfileEventType = ProfileEventType.FUNCTION_ENTER
+  property function_name: String = ""
+  property module: String = ""
+  property duration_ns: Int = 0
+  property memory_delta: Int = 0
+  property semantic_attrs: Map<String, String> = {}
+  property extra_data: Map<String, String> = {}
+end
+
+-- An aggregated call frame for reporting.
+entity ProfileFrame
+  property function_name: String = ""
+  property module: String = ""
+  property total_time_ns: Int = 0
+  property self_time_ns: Int = 0
+  property call_count: Int = 0
+  property children: List<ProfileFrame> = []
+  property memory_peak: Int = 0
+  property semantic_overhead: Int = 0
+end
+
+-- The complete profile report.
+entity ProfileReport
+  property frames: List<ProfileFrame> = []
+  property total_time_ns: Int = 0
+  property total_samples: Int = 0
+  property gc_count: Int = 0
+  property semantic_op_count: Int = 0
+  property cognitive_op_count: Int = 0
+  property mediation_overhead_ns: Int = 0
+  property upmp_samples: Int = 0
+  property aggregation: String = "sum"
+  property view: ProfileView = ProfileView.FLAT
+end
+
+-- Configuration for the profiler.
+entity ProfilerConfig
+  property enabled: Bool = true
+  property sample_interval_ns: Int = 1000
+  property track_memory: Bool = true
+  property track_semantic: Bool = true
+  property track_cognitive: Bool = true
+  property max_frames: Int = 65536
+  property max_samples: Int = 1000000
+  property output_view: ProfileView = ProfileView.FLAT
+  property aggregation: String = "sum"
+  property filter_threshold: Float = 0.01
+end
+
+-- The main profiler engine.
+entity OrrenProfiler
+  property config: ProfilerConfig = ProfilerConfig{}
+  property samples: List<ProfileSample> = []
+  property frames: List<ProfileFrame> = []
+  property start_time: Float = 0.0
+  property is_running: Bool = false
+  property current_call_stack: List<String> = []
+  property sample_count: Int = 0
+
+  -- Initialize the profiler with the given configuration.
+  fn init(self) do
+    self.samples = List<ProfileSample>{}
+    self.frames = List<ProfileFrame>{}
+    self.current_call_stack = List<String>{}
+    self.sample_count = 0
+  end
+
+  -- Start profiling. Records the start timestamp.
+  fn start(self) do
+    self.init()
+    self.start_time = self._now_ns()
+    self.is_running = true
+  end
+
+  -- Stop profiling and compute aggregated frames.
+  fn stop(self) -> ProfileReport do
+    self.is_running = false
+    self.frames = self.build_sorted_frames()
+    let report be self.aggregate()
+    return report
+  end
+
+  -- Collect a raw sample from the execution stream.
+  fn collect_sample(self, event_type: ProfileEventType, function_name: String,
+                     module: String, duration_ns: Int, memory_delta: Int) do
+    if self.is_running == false then
+      return
+    end
+    if self.sample_count >= self.config.max_samples then
+      return
+    end
+    let sample be ProfileSample{}
+    sample.timestamp = self._now_ns()
+    sample.event_type = event_type
+    sample.function_name = function_name
+    sample.module = module
+    sample.duration_ns = duration_ns
+    if self.config.track_memory then
+      sample.memory_delta = memory_delta
+    end
+    if self.config.track_semantic then
+      sample.semantic_attrs = self._capture_semantic_attrs(function_name)
+    end
+    self.samples.append(sample)
+    self.sample_count = self.sample_count + 1
+  end
+
+  -- Record a function entry event.
+  fn on_function_enter(self, function_name: String, module: String) do
+    self.current_call_stack.append(function_name)
+    self.collect_sample(ProfileEventType.FUNCTION_ENTER, function_name, module, 0, 0)
+  end
+
+  -- Record a function exit event with measured duration.
+  fn on_function_exit(self, function_name: String, module: String, duration_ns: Int, memory_delta: Int) do
+    self.collect_sample(ProfileEventType.FUNCTION_EXIT, function_name, module, duration_ns, memory_delta)
+    if self.current_call_stack.length > 0 then
+      self.current_call_stack.remove_last()
+    end
+  end
+
+  -- Build sorted frames from collected samples.
+  fn build_sorted_frames(self) -> List<ProfileFrame> do
+    let frame_map be Map<String, ProfileFrame>{}
+    for sample in self.samples do
+      if sample.event_type == ProfileEventType.FUNCTION_EXIT then
+        let key be sample.module + ":" + sample.function_name
+        if frame_map.has(key) == false then
+          let f be ProfileFrame{}
+          f.function_name = sample.function_name
+          f.module = sample.module
+          frame_map[key] = f
+        end
+        let frame be frame_map[key]
+        frame.call_count = frame.call_count + 1
+        frame.total_time_ns = frame.total_time_ns + sample.duration_ns
+        frame.self_time_ns = frame.self_time_ns + sample.duration_ns
+        if self.config.track_memory then
+          if sample.memory_delta > frame.memory_peak then
+            frame.memory_peak = sample.memory_delta
+          end
+        end
+      end
+    end
+    let result be List<ProfileFrame>{}
+    for key in frame_map.keys do
+      result.append(frame_map[key])
+    end
+    -- Sort by total time descending.
+    let sorted be self._sort_frames_by_time(result)
+    return sorted
+  end
+
+  -- Analyze semantic overhead across all sampled functions.
+  fn analyze_semantic_overhead(self) -> Map<String, Int> do
+    let overhead be Map<String, Int>{}
+    for sample in self.samples do
+      if sample.event_type == ProfileEventType.SEMANTIC_OP then
+        let key be sample.module + ":" + sample.function_name
+        if overhead.has(key) == false then
+          overhead[key] = 0
+        end
+        overhead[key] = overhead[key] + sample.duration_ns
+      end
+    end
+    return overhead
+  end
+
+  -- Aggregate all collected data into a final report.
+  fn aggregate(self) -> ProfileReport do
+    let report be ProfileReport{}
+    report.frames = self.frames
+    report.total_samples = self.sample_count
+    report.aggregation = self.config.aggregation
+    report.view = self.config.output_view
+    let semantic_overhead be self.analyze_semantic_overhead()
+    let total_time be 0
+    let gc_count be 0
+    let sem_count be 0
+    let cog_count be 0
+    let med_overhead be 0
+    let upmp_count be 0
+    for sample in self.samples do
+      match sample.event_type with
+        ProfileEventType.FUNCTION_EXIT do
+          total_time = total_time + sample.duration_ns
+        end
+        ProfileEventType.GC_EVENT do
+          gc_count = gc_count + 1
+          total_time = total_time + sample.duration_ns
+        end
+        ProfileEventType.SEMANTIC_OP do
+          sem_count = sem_count + 1
+          med_overhead = med_overhead + sample.duration_ns
+        end
+        ProfileEventType.COGNITIVE_OP do
+          cog_count = cog_count + 1
+        end
+        ProfileEventType.MEDIATION_OP do
+          med_overhead = med_overhead + sample.duration_ns
+        end
+        ProfileEventType.UPMP_SAMPLE do
+          upmp_count = upmp_count + 1
+        end
+        _ do
+          return
+        end
+      end
+    end
+    report.total_time_ns = total_time
+    report.gc_count = gc_count
+    report.semantic_op_count = sem_count
+    report.cognitive_op_count = cog_count
+    report.mediation_overhead_ns = med_overhead
+    report.upmp_samples = upmp_count
+    -- Attach semantic overhead to frames.
+    for frame in report.frames do
+      let key be frame.module + ":" + frame.function_name
+      if semantic_overhead.has(key) then
+        frame.semantic_overhead = semantic_overhead[key]
+      end
+    end
+    -- Apply filter threshold.
+    if self.config.filter_threshold > 0.0 then
+      let filtered be List<ProfileFrame>{}
+      let threshold be (self.config.filter_threshold * total_time.to_float).to_int
+      for frame in report.frames do
+        if frame.total_time_ns >= threshold then
+          filtered.append(frame)
+        end
+      end
+      report.frames = filtered
+    end
+    return report
+  end
+
+  -- Render a flat profile report as text.
+  fn report_flat(self) -> String do
+    let report be self.aggregate()
+    let buf be List<String>{}
+    buf.append("=== Flat Profile ===")
+    buf.append("Total time: " + (report.total_time_ns / 1000000).to_string + "ms")
+    buf.append("Total samples: " + report.total_samples.to_string)
+    buf.append("GC events: " + report.gc_count.to_string)
+    buf.append("Semantic ops: " + report.semantic_op_count.to_string)
+    buf.append("")
+    buf.append("  %Time    Total(ms)   Self(ms)  Calls  Function")
+    buf.append("  ------  ----------  ---------  -----  --------")
+    for frame in report.frames do
+      let pct be self._pct(frame.total_time_ns, report.total_time_ns)
+      let total_ms be (frame.total_time_ns / 1000000).to_string
+      let self_ms be (frame.self_time_ns / 1000000).to_string
+      let line be "  " + pct + "%" + self._pad(total_ms, 10) + self._pad(self_ms, 9) + self._pad(frame.call_count.to_string, 6) + "  " + frame.module + ":" + frame.function_name
+      buf.append(line)
+    end
+    return buf.join("\n")
+  end
+
+  -- Capture semantic attributes for a function.
+  fn _capture_semantic_attrs(self, function_name: String) -> Map<String, String> do
+    let attrs be Map<String, String>{}
+    attrs["function"] = function_name
+    attrs["depth"] = self.current_call_stack.length.to_string
+    return attrs
+  end
+
+  -- Sort frames by total time descending.
+  fn _sort_frames_by_time(self, frames: List<ProfileFrame>) -> List<ProfileFrame> do
+    let n be frames.length
+    let i be 0
+    while i < n - 1 do
+      let j be 0
+      while j < n - i - 1 do
+        if frames[j].total_time_ns < frames[j + 1].total_time_ns then
+          let tmp be frames[j]
+          frames[j] = frames[j + 1]
+          frames[j + 1] = tmp
+        end
+        j = j + 1
+      end
+      i = i + 1
+    end
+    return frames
+  end
+
+  -- Calculate percentage.
+  fn _pct(self, part: Int, total: Int) -> String do
+    if total == 0 then
+      return "0.0"
+    end
+    let val be (part.to_float / total.to_float) * 100.0
+    return val.to_string
+  end
+
+  -- Pad a string to a given width.
+  fn _pad(self, s: String, width: Int) -> String do
+    let len be s.length
+    if len >= width then
+      return s
+    end
+    let pad be width - len
+    let result be s
+    let i be 0
+    while i < pad do
+      result = " " + result
+      i = i + 1
+    end
+    return result
+  end
+
+  fn _now_ns(self) -> Float do
+    return 0.0
+  end
+end
+
+export { OrrenProfiler, ProfilerConfig, ProfileSample, ProfileFrame, ProfileReport, ProfileEventType, ProfileView }

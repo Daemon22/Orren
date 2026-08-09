@@ -1,0 +1,435 @@
+-- fuzzer.orn
+-- Property-based fuzzing engine for Orren with semantic and First Law violation detection
+-- Supports random, mutational, guided, and combinatorial strategies
+
+module orren_tools.testing.fuzzing
+
+import orren.core.language.foundation::{String, Int, Float, Bool, List, Map}
+import orren.core.language.foundation::{FileSystem, DateTime, Timer}
+
+-- Strategy for generating new fuzz inputs
+enum FuzzStrategy
+  RANDOM
+  MUTATIONAL
+  GUIDED
+  COMBINATORIAL
+end
+
+-- Source of seed corpus for fuzzing
+enum CorpusSource
+  EMPTY
+  DIRECTORY
+  GENERATED
+  PREVIOUS_FAILURES
+end
+
+-- Classification of a fuzz execution result
+enum FuzzResultKind
+  PASS
+  CRASH
+  HANG
+  SEMANTIC_VIOLATION
+  TIMEOUT
+  FIRST_LAW_BREACH
+end
+
+-- A single fuzz input with generation metadata
+entity FuzzInput
+  property data: String = ""
+  property generation: Int = 0
+  property source: CorpusSource = CorpusSource.EMPTY
+  property parent_id: String = ""
+  property mutation_history: List<String> = List<String>{}
+end
+
+-- Running statistics for the fuzzing session
+entity FuzzStats
+  property total_runs: Int = 0
+  property passes: Int = 0
+  property crashes: Int = 0
+  property hangs: Int = 0
+  property semantic_violations: Int = 0
+  property timeouts: Int = 0
+  property first_law_breaches: Int = 0
+  property unique_crashes: Int = 0
+  property max_depth: Int = 0
+  property total_time_ns: Int = 0
+end
+
+-- Configuration for fuzzing execution parameters
+entity FuzzConfig
+  property max_runs: Int = 10000
+  property max_time_ns: Int = 60000000000
+  property max_depth: Int = 128
+  property strategy: FuzzStrategy = FuzzStrategy.MUTATIONAL
+  property corpus_dir: String = ".orren/fuzz/corpus"
+  property crash_dir: String = ".orren/fuzz/crashes"
+  property seed: Int = 0
+  property track_semantic: Bool = true
+  property first_law_check: Bool = true
+end
+
+-- Main fuzzer engine that orchestrates input generation and execution
+entity Fuzzer
+  property config: FuzzConfig = FuzzConfig{}
+  property stats: FuzzStats = FuzzStats{}
+  property corpus: List<FuzzInput> = List<FuzzInput>{}
+  property crashes: List<FuzzInput> = List<FuzzInput>{}
+  property current_depth: Int = 0
+  property start_time: Int = 0
+end
+
+-- Intent declaration for the fuzzing subsystem
+intent "fuzz test Orren programs with mutation-based input generation and violation detection"
+
+-- Build a new FuzzInput preserving parent metadata
+fn build_input(self: Fuzzer, data: String, source: CorpusSource, parent: FuzzInput, mutation_name: String) -> FuzzInput do
+  let input be FuzzInput{
+    data = data,
+    generation = self.stats.total_runs,
+    source = source,
+    parent_id = parent.data.substring(0, 8),
+    mutation_history = parent.mutation_history
+  }
+  input.mutation_history.append(mutation_name)
+  return input
+end
+
+-- Initialize the fuzzer with the given configuration
+fn init(self: Fuzzer, config: FuzzConfig) do
+  self.config = config
+  self.stats = FuzzStats{}
+  self.crashes = List<FuzzInput>{}
+  self.current_depth = 0
+  if config.seed == 0 then
+    config.seed = Timer.now_ns().to_int()
+  end
+  let _ = self.load_corpus()
+end
+
+-- Generate a new fuzz input based on the configured strategy
+fn generate_input(self: Fuzzer) -> FuzzInput do
+  match self.config.strategy with
+    FuzzStrategy.RANDOM then return self.generate_random() end
+    FuzzStrategy.MUTATIONAL then return self.generate_mutational() end
+    FuzzStrategy.GUIDED then return self.generate_guided() end
+    FuzzStrategy.COMBINATORIAL then return self.generate_combinatorial() end
+  end
+end
+
+-- Generate a completely random input
+fn generate_random(self: Fuzzer) -> FuzzInput do
+  let size be self.random_int(8, 256)
+  let bytes be List<Int>{}
+  for i in 0 .. size do
+    bytes.append(self.random_int(0, 255))
+  end
+  return FuzzInput{data = self.bytes_to_string(bytes), generation = self.stats.total_runs, source = CorpusSource.GENERATED}
+end
+
+-- Generate a mutational input from the existing corpus
+fn generate_mutational(self: Fuzzer) -> FuzzInput do
+  if self.corpus.length() == 0 then return self.generate_random() end
+  let parent be self.corpus[self.random_int(0, self.corpus.length() - 1)]
+  let mutation_type be self.random_int(0, 3)
+  match mutation_type with
+    0 then return self.mutate_bit_flip(parent) end
+    1 then return self.mutate_insert(parent) end
+    2 then return self.mutate_delete(parent) end
+    3 then return self.mutate_crossover(parent) end
+  end
+end
+
+-- Generate a guided input based on coverage feedback
+fn generate_guided(self: Fuzzer) -> FuzzInput do
+  let input be self.generate_mutational()
+  let coverage be FileSystem.get_coverage_map()
+  let uncovered be List<String>{}
+  for key in coverage.keys() do
+    if coverage.get(key) == 0 then uncovered.append(key) end
+  end
+  if uncovered.length() > 0 then
+    let target be uncovered[self.random_int(0, uncovered.length() - 1)]
+    let guided be FuzzInput{data = input.data + ":" + target, generation = input.generation, source = CorpusSource.GENERATED, mutation_history = input.mutation_history}
+    guided.mutation_history.append("guided:" + target)
+    return guided
+  end
+  return input
+end
+
+-- Generate a combinatorial input by combining corpus elements
+fn generate_combinatorial(self: Fuzzer) -> FuzzInput do
+  if self.corpus.length() < 2 then return self.generate_random() end
+  let a_idx be self.random_int(0, self.corpus.length() - 1)
+  let b_idx be self.random_int(0, self.corpus.length() - 1)
+  while b_idx == a_idx do
+    b_idx = self.random_int(0, self.corpus.length() - 1)
+  end
+  let a be self.corpus[a_idx]
+  let b be self.corpus[b_idx]
+  let sa be self.random_int(1, a.data.length().max(1))
+  let sb be self.random_int(1, b.data.length().max(1))
+  let combined be a.data.substring(0, sa) + b.data.substring(0, sb)
+  let input be self.build_input(combined, CorpusSource.GENERATED, a, "combine:" + a_idx.to_string())
+  input.mutation_history.append("combine:" + b_idx.to_string())
+  return input
+end
+
+-- Mutate by flipping random bits in the input
+fn mutate_bit_flip(self: Fuzzer, input: FuzzInput) -> FuzzInput do
+  let bytes be self.string_to_bytes(input.data)
+  if bytes.length() == 0 then return input end
+  let bit_idx be self.random_int(0, bytes.length() * 8 - 1)
+  let byte_idx be bit_idx / 8
+  let bit_pos be bit_idx % 8
+  bytes[byte_idx] = bytes[byte_idx] ^ (1 << bit_pos)
+  return self.build_input(self.bytes_to_string(bytes), input.source, input, "bit_flip:" + bit_idx.to_string())
+end
+
+-- Mutate by inserting random bytes into the input
+fn mutate_insert(self: Fuzzer, input: FuzzInput) -> FuzzInput do
+  let bytes be self.string_to_bytes(input.data)
+  let pos be self.random_int(0, bytes.length())
+  let val be self.random_int(0, 255)
+  let new_bytes be List<Int>{}
+  let i be 0
+  while i < bytes.length() do
+    if i == pos then new_bytes.append(val) end
+    new_bytes.append(bytes[i])
+    i = i + 1
+  end
+  return self.build_input(self.bytes_to_string(new_bytes), input.source, input, "insert:" + pos.to_string())
+end
+
+-- Mutate by deleting bytes from the input
+fn mutate_delete(self: Fuzzer, input: FuzzInput) -> FuzzInput do
+  let bytes be self.string_to_bytes(input.data)
+  if bytes.length() <= 1 then return input end
+  let del_pos be self.random_int(0, bytes.length() - 1)
+  let new_bytes be List<Int>{}
+  let i be 0
+  while i < bytes.length() do
+    if i != del_pos then new_bytes.append(bytes[i]) end
+    i = i + 1
+  end
+  return self.build_input(self.bytes_to_string(new_bytes), input.source, input, "delete:" + del_pos.to_string())
+end
+
+-- Mutate by crossing over with another corpus element
+fn mutate_crossover(self: Fuzzer, input: FuzzInput) -> FuzzInput do
+  if self.corpus.length() < 2 then return self.mutate_bit_flip(input) end
+  let other be self.corpus[self.random_int(0, self.corpus.length() - 1)]
+  let bytes_a be self.string_to_bytes(input.data)
+  let bytes_b be self.string_to_bytes(other.data)
+  if bytes_a.length() == 0 or bytes_b.length() == 0 then
+    return self.mutate_bit_flip(input)
+  end
+  let cross be self.random_int(0, bytes_a.length().min(bytes_b.length()))
+  let new_bytes be List<Int>{}
+  let i be 0
+  while i < bytes_a.length() do
+    if i < cross then
+      new_bytes.append(bytes_a[i])
+    else if i < bytes_b.length() then
+      new_bytes.append(bytes_b[i])
+    end end
+    i = i + 1
+  end
+  let result be self.build_input(self.bytes_to_string(new_bytes), input.source, input, "crossover")
+  return result
+end
+
+-- Run the fuzz target with a single input and classify the result
+fn run_fuzz_target(self: Fuzzer, input: FuzzInput) -> FuzzResultKind do
+  self.stats.total_runs = self.stats.total_runs + 1
+  let timeout_ns be 5000000000
+  let timer be Timer.start()
+  let result be FileSystem.exec_fuzz_target(input.data, timeout_ns)
+  let duration be timer.elapsed_ns()
+  if duration >= timeout_ns then
+    self.stats.timeouts = self.stats.timeouts + 1
+    return FuzzResultKind.TIMEOUT
+  end
+  if result.crashed then
+    self.stats.crashes = self.stats.crashes + 1
+    if not self.is_duplicate_crash(input) then
+      self.stats.unique_crashes = self.stats.unique_crashes + 1
+      self.crashes.append(input)
+      let _ = self.save_crash(input)
+    end
+    return FuzzResultKind.CRASH
+  end
+  if result.hung then
+    self.stats.hangs = self.stats.hangs + 1
+    return FuzzResultKind.HANG
+  end
+  if self.config.track_semantic then
+    if self.detect_semantic_violation(result.semantic_state) then
+      self.stats.semantic_violations = self.stats.semantic_violations + 1
+      return FuzzResultKind.SEMANTIC_VIOLATION
+    end
+  end
+  if self.config.first_law_check then
+    if self.detect_first_law_breach(result.semantic_state) then
+      self.stats.first_law_breaches = self.stats.first_law_breaches + 1
+      return FuzzResultKind.FIRST_LAW_BREACH
+    end
+  end
+  self.stats.passes = self.stats.passes + 1
+  return FuzzResultKind.PASS
+end
+
+-- Detect a semantic violation in a semantic state trace
+fn detect_semantic_violation(self: Fuzzer, state: String) -> Bool do
+  if state.length() == 0 then return false end
+  let markers be List<String>{"semantic_break", "integrity_lost", "awareness_drop"}
+  let lower be state.lower()
+  for marker in markers do
+    if lower.contains(marker) then return true end
+  end
+  return false
+end
+
+-- Detect a First Law breach in a semantic state trace
+fn detect_first_law_breach(self: Fuzzer, state: String) -> Bool do
+  if state.length() == 0 then return false end
+  let markers be List<String>{"first_law_breach", "autonomy_violated", "coherence_lost"}
+  let lower be state.lower()
+  for marker in markers do
+    if lower.contains(marker) then return true end
+  end
+  return false
+end
+
+-- Check if a crash input is already known
+fn is_duplicate_crash(self: Fuzzer, input: FuzzInput) -> Bool do
+  let hash be input.data.hash()
+  for crash in self.crashes do
+    if crash.data.hash() == hash then return true end
+  end
+  return false
+end
+
+-- Save a crash input to the crash directory
+fn save_crash(self: Fuzzer, input: FuzzInput) -> Bool do
+  let filename be "crash_" + self.stats.unique_crashes.to_string() + "_" + input.data.hash().substring(0, 8)
+  let _ = FileSystem.write_file(self.config.crash_dir + "/" + filename + ".bin", input.data)
+  return true
+end
+
+-- Save the current corpus to disk
+fn save_corpus(self: Fuzzer) -> Bool do
+  let _ = FileSystem.ensure_directory(self.config.corpus_dir)
+  for i in 0 .. self.corpus.length() do
+    let _ = FileSystem.write_file(self.config.corpus_dir + "/input_" + i.to_string() + ".bin", self.corpus[i].data)
+  end
+  return true
+end
+
+-- Load the corpus from disk
+fn load_corpus(self: Fuzzer) -> Bool do
+  if not FileSystem.directory_exists(self.config.corpus_dir) then return false end
+  let files be FileSystem.list_files(self.config.corpus_dir)
+  for file in files do
+    let data be FileSystem.read_file(file)
+    if data.length() > 0 then
+      self.corpus.append(FuzzInput{data = data, source = CorpusSource.DIRECTORY})
+    end
+  end
+  return true
+end
+
+-- Deduplicate crash inputs by their content hash
+fn deduplicate_crashes(self: Fuzzer) -> Int do
+  let seen be Map<String, Bool>{}
+  let unique be List<FuzzInput>{}
+  for crash in self.crashes do
+    let hash be crash.data.hash()
+    if not seen.contains_key(hash) then
+      seen.set(hash, true)
+      unique.append(crash)
+    end
+  end
+  let removed be self.crashes.length() - unique.length()
+  self.crashes = unique
+  self.stats.unique_crashes = unique.length()
+  return removed
+end
+
+-- Execute the main fuzzing loop
+fn run(self: Fuzzer, target_fn: String) -> FuzzStats do
+  self.start_time = Timer.now_ns()
+  while self.stats.total_runs < self.config.max_runs do
+    if Timer.now_ns() - self.start_time >= self.config.max_time_ns then break end
+    let input be self.generate_input()
+    self.current_depth = input.generation
+    if self.current_depth > self.stats.max_depth then
+      self.stats.max_depth = self.current_depth
+    end
+    let result be self.run_fuzz_target(input)
+    if result == FuzzResultKind.CRASH or result == FuzzResultKind.FIRST_LAW_BREACH then
+      self.corpus.append(input)
+      if self.corpus.length() > 10000 then
+        self.corpus = self.corpus.slice(9000, 10000)
+      end
+    end
+  end
+  self.stats.total_time_ns = Timer.now_ns() - self.start_time
+  let _ = self.save_corpus()
+  return self.stats
+end
+
+-- Generate a formatted fuzzing report
+fn report(self: Fuzzer) -> String do
+  let lines be List<String>{"Fuzzing Report", "==============", ""}
+  lines.append("Total Runs:      " + self.stats.total_runs.to_string())
+  lines.append("Passes:          " + self.stats.passes.to_string())
+  lines.append("Crashes:         " + self.stats.crashes.to_string())
+  lines.append("Unique Crashes:  " + self.stats.unique_crashes.to_string())
+  lines.append("Hangs:           " + self.stats.hangs.to_string())
+  lines.append("Timeouts:        " + self.stats.timeouts.to_string())
+  lines.append("Sem. Violations: " + self.stats.semantic_violations.to_string())
+  lines.append("First Law:       " + self.stats.first_law_breaches.to_string())
+  lines.append("Max Depth:       " + self.stats.max_depth.to_string())
+  lines.append("Total Time:      " + (self.stats.total_time_ns / 1000000000).to_string() + "s")
+  lines.append("Corpus Size:     " + self.corpus.length().to_string())
+  lines.append("Strategy:        " + self.config.strategy.to_string())
+  if self.stats.unique_crashes > 0 then
+    lines.append("")
+    lines.append("Unique Crashes:")
+    for i in 0 .. self.stats.unique_crashes.min(10) do
+      lines.append("  [" + i.to_string() + "] " + self.crashes[i].data.substring(0, 32))
+      lines.append("    mutations: " + self.crashes[i].mutation_history.join(", "))
+    end
+  end
+  return lines.join("\n")
+end
+
+-- Utility: generate a pseudo-random integer in range [lo, hi]
+fn random_int(self: Fuzzer, lo: Int, hi: Int) -> Int do
+  let range be hi - lo + 1
+  let hash be (self.config.seed + self.stats.total_runs * 31).hash()
+  return lo + (hash.abs() % range)
+end
+
+-- Utility: convert byte list to string
+fn bytes_to_string(self: Fuzzer, bytes: List<Int>) -> String do
+  let result be ""
+  for b in bytes do
+    result = result + b.to_char()
+  end
+  return result
+end
+
+-- Utility: convert string to byte list
+fn string_to_bytes(self: Fuzzer, data: String) -> List<Int> do
+  let bytes be List<Int>{}
+  let i be 0
+  while i < data.length() do
+    bytes.append(data.char_at(i).to_int())
+    i = i + 1
+  end
+  return bytes
+end
+
+export {FuzzStrategy, CorpusSource, FuzzResultKind, FuzzInput, FuzzStats, FuzzConfig, Fuzzer}

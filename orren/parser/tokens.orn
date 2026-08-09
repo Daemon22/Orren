@@ -1,0 +1,678 @@
+module orren.parser.tokens
+
+import orren.primitive::{Float, Int, Bool, String, List, Optional}
+import orren.core.language.foundation::{
+  SemanticDomainType,
+  SemanticAttributes,
+  CognitiveKeywordType
+}
+import orren.core.semantic.model::{*}
+
+intent "Defines the complete Orren token system: the atomic units of
+  syntactic recognition that the lexer produces and the parser consumes.
+  Every token carries semantic domain metadata, ensuring that even at the
+  lexical level the First Law of meaning preservation is observable."
+
+-- =========================================================================
+-- ENUM: TokenType
+-- =========================================================================
+-- The complete set of token types recognized by the Orren lexer. Grouped
+-- into structural delimiters, language keywords, cognitive primitives,
+-- mediation and design keywords, operators, literal kinds, and special
+-- tokens. Each variant maps to a unique syntactic role in the grammar.
+-- =========================================================================
+
+enum TokenType
+  -- Structural delimiters and punctuation
+  LPAREN
+  RPAREN
+  LBRACE
+  RBRACE
+  LBRACKET
+  RBRACKET
+  COMMA
+  DOT
+  COLON
+  SEMICOLON
+  ARROW
+  FAT_ARROW
+  PIPE
+  UNDERSCORE
+
+  -- Core language keywords
+  LET
+  BE
+  FN
+  DO
+  END
+  ENTITY
+  PROPERTY
+  IMPORT
+  EXPORT
+  MODULE
+  INTENT
+  CONST
+  IF
+  THEN
+  ELSE
+  FOR
+  IN
+  LOOP
+  BREAK
+  MATCH
+  WITH
+  RETURN
+  RAISE
+  AND
+  OR
+  NOT
+  TRUE
+  FALSE
+  NIL
+  SOME
+  NONE
+
+  -- Cognitive keyword primitives
+  REASON
+  BELIEVE
+  INTEND
+  KNOW
+  PERCEIVE
+  REFLECT
+  PLAN
+  EVOLVE
+  RECALL
+  DELIBERATE
+
+  -- Mediation and design keywords
+  MEDIATE
+  LAW
+  GENOME
+  ARTICLE
+  CRAFT
+  FORGE
+  WEAVE
+
+  -- Operators
+  PLUS
+  MINUS
+  STAR
+  SLASH
+  PERCENT
+  EQ
+  NEQ
+  LT
+  GT
+  LTE
+  GTE
+  ASSIGN
+  PLUS_ASSIGN
+
+  -- Literal types
+  INTEGER
+  FLOAT
+  STRING
+  IDENTIFIER
+
+  -- Special tokens
+  EOF
+  NEWLINE
+  COMMENT
+end
+
+-- =========================================================================
+-- ENTITY: Token
+-- =========================================================================
+-- A single lexical token produced by the lexer. Every token carries its
+-- type, the raw text (lexeme), a literal representation, source location,
+-- a semantic domain annotation, and full semantic attributes. Tokens
+-- are not passive data; they are meaning-bearing units from the moment
+-- they are recognized.
+-- =========================================================================
+
+entity Token
+  -- The category this token belongs to.
+  property type: TokenType = EOF
+
+  -- The raw source text that produced this token.
+  property lexeme: String = ""
+
+  -- The literal value extracted from the lexeme, if applicable.
+  -- For identifiers, this is the identifier text. For numbers, the
+  -- numeric representation. For strings, the unescaped content.
+  property literal: String = ""
+
+  -- The one-based line number in the source where this token appears.
+  property line: Int = 1
+
+  -- The one-based column number where this token begins.
+  property column: Int = 1
+
+  -- The semantic domain this token is associated with.
+  -- Defaults to COGNITIVE, reflecting the baseline domain of all
+  -- Orren language constructs.
+  property semantic_domain: SemanticDomainType = COGNITIVE
+
+  -- Full semantic attributes attached to this token.
+  property attributes: SemanticAttributes = SemanticAttributes{}
+
+  -- Check whether this token is a language keyword.
+  -- Keywords are the reserved words that form the syntactic skeleton
+  -- of the language. They are not available as identifiers.
+  fn is_keyword(self) -> Bool do
+    match self.type with
+      LET => return true,
+      BE => return true,
+      FN => return true,
+      DO => return true,
+      END => return true,
+      ENTITY => return true,
+      PROPERTY => return true,
+      IMPORT => return true,
+      EXPORT => return true,
+      MODULE => return true,
+      INTENT => return true,
+      CONST => return true,
+      IF => return true,
+      THEN => return true,
+      ELSE => return true,
+      FOR => return true,
+      IN => return true,
+      LOOP => return true,
+      BREAK => return true,
+      MATCH => return true,
+      WITH => return true,
+      RETURN => return true,
+      RAISE => return true,
+      AND => return true,
+      OR => return true,
+      NOT => return true,
+      TRUE => return true,
+      FALSE => return true,
+      NIL => return true,
+      SOME => return true,
+      NONE => return true,
+      _ => return false
+    end
+  end
+
+  -- Check whether this token is one of the ten cognitive primitives.
+  -- Cognitive keywords are first-class language operators with special
+  -- evaluation semantics tied to the cognitive architecture.
+  fn is_cognitive(self) -> Bool do
+    match self.type with
+      REASON => return true,
+      BELIEVE => return true,
+      INTEND => return true,
+      KNOW => return true,
+      PERCEIVE => return true,
+      REFLECT => return true,
+      PLAN => return true,
+      EVOLVE => return true,
+      RECALL => return true,
+      DELIBERATE => return true,
+      _ => return false
+    end
+  end
+
+  -- Check whether this token is an operator.
+  -- Operators combine or transform expressions and values.
+  fn is_operator(self) -> Bool do
+    match self.type with
+      PLUS => return true,
+      MINUS => return true,
+      STAR => return true,
+      SLASH => return true,
+      PERCENT => return true,
+      EQ => return true,
+      NEQ => return true,
+      LT => return true,
+      GT => return true,
+      LTE => return true,
+      GTE => return true,
+      ASSIGN => return true,
+      PLUS_ASSIGN => return true,
+      _ => return false
+    end
+  end
+
+  -- Check whether this token represents a literal value.
+  -- Literals are the concrete data atoms: numbers, strings, booleans, nil.
+  fn is_literal(self) -> Bool do
+    match self.type with
+      INTEGER => return true,
+      FLOAT => return true,
+      STRING => return true,
+      TRUE => return true,
+      FALSE => return true,
+      NIL => return true,
+      _ => return false
+    end
+  end
+
+  -- Check whether this token is a mediation or design keyword.
+  -- These keywords govern cross-boundary communication, constitutional
+  -- law, genome management, and creative construction processes.
+  fn is_mediation(self) -> Bool do
+    match self.type with
+      MEDIATE => return true,
+      LAW => return true,
+      GENOME => return true,
+      ARTICLE => return true,
+      CRAFT => return true,
+      FORGE => return true,
+      WEAVE => return true,
+      _ => return false
+    end
+  end
+
+  -- Check whether this token is structural punctuation.
+  -- Structural tokens form the syntactic boundaries of expressions,
+  -- blocks, lists, and other composite constructs.
+  fn is_structural(self) -> Bool do
+    match self.type with
+      LPAREN => return true,
+      RPAREN => return true,
+      LBRACE => return true,
+      RBRACE => return true,
+      LBRACKET => return true,
+      RBRACKET => return true,
+      COMMA => return true,
+      DOT => return true,
+      COLON => return true,
+      SEMICOLON => return true,
+      ARROW => return true,
+      FAT_ARROW => return true,
+      PIPE => return true,
+      UNDERSCORE => return true,
+      _ => return false
+    end
+  end
+
+  -- Produce a human-readable string representation of this token.
+  -- Format: "TYPE 'lexeme' @ line:column"
+  fn to_string(self) -> String do
+    let type_name be token_type_to_string(self.type)
+    let location be "(" + int_to_string(self.line) + ":" + int_to_string(self.column) + ")"
+    return type_name + " '" + self.lexeme + "' " + location
+  end
+end
+
+-- =========================================================================
+-- ENTITY: TokenStream
+-- =========================================================================
+-- A forward-only cursor over a list of tokens. The parser uses this to
+-- walk through the token sequence produced by the lexer. It provides
+-- lookahead via peek, expectation checking via expect, and pattern
+-- matching via match_type. Once a token is advanced past, it cannot
+-- be revisited unless the stream is reset.
+-- =========================================================================
+
+entity TokenStream
+  -- The full ordered list of tokens in this stream.
+  property tokens: List<Token> = []
+
+  -- The current cursor position, zero-based.
+  -- Points to the next token to be consumed.
+  property position: Int = 0
+
+  -- Return the token at the current cursor position.
+  -- If the stream is exhausted, returns the EOF token.
+  fn current(self) -> Token do
+    if self.position < self.tokens.length() then
+      return self.tokens[self.position]
+    end
+    let eof be Token{}
+    eof.type = EOF
+    eof.lexeme = ""
+    eof.line = 0
+    eof.column = 0
+    return eof
+  end
+
+  -- Advance the cursor by one position and return the token that was
+  -- at the old position. This is the primary consumption operation.
+  fn advance(self) -> Token do
+    if not self.at_end() then
+      self.position = self.position + 1
+    end
+    return self.tokens[self.position - 1]
+  end
+
+  -- Look ahead at a token by a relative offset from the current position.
+  -- Offset 0 returns the current token (same as current()).
+  -- Offset 1 returns the next token, and so on. If the offset exceeds
+  -- the stream length, returns EOF.
+  fn peek(self, offset: Int) -> Token do
+    let target be self.position + offset
+    if target < self.tokens.length() then
+      return self.tokens[target]
+    end
+    let eof be Token{}
+    eof.type = EOF
+    eof.lexeme = ""
+    eof.line = 0
+    eof.column = 0
+    return eof
+  end
+
+  -- Check whether the stream has reached or passed the last token.
+  -- A stream is at end when position equals or exceeds the token count.
+  fn at_end(self) -> Bool do
+    return self.position >= self.tokens.length()
+  end
+
+  -- Return the number of tokens remaining from the current position
+  -- to the end of the stream, excluding the EOF token.
+  fn remaining(self) -> Int do
+    if self.position < self.tokens.length() then
+      return self.tokens.length() - self.position - 1
+    end
+    return 0
+  end
+
+  -- Consume the current token if it matches the expected type.
+  -- If the token does not match, raises a parse error with the location
+  -- of the unexpected token and the name of the expected type.
+  fn expect(self, expected: TokenType) -> Token do
+    if self.current().type == expected then
+      return self.advance()
+    end
+    let token be self.current()
+    let expected_name be token_type_to_string(expected)
+    let found_name be token_type_to_string(token.type)
+    let message be "Expected " + expected_name + " but found " + found_name
+      + " at line " + int_to_string(token.line)
+      + ", column " + int_to_string(token.column)
+    raise ParseError{message = message, line = token.line, column = token.column}
+  end
+
+  -- If the current token's type is in the given list, consume and return it.
+  -- Otherwise return a none value without advancing the cursor.
+  -- This is the primary mechanism for optional token consumption and
+  -- conditional parsing branches.
+  fn match_type(self, types: List<TokenType>) -> Optional<Token> do
+    let current be self.current()
+    for t in types do
+      if current.type == t then
+        return Optional::some(self.advance())
+      end
+    end
+    return Optional::none()
+  end
+
+  -- Check whether the current token's type matches any in the given list,
+  -- without consuming the token. Useful for lookahead decisions.
+  fn check(self, types: List<TokenType>) -> Bool do
+    let current be self.current()
+    for t in types do
+      if current.type == t then
+        return true
+      end
+    end
+    return false
+  end
+
+  -- Check whether the current token's type matches the given single type,
+  -- without consuming the token.
+  fn check_single(self, t: TokenType) -> Bool do
+    return self.current().type == t
+  end
+
+  -- Consume all remaining tokens and return them as a list.
+  -- Leaves the stream at the end position.
+  fn collect(self) -> List<Token> do
+    let result be List<Token>{}
+    while not self.at_end() do
+      result.append(self.advance())
+    end
+    return result
+  end
+
+  -- Reset the stream cursor to the beginning, allowing re-parsing.
+  fn reset(self) -> TokenStream do
+    self.position = 0
+    return self
+  end
+
+  -- Return the total number of tokens in the stream, including EOF.
+  fn size(self) -> Int do
+    return self.tokens.length()
+  end
+end
+
+-- =========================================================================
+-- HELPER: token_type_to_string
+-- =========================================================================
+-- Maps a TokenType variant to its human-readable name. Used in error
+-- messages and debugging output.
+-- =========================================================================
+
+fn token_type_to_string(t: TokenType) -> String do
+  match t with
+    LPAREN => return "LPAREN",
+    RPAREN => return "RPAREN",
+    LBRACE => return "LBRACE",
+    RBRACE => return "RBRACE",
+    LBRACKET => return "LBRACKET",
+    RBRACKET => return "RBRACKET",
+    COMMA => return "COMMA",
+    DOT => return "DOT",
+    COLON => return "COLON",
+    SEMICOLON => return "SEMICOLON",
+    ARROW => return "ARROW",
+    FAT_ARROW => return "FAT_ARROW",
+    PIPE => return "PIPE",
+    UNDERSCORE => return "UNDERSCORE",
+    LET => return "LET",
+    BE => return "BE",
+    FN => return "FN",
+    DO => return "DO",
+    END => return "END",
+    ENTITY => return "ENTITY",
+    PROPERTY => return "PROPERTY",
+    IMPORT => return "IMPORT",
+    EXPORT => return "EXPORT",
+    MODULE => return "MODULE",
+    INTENT => return "INTENT",
+    CONST => return "CONST",
+    IF => return "IF",
+    THEN => return "THEN",
+    ELSE => return "ELSE",
+    FOR => return "FOR",
+    IN => return "IN",
+    LOOP => return "LOOP",
+    BREAK => return "BREAK",
+    MATCH => return "MATCH",
+    WITH => return "WITH",
+    RETURN => return "RETURN",
+    RAISE => return "RAISE",
+    AND => return "AND",
+    OR => return "OR",
+    NOT => return "NOT",
+    TRUE => return "TRUE",
+    FALSE => return "FALSE",
+    NIL => return "NIL",
+    SOME => return "SOME",
+    NONE => return "NONE",
+    REASON => return "REASON",
+    BELIEVE => return "BELIEVE",
+    INTEND => return "INTEND",
+    KNOW => return "KNOW",
+    PERCEIVE => return "PERCEIVE",
+    REFLECT => return "REFLECT",
+    PLAN => return "PLAN",
+    EVOLVE => return "EVOLVE",
+    RECALL => return "RECALL",
+    DELIBERATE => return "DELIBERATE",
+    MEDIATE => return "MEDIATE",
+    LAW => return "LAW",
+    GENOME => return "GENOME",
+    ARTICLE => return "ARTICLE",
+    CRAFT => return "CRAFT",
+    FORGE => return "FORGE",
+    WEAVE => return "WEAVE",
+    PLUS => return "PLUS",
+    MINUS => return "MINUS",
+    STAR => return "STAR",
+    SLASH => return "SLASH",
+    PERCENT => return "PERCENT",
+    EQ => return "EQ",
+    NEQ => return "NEQ",
+    LT => return "LT",
+    GT => return "GT",
+    LTE => return "LTE",
+    GTE => return "GTE",
+    ASSIGN => return "ASSIGN",
+    PLUS_ASSIGN => return "PLUS_ASSIGN",
+    INTEGER => return "INTEGER",
+    FLOAT => return "FLOAT",
+    STRING => return "STRING",
+    IDENTIFIER => return "IDENTIFIER",
+    EOF => return "EOF",
+    NEWLINE => return "NEWLINE",
+    COMMENT => return "COMMENT"
+  end
+end
+
+-- =========================================================================
+-- HELPER: keyword_token_map
+-- =========================================================================
+-- Returns the TokenType for a given keyword string, or IDENTIFIER if
+-- the string is not a reserved keyword. This is the primary lookup used
+-- by the lexer when scanning identifiers.
+-- =========================================================================
+
+fn keyword_token_map(word: String) -> TokenType do
+  if word == "let" then return LET end
+  if word == "be" then return BE end
+  if word == "fn" then return FN end
+  if word == "do" then return DO end
+  if word == "end" then return END end
+  if word == "entity" then return ENTITY end
+  if word == "property" then return PROPERTY end
+  if word == "import" then return IMPORT end
+  if word == "export" then return EXPORT end
+  if word == "module" then return MODULE end
+  if word == "intent" then return INTENT end
+  if word == "const" then return CONST end
+  if word == "if" then return IF end
+  if word == "then" then return THEN end
+  if word == "else" then return ELSE end
+  if word == "for" then return FOR end
+  if word == "in" then return IN end
+  if word == "loop" then return LOOP end
+  if word == "break" then return BREAK end
+  if word == "match" then return MATCH end
+  if word == "with" then return WITH end
+  if word == "return" then return RETURN end
+  if word == "raise" then return RAISE end
+  if word == "and" then return AND end
+  if word == "or" then return OR end
+  if word == "not" then return NOT end
+  if word == "true" then return TRUE end
+  if word == "false" then return FALSE end
+  if word == "nil" then return NIL end
+  if word == "some" then return SOME end
+  if word == "none" then return NONE end
+  -- Cognitive keywords
+  if word == "reason" then return REASON end
+  if word == "believe" then return BELIEVE end
+  if word == "intend" then return INTEND end
+  if word == "know" then return KNOW end
+  if word == "perceive" then return PERCEIVE end
+  if word == "reflect" then return REFLECT end
+  if word == "plan" then return PLAN end
+  if word == "evolve" then return EVOLVE end
+  if word == "recall" then return RECALL end
+  if word == "deliberate" then return DELIBERATE end
+  -- Mediation / design keywords
+  if word == "mediate" then return MEDIATE end
+  if word == "law" then return LAW end
+  if word == "genome" then return GENOME end
+  if word == "article" then return ARTICLE end
+  if word == "craft" then return CRAFT end
+  if word == "forge" then return FORGE end
+  if word == "weave" then return WEAVE end
+  -- Not a keyword: it is a user-defined identifier.
+  return IDENTIFIER
+end
+
+-- =========================================================================
+-- HELPER: is_keyword_type
+-- =========================================================================
+-- Predicate that checks whether a TokenType is any keyword, including
+-- cognitive and mediation keywords. Broader than Token.is_keyword()
+-- which excludes cognitive and mediation types.
+-- =========================================================================
+
+fn is_keyword_type(t: TokenType) -> Bool do
+  match t with
+    LET => return true,
+    BE => return true,
+    FN => return true,
+    DO => return true,
+    END => return true,
+    ENTITY => return true,
+    PROPERTY => return true,
+    IMPORT => return true,
+    EXPORT => return true,
+    MODULE => return true,
+    INTENT => return true,
+    CONST => return true,
+    IF => return true,
+    THEN => return true,
+    ELSE => return true,
+    FOR => return true,
+    IN => return true,
+    LOOP => return true,
+    BREAK => return true,
+    MATCH => return true,
+    WITH => return true,
+    RETURN => return true,
+    RAISE => return true,
+    AND => return true,
+    OR => return true,
+    NOT => return true,
+    TRUE => return true,
+    FALSE => return true,
+    NIL => return true,
+    SOME => return true,
+    NONE => return true,
+    REASON => return true,
+    BELIEVE => return true,
+    INTEND => return true,
+    KNOW => return true,
+    PERCEIVE => return true,
+    REFLECT => return true,
+    PLAN => return true,
+    EVOLVE => return true,
+    RECALL => return true,
+    DELIBERATE => return true,
+    MEDIATE => return true,
+    LAW => return true,
+    GENOME => return true,
+    ARTICLE => return true,
+    CRAFT => return true,
+    FORGE => return true,
+    WEAVE => return true,
+    _ => return false
+  end
+end
+
+-- =========================================================================
+-- EXPORTS
+-- =========================================================================
+-- All token-related types and helper functions are exported. The token
+-- system is the interface between the lexer and parser, and is consumed
+-- by every subsequent compilation stage.
+-- =========================================================================
+
+export {
+  TokenType,
+  Token,
+  TokenStream,
+  token_type_to_string,
+  keyword_token_map,
+  is_keyword_type
+}

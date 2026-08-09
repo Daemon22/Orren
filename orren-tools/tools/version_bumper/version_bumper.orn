@@ -1,0 +1,396 @@
+module orren_tools.tools.version_bumper
+
+import orren.core.language.foundation::{String, Int, Bool, List, Map}
+
+intent "Automated semantic versioning for Orren packages"
+
+-- Type of version bump to apply
+enum VersionBump
+  MAJOR
+  MINOR
+  PATCH
+  PRE_RELEASE
+  BUILD
+end
+
+-- Category of change driving a version bump
+enum ChangeCategory
+  BREAKING
+  FEATURE
+  BUGFIX
+  DOCUMENTATION
+  INTERNAL
+  SECURITY
+  PERFORMANCE
+end
+
+-- A parsed semantic version with major, minor, patch, pre-release, and build
+entity SemVer
+  property major: Int = 0
+  property minor: Int = 0
+  property patch: Int = 0
+  property pre_release: String = ""
+  property build: String = ""
+
+  -- Parse a version string like "1.2.3-alpha.1+build.42" into components
+  fn parse(self, version_str: String) -> SemVer do
+    let ver be SemVer()
+    let base be version_str
+    -- Extract build metadata after '+'
+    if base.contains("+") then
+      let parts be base.split("+")
+      ver.build = parts.get(1)
+      base = parts.get(0)
+    end
+    -- Extract pre-release after '-'
+    if base.contains("-") then
+      let parts be base.split("-")
+      ver.pre_release = parts.get(1)
+      base = parts.get(0)
+    end
+    -- Parse major.minor.patch
+    let segments be base.split(".")
+    if segments.len() >= 1 then
+      ver.major = segments.get(0) as Int
+    end
+    if segments.len() >= 2 then
+      ver.minor = segments.get(1) as Int
+    end
+    if segments.len() >= 3 then
+      ver.patch = segments.get(2) as Int
+    end
+    return ver
+  end
+
+  -- Format this semantic version back into a string
+  fn format(self) -> String do
+    let buf be (self.major as String) + "." + (self.minor as String) + "." + (self.patch as String)
+    if self.pre_release != "" then
+      buf = buf + "-" + self.pre_release
+    end
+    if self.build != "" then
+      buf = buf + "+" + self.build
+    end
+    return buf
+  end
+
+  -- Compare this version to another, returning -1, 0, or 1
+  fn compare(self, other: SemVer) -> Int do
+    if self.major != other.major then
+      if self.major > other.major then return 1 end
+      return -1
+    end
+    if self.minor != other.minor then
+      if self.minor > other.minor then return 1 end
+      return -1
+    end
+    if self.patch != other.patch then
+      if self.patch > other.patch then return 1 end
+      return -1
+    end
+    return 0
+  end
+
+  -- Check if this version is a pre-release
+  fn is_prerelease(self) -> Bool do
+    return self.pre_release != ""
+  end
+end
+
+-- A single change that may drive a version bump
+entity VersionChange
+  property category: ChangeCategory = ChangeCategory.BUGFIX
+  property description: String = ""
+  property files_affected: List<String> = []
+  property automated: Bool = false
+end
+
+-- Result of a version bump operation
+entity VersionBumpResult
+  property old_version: String = ""
+  property new_version: String = ""
+  property changes_applied: List<VersionChange> = []
+  property changelog_entry: String = ""
+end
+
+-- Configuration for the version bumper
+entity BumperConfig
+  property pre_release_prefix: String = "alpha"
+  property include_build_metadata: Bool = false
+  property changelog_file: String = "CHANGELOG.md"
+  property manifest_files: List<String> = ["orn.toml", "package.orn"]
+  property auto_commit: Bool = false
+  property dry_run: Bool = false
+  property detect_breaking_from_api: Bool = true
+end
+
+-- Main version bumper engine
+entity VersionBumper
+  property config: BumperConfig = BumperConfig()
+  property current_version: SemVer = SemVer()
+  property pending_changes: List<VersionChange> = []
+
+  -- Load the current version from a manifest file's content
+  fn load_version(self, manifest_content: String) -> SemVer do
+    let idx be 0
+    let lines be manifest_content.split("\n")
+    while idx < lines.len() do
+      let line be lines.get(idx).trim()
+      if line.starts_with("version") then
+        if line.contains("=") then
+          let parts be line.split("=")
+          let raw be parts.get(1).trim().replace("\"", "")
+          self.current_version = SemVer().parse(raw)
+          return self.current_version
+        end
+      end
+      idx = idx + 1
+    end
+    return SemVer()
+  end
+
+  -- Add a change to the pending changes list
+  fn add_change(self, category: ChangeCategory, description: String, files: List<String>) -> Unit do
+    let change be VersionChange()
+    change.category = category
+    change.description = description
+    change.files_affected = files
+    change.automated = true
+    self.pending_changes.append(change)
+  end
+
+  -- Determine the appropriate bump level from all pending changes
+  fn determine_bump_level(self) -> VersionBump do
+    let bump be VersionBump.PATCH
+    let idx be 0
+    while idx < self.pending_changes.len() do
+      let change be self.pending_changes.get(idx)
+      match change.category with
+        ChangeCategory.BREAKING do
+          return VersionBump.MAJOR
+        end
+        ChangeCategory.FEATURE do
+          if bump != VersionBump.MAJOR then
+            bump = VersionBump.MINOR
+          end
+        end
+        ChangeCategory.SECURITY do
+          if bump != VersionBump.MAJOR and bump != VersionBump.MINOR then
+            bump = VersionBump.MINOR
+          end
+        end
+        ChangeCategory.PERFORMANCE do
+          if bump == VersionBump.PATCH then
+            bump = VersionBump.MINOR
+          end
+        end
+        ChangeCategory.BUGFIX do
+          -- PATCH is the default, no upgrade needed
+        end
+        ChangeCategory.DOCUMENTATION do
+          -- Documentation changes do not trigger a version bump
+        end
+        ChangeCategory.INTERNAL do
+          -- Internal changes do not trigger a version bump
+        end
+      end
+      idx = idx + 1
+    end
+    return bump
+  end
+
+  -- Apply a version bump of the given level
+  fn apply_bump(self, bump: VersionBump) -> VersionBumpResult do
+    let old_str be self.current_version.format()
+    match bump with
+      VersionBump.MAJOR do
+        self.current_version.major = self.current_version.major + 1
+        self.current_version.minor = 0
+        self.current_version.patch = 0
+        self.current_version.pre_release = ""
+      end
+      VersionBump.MINOR do
+        self.current_version.minor = self.current_version.minor + 1
+        self.current_version.patch = 0
+        self.current_version.pre_release = ""
+      end
+      VersionBump.PATCH do
+        self.current_version.patch = self.current_version.patch + 1
+        self.current_version.pre_release = ""
+      end
+      VersionBump.PRE_RELEASE do
+        let new_pre be self.increment_prerelease(self.current_version.pre_release)
+        self.current_version.pre_release = new_pre
+      end
+      VersionBump.BUILD do
+        let new_build be self.increment_build(self.current_version.build)
+        self.current_version.build = new_build
+      end
+    end
+    let result be VersionBumpResult()
+    result.old_version = old_str
+    result.new_version = self.current_version.format()
+    result.changes_applied = self.pending_changes
+    result.changelog_entry = self.generate_changelog_entry(old_str, result.new_version)
+    return result
+  end
+
+  -- Increment a pre-release identifier, e.g. "alpha.1" -> "alpha.2"
+  fn increment_prerelease(self, current: String) -> String do
+    if current == "" then
+      return self.config.pre_release_prefix + ".1"
+    end
+    if current.contains(".") then
+      let parts be current.split(".")
+      let prefix be parts.get(0)
+      let num be parts.get(1) as Int
+      return prefix + "." + ((num + 1) as String)
+    end
+    return current + ".1"
+  end
+
+  -- Increment build metadata number
+  fn increment_build(self, current: String) -> String do
+    if current == "" then
+      return "1"
+    end
+    if current.contains(".") then
+      let parts be current.split(".")
+      let last be parts.get(parts.len() - 1) as Int
+      let base be current.slice(0, current.last_index_of("."))
+      return base + "." + ((last + 1) as String)
+    end
+    let num be current as Int
+    return (num + 1) as String
+  end
+
+  -- Generate a changelog entry for the version transition
+  fn generate_changelog_entry(self, old_ver: String, new_ver: String) -> String do
+    let buf be "## " + new_ver
+    buf = buf + "\n\n### Changed"
+    let has_breaking be false
+    let has_features be false
+    let has_fixes be false
+    let has_security be false
+    let has_perf be false
+    -- Categorize changes into sections
+    for change in self.pending_changes do
+      match change.category with
+        ChangeCategory.BREAKING do
+          if not has_breaking then
+            buf = buf + "\n\n### BREAKING CHANGES"
+            has_breaking = true
+          end
+          buf = buf + "\n- " + change.description
+        end
+        ChangeCategory.FEATURE do
+          if not has_features then
+            buf = buf + "\n\n### Added"
+            has_features = true
+          end
+          buf = buf + "\n- " + change.description
+        end
+        ChangeCategory.BUGFIX do
+          if not has_fixes then
+            buf = buf + "\n\n### Fixed"
+            has_fixes = true
+          end
+          buf = buf + "\n- " + change.description
+        end
+        ChangeCategory.SECURITY do
+          if not has_security then
+            buf = buf + "\n\n### Security"
+            has_security = true
+          end
+          buf = buf + "\n- " + change.description
+        end
+        ChangeCategory.PERFORMANCE do
+          if not has_perf then
+            buf = buf + "\n\n### Performance"
+            has_perf = true
+          end
+          buf = buf + "\n- " + change.description
+        end
+        ChangeCategory.DOCUMENTATION do
+          buf = buf + "\n- " + change.description
+        end
+        ChangeCategory.INTERNAL do
+          -- Skip internal changes from changelog
+        end
+      end
+    end
+    return buf
+  end
+
+  -- Produce updated manifest content with the new version
+  fn update_manifest(self, manifest_content: String, new_version: String) -> String do
+    let lines be manifest_content.split("\n")
+    let result be List<String>()
+    let idx be 0
+    while idx < lines.len() do
+      let line be lines.get(idx)
+      if line.trim().starts_with("version") then
+        if line.contains("=") then
+          let eq_idx be line.index_of("=")
+          let prefix be line.slice(0, eq_idx + 1)
+          let new_line be prefix + " \"" + new_version + "\""
+          result.append(new_line)
+        else
+          result.append(line)
+        end
+      else
+        result.append(line)
+      end
+      idx = idx + 1
+    end
+    let buf be ""
+    let first be true
+    for r in result do
+      if not first then
+        buf = buf + "\n"
+      end
+      buf = buf + r
+      first = false
+    end
+    return buf
+  end
+
+  -- Analyze diff lines to automatically detect change categories
+  fn analyze_diff(self, diff_lines: List<String>) -> List<VersionChange> do
+    let changes be List<VersionChange>()
+    for line in diff_lines do
+      let trimmed be line.trim()
+      -- Detect breaking patterns in diffs
+      if trimmed.starts_with("-") then
+        if trimmed.contains("fn ") or trimmed.contains("property ") then
+          self.add_change(ChangeCategory.BREAKING, "Removed public symbol: " + trimmed, [])
+        end
+      end
+      if trimmed.starts_with("+") then
+        if trimmed.contains("fn ") then
+          self.add_change(ChangeCategory.FEATURE, "Added new function: " + trimmed, [])
+        end
+        if trimmed.contains("fix") or trimmed.contains("bug") then
+          self.add_change(ChangeCategory.BUGFIX, "Bug fix applied: " + trimmed, [])
+        end
+      end
+    end
+    return changes
+  end
+
+  -- Run the full version bump pipeline
+  fn run(self, manifest_content: String, bump: VersionBump) -> VersionBumpResult do
+    self.load_version(manifest_content)
+    if bump == VersionBump.PRE_RELEASE then
+      -- If not currently pre-release, bump minor and add pre-release
+      if not self.current_version.is_prerelease() then
+        self.current_version.minor = self.current_version.minor + 1
+        self.current_version.patch = 0
+      end
+    end
+    let result be self.apply_bump(bump)
+    return result
+  end
+end
+
+export { VersionBump, ChangeCategory, SemVer, VersionChange, VersionBumpResult, BumperConfig, VersionBumper }

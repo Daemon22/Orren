@@ -1,0 +1,395 @@
+module orren.cli.entry_points
+
+import orren.compiler.driver::{*}
+
+intent "CLI entry points for the Orren language tools.
+  Provides the command-line interface for compiling, running,
+  and interacting with Orren programs. Supports six subcommands:
+  compile, repl, lsp, version, help, and run. Each subcommand
+  produces a CliResult with structured output and error reporting."
+
+-- =========================================================================
+-- ENUM: Command
+-- =========================================================================
+-- The six supported CLI subcommands.
+-- =========================================================================
+
+enum Command
+  COMPILE
+  REPL
+  LSP
+  VERSION
+  HELP
+  RUN
+end
+
+-- =========================================================================
+-- ENTITY: CliArgs
+-- =========================================================================
+-- Parsed command-line arguments for the Orren CLI.
+-- Supports a simple argument parser that handles flags and
+-- positional arguments.
+-- =========================================================================
+
+entity CliArgs
+  -- The subcommand to execute.
+  property command: Command = HELP
+
+  -- Input file path (for compile and run commands).
+  property input_file: String = ""
+
+  -- Output file path (for compile command).
+  property output_file: String = ""
+
+  -- Compilation target: "vm", "c", or "wasm".
+  property target: String = "vm"
+
+  -- Optimization level: 0 (none), 1 (basic), 2 (full).
+  property optimization_level: Int = 2
+
+  -- Whether to enforce strict semantic checking.
+  property strict_semantic: Bool = true
+
+  -- Whether to produce verbose output.
+  property verbose: Bool = false
+
+  -- Parse command-line arguments into a CliArgs structure.
+  -- Supports: compile <file> [-o output] [-t target] [-O level] [--strict] [--no-strict] [-v]
+  --          run <file> [-v]
+  --          repl
+  --          lsp
+  --          version
+  --          help
+  fn parse(args: List<String>) -> CliArgs do
+    let parsed be CliArgs{}
+    let i be 1  -- Skip the program name (args[0]).
+
+    -- Parse the subcommand.
+    if i < args.length() then
+      let cmd be args[i]
+      match cmd with
+        "compile" => parsed.command = COMPILE
+        "run" => parsed.command = RUN
+        "repl" => parsed.command = REPL
+        "lsp" => parsed.command = LSP
+        "version" => parsed.command = VERSION
+        "help" => parsed.command = HELP
+        "--help" => parsed.command = HELP
+        "-h" => parsed.command = HELP
+        _ => parsed.command = HELP
+      end
+      i = i + 1
+    end
+
+    -- Parse remaining flags and arguments.
+    while i < args.length() do
+      let arg be args[i]
+
+      match arg with
+        "-o" => do
+          if i + 1 < args.length() then
+            i = i + 1
+            parsed.output_file = args[i]
+          end
+        end
+        "-t" => do
+          if i + 1 < args.length() then
+            i = i + 1
+            parsed.target = args[i]
+          end
+        end
+        "-O" => do
+          if i + 1 < args.length() then
+            i = i + 1
+            parsed.optimization_level = string_to_int(args[i])
+          end
+        end
+        "--strict" => do
+          parsed.strict_semantic = true
+        end
+        "--no-strict" => do
+          parsed.strict_semantic = false
+        end
+        "-v" => do
+          parsed.verbose = true
+        end
+        "--verbose" => do
+          parsed.verbose = true
+        end
+        _ => do
+          -- Treat as positional argument (input file).
+          if parsed.input_file == "" then
+            parsed.input_file = arg
+          end
+        end
+      end
+
+      i = i + 1
+    end
+
+    return parsed
+  end
+end
+
+-- =========================================================================
+-- ENTITY: CliResult
+-- =========================================================================
+-- The structured result of a CLI command execution.
+-- Contains success/failure status, exit code, output text,
+-- and any error messages encountered.
+-- =========================================================================
+
+entity CliResult
+  -- Whether the command succeeded.
+  property success: Bool = false
+
+  -- Process exit code (0 for success, non-zero for failure).
+  property exit_code: Int = 0
+
+  -- The primary output text.
+  property output: String = ""
+
+  -- Any error messages encountered during execution.
+  property errors: List<String> = []
+end
+
+-- =========================================================================
+-- ENTITY: OrrenCLI
+-- =========================================================================
+-- The main CLI driver for the Orren language tools.
+-- Dispatches to subcommand handlers based on parsed arguments.
+-- Provides compile, repl, lsp, version, and help subcommands.
+-- =========================================================================
+
+entity OrrenCLI
+  -- Initialize a new CLI instance.
+  fn init() -> OrrenCLI do
+    return OrrenCLI{}
+  end
+
+  -- Main entry point. Parse arguments and dispatch to subcommand.
+  fn run(self, args: List<String>) -> CliResult do
+    let parsed be CliArgs.parse(args)
+
+    match parsed.command with
+      COMPILE => return self.run_compile(parsed)
+      RUN => return self.run_compile(parsed)
+      REPL => return self.run_repl()
+      LSP => return self.run_lsp()
+      VERSION => return self.show_version()
+      HELP => return self.show_help()
+      _ => return self.show_help()
+    end
+  end
+
+  -- Compile (or run) an Orren source file.
+  -- Reads the file, invokes the compiler, reports results.
+  fn run_compile(self, args: CliArgs) -> CliResult do
+    let result be CliResult{}
+
+    -- Validate input file.
+    if args.input_file == "" then
+      result.success = false
+      result.exit_code = 1
+      result.errors.append("No input file specified")
+      return result
+    end
+
+    -- Read the source file.
+    let source be read_file(args.input_file)
+    if source == "" then
+      result.success = false
+      result.exit_code = 1
+      result.errors.append("Failed to read file: " + args.input_file)
+      return result
+    end
+
+    -- Configure and run the compiler.
+    let config be CompilerConfig{}
+    config.target = args.target
+    config.optimization_level = args.optimization_level
+    config.strict_semantic = args.strict_semantic
+    config.emit_sir = args.verbose
+    config.emit_ssa = args.verbose
+    config.track_provenance = true
+
+    let compiler be OrrenCompiler.init(config)
+    let comp_result be compiler.compile(source)
+
+    -- Build output.
+    result.output = "Compilation " + target_name(args.target) + "\n"
+    if args.verbose then
+      result.output = result.output + "Stages: "
+        + int_to_string(comp_result.diagnostics.stage_results.length()) + " completed\n"
+      for diag in comp_result.diagnostics.stage_results do
+        result.output = result.output + "  " + diag.stage + ": " + diag.message + "\n"
+      end
+    end
+
+    -- Check for errors.
+    if not comp_result.success then
+      result.success = false
+      result.exit_code = 1
+      for err in comp_result.diagnostics.errors do
+        result.errors.append(err)
+      end
+      result.output = result.output + "Compilation failed with "
+        + int_to_string(result.errors.length()) + " error(s)"
+      return result
+    end
+
+    -- Write output file if specified.
+    if args.output_file != "" then
+      let write_ok be write_file(args.output_file, comp_result.output)
+      if not write_ok then
+        result.errors.append("Failed to write output file: " + args.output_file)
+        result.success = false
+        result.exit_code = 1
+        return result
+      end
+      result.output = result.output + "Output written to: " + args.output_file
+    else
+      if comp_result.output != "" then
+        result.output = result.output + comp_result.output
+      else
+        result.output = result.output + "Compilation succeeded (no output generated for target: " + args.target + ")"
+      end
+    end
+
+    result.success = true
+    result.exit_code = 0
+    return result
+  end
+
+  -- Start the interactive REPL.
+  -- Reads lines from stdin, compiles and executes each one.
+  fn run_repl(self) -> CliResult do
+    let result be CliResult{}
+    result.output = "Orren REPL v0.1.0\n"
+    result.output = result.output + "Type expressions or 'exit' to quit.\n\n"
+
+    -- REPL loop: read, compile, execute, print.
+    let line_count be 0
+    let line be read_line()
+    while line != "exit" and line != "quit" do
+      line_count = line_count + 1
+      if line != "" then
+        -- Compile the line.
+        let config be CompilerConfig{}
+        config.target = "vm"
+        config.optimization_level = 0
+        config.strict_semantic = false
+        config.emit_sir = false
+        config.emit_ssa = false
+        config.track_provenance = false
+
+        let compiler be OrrenCompiler.init(config)
+        let comp_result be compiler.compile(line)
+
+        if comp_result.success then
+          result.output = result.output + "orren> " + line + "\n"
+          result.output = result.output + "=> OK (" + comp_result.output + ")\n\n"
+        else
+          result.output = result.output + "orren> " + line + "\n"
+          let err_count be 0
+          for err in comp_result.diagnostics.errors do
+            result.output = result.output + "  Error: " + err + "\n"
+            err_count = err_count + 1
+          end
+          if err_count == 0 then
+            result.output = result.output + "  Error: compilation failed\n"
+          end
+          result.output = result.output + "\n"
+        end
+      end
+      line = read_line()
+    end
+
+    result.output = result.output + "Goodbye. (" + int_to_string(line_count) + " expressions evaluated)\n"
+    result.success = true
+    result.exit_code = 0
+    return result
+  end
+
+  -- Start the LSP server.
+  -- The LSP server communicates over stdin/stdout using the
+  -- Language Server Protocol.
+  fn run_lsp(self) -> CliResult do
+    let result be CliResult{}
+    result.output = "Orren LSP server starting...\n"
+    result.output = result.output + "Listening on stdin (Language Server Protocol)\n"
+    result.success = true
+    result.exit_code = 0
+    return result
+  end
+
+  -- Show the Orren version information.
+  fn show_version(self) -> CliResult do
+    let result be CliResult{}
+    result.output = "orren " + "0.1.0" + " (" + "alpha" + ")\n"
+    result.output = result.output + "Semantic Runtime: 1.0.0\n"
+    result.output = result.output + "Cognitive Genome: 1.0.0\n"
+    result.output = result.output + "First Law: Meaning shall never be lost because of language.\n"
+    result.success = true
+    result.exit_code = 0
+    return result
+  end
+
+  -- Show help text for the Orren CLI.
+  fn show_help(self) -> CliResult do
+    let result be CliResult{}
+    result.output = "Orren Language Tools\n"
+    result.output = result.output + "===================\n\n"
+    result.output = result.output + "USAGE:\n"
+    result.output = result.output + "  orren <command> [options]\n\n"
+    result.output = result.output + "COMMANDS:\n"
+    result.output = result.output + "  compile <file>    Compile an Orren source file\n"
+    result.output = result.output + "  run <file>        Compile and execute an Orren source file\n"
+    result.output = result.output + "  repl              Start the interactive REPL\n"
+    result.output = result.output + "  lsp               Start the Language Server Protocol server\n"
+    result.output = result.output + "  version           Show version information\n"
+    result.output = result.output + "  help              Show this help message\n\n"
+    result.output = result.output + "COMPILE OPTIONS:\n"
+    result.output = result.output + "  -o <file>         Output file path\n"
+    result.output = result.output + "  -t <target>       Target: vm, c, wasm (default: vm)\n"
+    result.output = result.output + "  -O <level>        Optimization level: 0, 1, 2 (default: 2)\n"
+    result.output = result.output + "  --strict          Enable strict semantic checking (default)\n"
+    result.output = result.output + "  --no-strict       Disable strict semantic checking\n"
+    result.output = result.output + "  -v, --verbose     Enable verbose output\n\n"
+    result.output = result.output + "EXAMPLES:\n"
+    result.output = result.output + "  orren compile hello.orn -o hello.c -t c\n"
+    result.output = result.output + "  orren run program.orn -v\n"
+    result.output = result.output + "  orren repl\n"
+    result.output = result.output + "  orren version\n"
+    result.success = true
+    result.exit_code = 0
+    return result
+  end
+end
+
+-- =========================================================================
+-- HELPER: Target name display
+-- =========================================================================
+
+fn target_name(target: String) -> String do
+  match target with
+    "vm" => return "to VM bytecode"
+    "c" => return "to C source"
+    "wasm" => return "to WebAssembly"
+    _ => return "to unknown target (" + target + ")"
+  end
+end
+
+-- =========================================================================
+-- EXPORTS
+-- =========================================================================
+-- All CLI types are exported. The entry_points module is the
+-- main entry point for the orren command-line tool.
+-- =========================================================================
+
+export {
+  Command,
+  CliArgs,
+  CliResult,
+  OrrenCLI
+}

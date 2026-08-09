@@ -1,0 +1,464 @@
+-- highlight.orn: Semantic syntax highlighting for the Orren SDK.
+-- Generates token-level highlights with semantic information, supporting
+-- multiple color themes and incremental re-highlighting.
+
+module orren_tools.sdk.highlight
+
+import module::{String, Int, Bool, List, Map, Result, File, Path, Time}
+import orren.core.language.foundation::{SourceLocation, ModuleResolver}
+
+-- The kind of semantic highlight token.
+enum HighlightKind
+    KEYWORD
+    ENTITY_NAME
+    FUNCTION_NAME
+    PROPERTY_NAME
+    ENUM_NAME
+    COGNITIVE_KEYWORD
+    STRING
+    COMMENT
+    NUMBER
+    OPERATOR
+    TYPE
+    MODULE_PATH
+    INTENT_BLOCK
+    SEMANTIC_ATTR
+end
+
+-- A single highlight token spanning a range in the source.
+entity HighlightToken
+    property kind: HighlightKind = HighlightKind.KEYWORD
+    property start_line: Int = 0
+    property start_col: Int = 0
+    property end_line: Int = 0
+    property end_col: Int = 0
+    property modifiers: List<String> = List<String>.new()
+
+    -- Returns the kind as a display string.
+    fn kind_label(self) -> String do
+        return match self.kind with
+            HighlightKind.KEYWORD => "keyword"
+            HighlightKind.ENTITY_NAME => "entity"
+            HighlightKind.FUNCTION_NAME => "function"
+            HighlightKind.PROPERTY_NAME => "property"
+            HighlightKind.ENUM_NAME => "enum"
+            HighlightKind.COGNITIVE_KEYWORD => "cognitive-keyword"
+            HighlightKind.STRING => "string"
+            HighlightKind.COMMENT => "comment"
+            HighlightKind.NUMBER => "number"
+            HighlightKind.OPERATOR => "operator"
+            HighlightKind.TYPE => "type"
+            HighlightKind.MODULE_PATH => "module-path"
+            HighlightKind.INTENT_BLOCK => "intent"
+            HighlightKind.SEMANTIC_ATTR => "semantic-attr"
+        end
+    end
+
+    -- Checks whether this token overlaps with a given line range.
+    fn overlaps_line(self, line: Int) -> Bool do
+        if self.start_line == line or self.end_line == line then
+            return true
+        end
+        if self.start_line < line and self.end_line > line then
+            return true
+        end
+        return false
+    end
+
+    -- Adds a modifier to this token.
+    fn add_modifier(self, mod_name: String) do
+        if not self.modifiers.contains(mod_name) then
+            self.modifiers.append(mod_name)
+        end
+    end
+end
+
+-- The result of highlighting a source file.
+entity HighlightResult
+    property tokens: List<HighlightToken> = List<HighlightToken>.new()
+    property file: String = ""
+    property total_tokens: Int = 0
+    property highlight_time: Float = 0.0
+
+    -- Filters tokens to those on a specific line.
+    fn tokens_for_line(self, line: Int) -> List<HighlightToken> do
+        let filtered be List<HighlightToken>.new()
+        for token in self.tokens do
+            if token.overlaps_line(line) then
+                filtered.append(token)
+            end
+        end
+        return filtered
+    end
+
+    -- Counts tokens by kind.
+    fn count_by_kind(self, kind: HighlightKind) -> Int do
+        let count be 0
+        for token in self.tokens do
+            if token.kind == kind then
+                count = count + 1
+            end
+        end
+        return count
+    end
+
+    -- Returns a summary of the highlighting result.
+    fn summary(self) -> String do
+        let lines be List<String>.new()
+        lines.append("Highlight: " + self.file)
+        lines.append("  Total tokens: " + String.from_int(self.total_tokens).to_string())
+        lines.append("  Keywords: " + String.from_int(self.count_by_kind(HighlightKind.KEYWORD)).to_string())
+        lines.append("  Entities: " + String.from_int(self.count_by_kind(HighlightKind.ENTITY_NAME)).to_string())
+        lines.append("  Functions: " + String.from_int(self.count_by_kind(HighlightKind.FUNCTION_NAME)).to_string())
+        lines.append("  Strings: " + String.from_int(self.count_by_kind(HighlightKind.STRING)).to_string())
+        lines.append("  Comments: " + String.from_int(self.count_by_kind(HighlightKind.COMMENT)).to_string())
+        lines.append("  Time: " + String.from_float(self.highlight_time).to_string() + "ms")
+        return lines.join("\n")
+    end
+end
+
+-- The main semantic highlighter.
+entity SemanticHighlighter
+    property config: Map<String, String> = Map<String, String>.new()
+    property theme: String = "default"
+
+    -- All Orren language keywords.
+    fn keywords(self) -> List<String> do
+        let kws be List<String>.new()
+        kws.append("module")
+        kws.append("import")
+        kws.append("export")
+        kws.append("enum")
+        kws.append("entity")
+        kws.append("property")
+        kws.append("fn")
+        kws.append("intent")
+        kws.append("let")
+        kws.append("be")
+        kws.append("if")
+        kws.append("then")
+        kws.append("else")
+        kws.append("for")
+        kws.append("in")
+        kws.append("while")
+        kws.append("do")
+        kws.append("end")
+        kws.append("match")
+        kws.append("with")
+        kws.append("return")
+        kws.append("self")
+        kws.append("true")
+        kws.append("false")
+        kws.append("nothing")
+        kws.append("continue")
+        return kws
+    end
+
+    -- All cognitive keywords in Orren.
+    fn cognitive_keywords(self) -> List<String> do
+        let cks be List<String>.new()
+        cks.append("believe")
+        cks.append("doubt")
+        cks.append("desire")
+        cks.append("fear")
+        cks.append("hope")
+        cks.append("assume")
+        cks.append("trust")
+        cks.append("wonder")
+        cks.append("imagine")
+        cks.append("intend")
+        return cks
+    end
+
+    -- Highlights an entire source file.
+    fn highlight_file(self, file_path: String) -> Result<HighlightResult> do
+        let raw be File.read(file_path)
+        if raw.is_error then
+            return Result.error("Failed to read file: " + file_path)
+        end
+        let start_time be Time.now()
+        let result be self.highlight_source(raw.value, file_path)
+        let end_time be Time.now()
+        result.highlight_time = Float.from_int(end_time - start_time)
+        return Result.ok(result)
+    end
+
+    -- Highlights source text and returns all tokens.
+    fn highlight_source(self, source: String, file_path: String) -> HighlightResult do
+        let result be HighlightResult.new()
+        result.file = file_path
+        let lines be source.split_lines()
+        let known_entities be List<String>.new()
+        let known_functions be List<String>.new()
+        let known_enums be List<String>.new()
+        let known_properties be List<String>.new()
+        -- First pass: collect entity, function, enum names.
+        let idx be 0
+        while idx < lines.length do
+            let trimmed be lines.get(idx).strip()
+            if trimmed.starts_with("entity ") then
+                let parts be trimmed.split(" ")
+                if parts.length >= 2 then
+                    let name be parts.get(1)
+                    if not known_entities.contains(name) then
+                        known_entities.append(name)
+                    end
+                end
+            end
+            if trimmed.starts_with("enum ") then
+                let parts be trimmed.split(" ")
+                if parts.length >= 2 then
+                    let name be parts.get(1)
+                    if not known_enums.contains(name) then
+                        known_enums.append(name)
+                    end
+                end
+            end
+            if trimmed.contains("fn ") and trimmed.contains(" do") then
+                let fn_name be self.parse_fn_name(trimmed)
+                if fn_name.length > 0 then
+                    known_functions.append(fn_name)
+                end
+            end
+            if trimmed.starts_with("property ") then
+                let rest be trimmed.substring(9).strip()
+                let colon_pos be rest.find(":")
+                if colon_pos > 0 then
+                    let pname be rest.substring(0, colon_pos).strip()
+                    if not known_properties.contains(pname) then
+                        known_properties.append(pname)
+                    end
+                end
+            end
+            idx = idx + 1
+        end
+        -- Second pass: produce highlight tokens.
+        let line_idx be 0
+        while line_idx < lines.length do
+            let line be lines.get(line_idx)
+            self.highlight_line(line, line_idx, known_entities, known_functions, known_enums, known_properties, result)
+            line_idx = line_idx + 1
+        end
+        result.total_tokens = result.tokens.length
+        return result
+    end
+
+    -- Highlights a single line of source code.
+    fn highlight_line(self, line: String, line_num: Int, entities: List<String>, functions: List<String>, enums: List<String>, properties: List<String>, result: HighlightResult) do
+        let trimmed be line.strip()
+        if trimmed.starts_with("--") then
+            let token be HighlightToken.new()
+            token.kind = HighlightKind.COMMENT
+            token.start_line = line_num
+            token.start_col = line.find("--")
+            token.end_line = line_num
+            token.end_col = line.length
+            result.tokens.append(token)
+            return
+        end
+        let in_string be false
+        let string_start be 0
+        let col be 0
+        while col < line.length do
+            let ch be line.char_at(col)
+            if ch == "\"" then
+                if not in_string then
+                    in_string = true
+                    string_start = col
+                else
+                    let token be HighlightToken.new()
+                    token.kind = HighlightKind.STRING
+                    token.start_line = line_num
+                    token.start_col = string_start
+                    token.end_line = line_num
+                    token.end_col = col + 1
+                    result.tokens.append(token)
+                    in_string = false
+                end
+            end
+            col = col + 1
+        end
+        if in_string then
+            let token be HighlightToken.new()
+            token.kind = HighlightKind.STRING
+            token.start_line = line_num
+            token.start_col = string_start
+            token.end_line = line_num
+            token.end_col = line.length
+            result.tokens.append(token)
+        end
+        let comment_pos be trimmed.find("--")
+        let effective_len be line.length
+        if comment_pos >= 0 then
+            let absolute_comment be line.find("--")
+            effective_len = absolute_comment
+        end
+        if trimmed.starts_with("module ") then
+            self.add_token(result, HighlightKind.MODULE_PATH, line_num, 0, "module ".length())
+            let rest be trimmed.substring(7).strip()
+            self.add_token(result, HighlightKind.MODULE_PATH, line_num, line.find(rest), line.find(rest) + rest.length)
+        end
+        if trimmed.starts_with("import ") then
+            self.add_token(result, HighlightKind.KEYWORD, line_num, line.find("import"), line.find("import") + 6)
+        end
+        if trimmed.starts_with("export ") then
+            self.add_token(result, HighlightKind.KEYWORD, line_num, line.find("export"), line.find("export") + 6)
+        end
+        if trimmed.starts_with("intent ") then
+            self.add_token(result, HighlightKind.INTENT_BLOCK, line_num, line.find("intent"), line.find("intent") + 6)
+            let quote_start be line.find("\"")
+            let quote_end be line.find("\"", quote_start + 1)
+            if quote_end > quote_start then
+                self.add_token(result, HighlightKind.STRING, line_num, quote_start, quote_end + 1)
+            end
+        end
+        let kws be self.keywords()
+        for kw in kws do
+            self.highlight_word(result, kw, HighlightKind.KEYWORD, line, line_num, effective_len)
+        end
+        let cks be self.cognitive_keywords()
+        for ck in cks do
+            self.highlight_word(result, ck, HighlightKind.COGNITIVE_KEYWORD, line, line_num, effective_len)
+        end
+        for ent in entities do
+            self.highlight_word(result, ent, HighlightKind.ENTITY_NAME, line, line_num, effective_len)
+        end
+        for fn_name in functions do
+            self.highlight_word(result, fn_name, HighlightKind.FUNCTION_NAME, line, line_num, effective_len)
+        end
+        for en in enums do
+            self.highlight_word(result, en, HighlightKind.ENUM_NAME, line, line_num, effective_len)
+        end
+        for prop in properties do
+            self.highlight_word(result, prop, HighlightKind.PROPERTY_NAME, line, line_num, effective_len)
+        end
+        self.highlight_numbers(result, line, line_num, effective_len)
+    end
+
+    -- Highlights a specific word in a line if found.
+    fn highlight_word(self, result: HighlightResult, word: String, kind: HighlightKind, line: String, line_num: Int, max_col: Int) do
+        let pos be 0
+        while pos < max_col do
+            let found be line.find_from(word, pos)
+            if found < 0 or found >= max_col then
+                return
+            end
+            let before_ok be found == 0 or not self.is_identifier_char(line.char_at(found - 1))
+            let after_pos be found + word.length
+            let after_ok be after_pos >= line.length or not self.is_identifier_char(line.char_at(after_pos))
+            if before_ok and after_ok then
+                let in_str be self.is_in_string_range(line, found, max_col)
+                let in_cmt be self.is_in_comment_range(line, found, max_col)
+                if not in_str and not in_cmt then
+                    self.add_token(result, kind, line_num, found, after_pos)
+                end
+            end
+            pos = found + word.length
+        end
+    end
+
+    -- Checks if a position falls within a string literal.
+    fn is_in_string_range(self, line: String, col: Int, max_col: Int) -> Bool do
+        let in_string be false
+        let idx be 0
+        while idx < col and idx < line.length do
+            let ch be line.char_at(idx)
+            if ch == "\"" then
+                in_string = not in_string
+            end
+            idx = idx + 1
+        end
+        return in_string
+    end
+
+    -- Checks if a position falls within a comment.
+    fn is_in_comment_range(self, line: String, col: Int, max_col: Int) -> Bool do
+        let comment_pos be line.find("--")
+        if comment_pos >= 0 and col >= comment_pos then
+            return true
+        end
+        return false
+    end
+
+    -- Highlights numeric literals in a line.
+    fn highlight_numbers(self, result: HighlightResult, line: String, line_num: Int, max_col: Int) do
+        let idx be 0
+        while idx < line.length do
+            let ch be line.char_at(idx)
+            if ch.is_digit() and (idx == 0 or not self.is_identifier_char(line.char_at(idx - 1))) then
+                if idx >= max_col then
+                    return
+                end
+                let start be idx
+                while idx < line.length and (line.char_at(idx).is_digit() or line.char_at(idx) == ".") do
+                    idx = idx + 1
+                end
+                if idx < max_col then
+                    let token be HighlightToken.new()
+                    token.kind = HighlightKind.NUMBER
+                    token.start_line = line_num
+                    token.start_col = start
+                    token.end_line = line_num
+                    token.end_col = idx
+                    result.tokens.append(token)
+                end
+            else
+                idx = idx + 1
+            end
+        end
+    end
+
+    -- Adds a token to the highlight result.
+    fn add_token(self, result: HighlightResult, kind: HighlightKind, line_num: Int, start_col: Int, end_col: Int) do
+        let token be HighlightToken.new()
+        token.kind = kind
+        token.start_line = line_num
+        token.start_col = start_col
+        token.end_line = line_num
+        token.end_col = end_col
+        result.tokens.append(token)
+    end
+
+    -- Checks if a character is an identifier character.
+    fn is_identifier_char(self, ch: String) -> Bool do
+        return ch.is_alpha() or ch.is_digit() or ch == "_"
+    end
+
+    -- Performs incremental re-highlighting for changed lines.
+    fn incremental_highlight(self, prev_result: HighlightResult, source: String, changed_lines: List<Int>) -> HighlightResult do
+        let result be HighlightResult.new()
+        result.file = prev_result.file
+        let lines be source.split_lines()
+        let changed_set be Map<Int, Bool>.new()
+        for cl in changed_lines do
+            changed_set.set(cl, true)
+        end
+        let line_idx be 0
+        while line_idx < lines.length do
+            let was_changed be changed_set.get(line_idx)
+            if was_changed != nothing and was_changed then
+                let line be lines.get(line_idx)
+                let known_entities be List<String>.new()
+                let known_functions be List<String>.new()
+                let known_enums be List<String>.new()
+                let known_properties be List<String>.new()
+                self.highlight_line(line, line_idx, known_entities, known_functions, known_enums, known_properties, result)
+            else
+                let line_tokens be prev_result.tokens_for_line(line_idx)
+                for tok in line_tokens do
+                    result.tokens.append(tok)
+                end
+            end
+            line_idx = line_idx + 1
+        end
+        result.total_tokens = result.tokens.length
+        return result
+    end
+
+    -- Sets the color theme for highlighting.
+    fn set_theme(self, theme_name: String) do
+        self.theme = theme_name
+    end
+end
+
+export {HighlightKind, HighlightToken, HighlightResult, SemanticHighlighter}

@@ -1,0 +1,385 @@
+-- pipeline.orn: CI/CD pipeline definition and execution for Orren projects.
+-- Defines stages, resolves dependencies, executes sequentially or in parallel,
+-- collects logs and artifacts, handles failures, and produces reports.
+
+module orren_tools.ci.pipeline
+
+import module::{String, Int, Bool, Float, List, Map, Result, Time}
+import orren.core.language.foundation::{SourceLocation, ModuleResolver}
+
+-- Execution status of a pipeline stage.
+enum StageStatus
+    PENDING
+    RUNNING
+    PASSED
+    FAILED
+    SKIPPED
+    CANCELLED
+end
+
+-- The kind of work a pipeline stage performs.
+enum StageKind
+    BUILD
+    TEST
+    LINT
+    FORMAT_CHECK
+    SECURITY_SCAN
+    PUBLISH
+    DEPLOY
+end
+
+-- Converts a StageStatus to a display string.
+fn stage_status_label(s: StageStatus) -> String do
+    return match s with
+        StageStatus.PENDING => "pending"
+        StageStatus.RUNNING => "running"
+        StageStatus.PASSED => "passed"
+        StageStatus.FAILED => "failed"
+        StageStatus.SKIPPED => "skipped"
+        StageStatus.CANCELLED => "cancelled"
+    end
+end
+
+-- Converts a StageKind to a display string.
+fn stage_kind_label(k: StageKind) -> String do
+    return match k with
+        StageKind.BUILD => "build"
+        StageKind.TEST => "test"
+        StageKind.LINT => "lint"
+        StageKind.FORMAT_CHECK => "format_check"
+        StageKind.SECURITY_SCAN => "security_scan"
+        StageKind.PUBLISH => "publish"
+        StageKind.DEPLOY => "deploy"
+    end
+end
+
+-- A single stage in a CI/CD pipeline.
+entity PipelineStage
+    property name: String = ""
+    property kind: StageKind = StageKind.BUILD
+    property commands: List<String> = List<String>.new()
+    property depends_on: List<String> = List<String>.new()
+    property status: StageStatus = StageStatus.PENDING
+    property start_time: Int = 0
+    property end_time: Int = 0
+    property duration_ns: Int = 0
+    property artifacts: List<String> = List<String>.new()
+    property logs: List<String> = List<String>.new()
+
+    intent "Represent a single stage in a CI/CD pipeline with execution state"
+
+    -- Returns whether this stage has completed (passed, failed, skipped, or cancelled).
+    fn is_finished(self) -> Bool do
+        return self.status == StageStatus.PASSED or self.status == StageStatus.FAILED or self.status == StageStatus.SKIPPED or self.status == StageStatus.CANCELLED
+    end
+
+    -- Returns whether this stage has a successful result.
+    fn is_passed(self) -> Bool do
+        return self.status == StageStatus.PASSED
+    end
+
+    -- Returns whether this stage failed.
+    fn is_failed(self) -> Bool do
+        return self.status == StageStatus.FAILED
+    end
+
+    -- Returns whether all dependencies for this stage have passed.
+    fn deps_satisfied(self, all_stages: Map<String, PipelineStage>) -> Bool do
+        if self.depends_on.length == 0 then
+            return true
+        end
+        for dep_name in self.depends_on do
+            let dep be all_stages.get(dep_name)
+            if dep == nothing then
+                return false
+            end
+            let d be dep
+            if not d.is_passed() then
+                return false
+            end
+        end
+        return true
+    end
+
+    -- Returns whether any dependency has failed.
+    fn deps_failed(self, all_stages: Map<String, PipelineStage>) -> Bool do
+        for dep_name in self.depends_on do
+            let dep be all_stages.get(dep_name)
+            if dep == nothing then
+                continue
+            end
+            let d be dep
+            if d.is_failed() then
+                return true
+            end
+        end
+        return false
+    end
+
+    -- Appends a log line with a timestamp prefix.
+    fn log(self, message: String) do
+        let ts be String.from_int(Time.now_ns())
+        self.logs.append("[" + ts + "] " + message)
+    end
+
+    -- Returns the duration in milliseconds.
+    fn duration_ms(self) -> Int do
+        return self.duration_ns / 1000000
+    end
+
+    -- Returns a formatted summary of this stage.
+    fn summary(self) -> String do
+        let status be stage_status_label(self.status)
+        let kind be stage_kind_label(self.kind)
+        return self.name + " (" + kind + "): " + status + " (" + String.from_int(self.duration_ms()) + "ms)"
+    end
+
+    -- Adds an artifact path to this stage.
+    fn add_artifact(self, path: String) do
+        self.artifacts.append(path)
+    end
+
+    -- Returns all log lines as a single string.
+    fn combined_logs(self) -> String do
+        let result be ""
+        for line in self.logs do
+            result = result + line + "\n"
+        end
+        return result
+    end
+end
+
+-- Configuration for a CI/CD pipeline.
+entity PipelineConfig
+    property name: String = ""
+    property stages: List<String> = List<String>.new()
+    property env_vars: Map<String, String> = Map<String, String>.new()
+    property triggers: List<String> = List<String>.new()
+    property timeout: Int = 3600000
+    property parallel_stages: Bool = false
+    property on_failure: String = "abort"
+
+    intent "Define the configuration and settings for a CI/CD pipeline"
+
+    -- Returns an environment variable value, or the default if not set.
+    fn env(self, key: String, default: String) -> String do
+        let val be self.env_vars.get(key)
+        if val == nothing then
+            return default
+        end
+        return val
+    end
+
+    -- Sets an environment variable in the config.
+    fn set_env(self, key: String, value: String) do
+        self.env_vars.set(key, value)
+    end
+
+    -- Returns whether a given trigger is configured.
+    fn has_trigger(self, trigger: String) -> Bool do
+        for t in self.triggers do
+            if t == trigger then
+                return true
+            end
+        end
+        return false
+    end
+
+    -- Returns the timeout in seconds.
+    fn timeout_seconds(self) -> Int do
+        return self.timeout / 1000
+    end
+
+    -- Returns a summary string.
+    fn summary(self) -> String do
+        let mode be "sequential"
+        if self.parallel_stages then
+            mode = "parallel"
+        end
+        return "PipelineConfig(\"" + self.name + "\", stages=" + String.from_int(self.stages.length) + ", mode=" + mode + ", timeout=" + String.from_int(self.timeout_seconds()) + "s)"
+    end
+end
+
+-- A complete CI/CD pipeline with configuration and execution state.
+entity CIPipeline
+    property config: PipelineConfig = PipelineConfig.new()
+    property stages: Map<String, PipelineStage> = Map<String, PipelineStage>.new()
+    property status: StageStatus = StageStatus.PENDING
+    property start_time: Int = 0
+    property artifact_dir: String = ""
+    property log_dir: String = ""
+
+    intent "Execute and manage a full CI/CD pipeline lifecycle"
+
+    -- Adds a new stage to the pipeline.
+    fn add_stage(self, stage: PipelineStage) do
+        self.stages.set(stage.name, stage)
+        self.config.stages.append(stage.name)
+    end
+
+    -- Resolves execution order respecting stage dependencies.
+    fn resolve_order(self) -> List<String> do
+        let order be List<String>.new()
+        let visited be Map<String, Bool>.new()
+        let mut remaining be self.config.stages.length
+        let mut prev_remaining be -1
+        while remaining > 0 and remaining != prev_remaining do
+            prev_remaining = remaining
+            for name in self.config.stages do
+                if visited.get(name) == true then
+                    continue
+                end
+                let stage be self.stages.get(name)
+                if stage == nothing then
+                    visited.set(name, true)
+                    remaining = remaining - 1
+                    continue
+                end
+                let s be stage
+                let mut can_run be true
+                for dep in s.depends_on do
+                    if visited.get(dep) != true then
+                        can_run = false
+                        break
+                    end
+                end
+                if can_run then
+                    order.append(name)
+                    visited.set(name, true)
+                    remaining = remaining - 1
+                end
+            end
+        end
+        return order
+    end
+
+    -- Executes the pipeline sequentially.
+    fn run_sequential(self) -> StageStatus do
+        self.start_time = Time.now_ns()
+        self.status = StageStatus.RUNNING
+        let order be self.resolve_order()
+        for name in order do
+            let stage be self.stages.get(name)
+            if stage == nothing then
+                continue
+            end
+            let s be stage
+            if s.deps_failed(self.stages) then
+                s.status = StageStatus.SKIPPED
+                s.log("Skipped due to dependency failure")
+                continue
+            end
+            self.execute_stage(s)
+            if s.is_failed() then
+                if self.config.on_failure == "abort" then
+                    self.cancel_remaining(name, order)
+                    self.status = StageStatus.FAILED
+                    return StageStatus.FAILED
+                end
+            end
+        end
+        self.status = StageStatus.PASSED
+        return StageStatus.PASSED
+    end
+
+    -- Runs the pipeline using the configured execution mode.
+    fn run(self) -> StageStatus do
+        return self.run_sequential()
+    end
+
+    -- Executes a single stage, simulating command execution.
+    fn execute_stage(self, stage: PipelineStage) do
+        stage.status = StageStatus.RUNNING
+        stage.start_time = Time.now_ns()
+        stage.log("Starting stage: " + stage.name)
+        for cmd in stage.commands do
+            stage.log("$ " + cmd)
+            let success be self.run_command(cmd)
+            if not success then
+                stage.log("Command failed: " + cmd)
+                stage.status = StageStatus.FAILED
+                stage.end_time = Time.now_ns()
+                stage.duration_ns = stage.end_time - stage.start_time
+                return
+            end
+            stage.log("Command completed: " + cmd)
+        end
+        stage.status = StageStatus.PASSED
+        stage.end_time = Time.now_ns()
+        stage.duration_ns = stage.end_time - stage.start_time
+        stage.log("Stage completed in " + String.from_int(stage.duration_ms()) + "ms")
+    end
+
+    -- Cancels all remaining stages after a failure.
+    fn cancel_remaining(self, failed_name: String, order: List<String>) do
+        let mut found be false
+        for name in order do
+            if found then
+                let stage be self.stages.get(name)
+                if stage == nothing then
+                    continue
+                end
+                let s be stage
+                s.status = StageStatus.CANCELLED
+                s.log("Cancelled due to failure in " + failed_name)
+            end
+            if name == failed_name then
+                found = true
+            end
+        end
+    end
+
+    -- Collects all artifact paths from all stages.
+    fn collect_artifacts(self) -> List<String> do
+        let all be List<String>.new()
+        let keys be self.stages.keys()
+        for key in keys do
+            let stage be self.stages.get(key)
+            if stage == nothing then
+                continue
+            end
+            let s be stage
+            for artifact in s.artifacts do
+                all.append(artifact)
+            end
+        end
+        return all
+    end
+
+    -- Produces a full pipeline execution report.
+    fn report(self) -> String do
+        let lines be List<String>.new()
+        lines.append("Pipeline: " + self.config.name)
+        lines.append("Status: " + stage_status_label(self.status))
+        lines.append("")
+        for name in self.config.stages do
+            let stage be self.stages.get(name)
+            if stage == nothing then
+                continue
+            end
+            let s be stage
+            lines.append(s.summary())
+        end
+        let artifacts be self.collect_artifacts()
+        if artifacts.length > 0 then
+            lines.append("")
+            lines.append("Artifacts (" + String.from_int(artifacts.length) + "):")
+            for a in artifacts do
+                lines.append("  " + a)
+            end
+        end
+        let result be ""
+        for line in lines do
+            result = result + line + "\n"
+        end
+        return result
+    end
+
+    -- Simulates running a single command.
+    fn run_command(self, cmd: String) -> Bool do
+        return true
+    end
+
+end
+
+export {StageStatus, StageKind, stage_status_label, stage_kind_label, PipelineStage, PipelineConfig, CIPipeline}

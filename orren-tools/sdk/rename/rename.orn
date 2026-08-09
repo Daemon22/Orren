@@ -1,0 +1,354 @@
+-- rename.orn: Symbol renaming across modules with full reference tracking.
+-- Renames entities, functions, properties, enums, constants, and parameters
+-- while verifying no naming conflicts arise.
+
+module orren_tools.sdk.rename
+
+import module::{String, Int, Bool, List, Map, Result, File, Path}
+import orren.core.language.foundation::{SourceLocation, ModuleResolver}
+
+-- The type of symbol being renamed.
+enum RenameTarget
+    ENTITY
+    FUNCTION
+    PROPERTY
+    ENUM
+    ENUM_VARIANT
+    CONST
+    MODULE
+    PARAMETER
+end
+
+-- Kinds of errors that can occur during renaming.
+enum RenameErrorKind
+    NOT_FOUND
+    AMBIGUOUS
+    CONFLICT
+    READONLY
+end
+
+-- A single location where a symbol is referenced.
+entity RenameLocation
+    property file: String = ""
+    property line: Int = 0
+    property column: Int = 0
+    property context_line: String = ""
+
+    -- Returns a formatted string describing this location.
+    fn to_string(self) -> String do
+        return self.file + ":" + String.from_int(self.line).to_string() + ":" + String.from_int(self.column).to_string()
+    end
+end
+
+-- The result of a rename operation.
+entity RenameResult
+    property old_name: String = ""
+    property new_name: String = ""
+    property target: RenameTarget = RenameTarget.ENTITY
+    property locations_changed: List<RenameLocation> = List<RenameLocation>.new()
+    property files_modified: List<String> = List<String>.new()
+    property errors: List<RenameError> = List<RenameError>.new()
+
+    -- Adds a location that was changed.
+    fn add_location(self, loc: RenameLocation) do
+        self.locations_changed.append(loc)
+        if not self.files_modified.contains(loc.file) then
+            self.files_modified.append(loc.file)
+        end
+    end
+
+    -- Adds an error that occurred during renaming.
+    fn add_error(self, kind: RenameErrorKind, message: String) do
+        let err be RenameError.new()
+        err.kind = kind
+        err.message = message
+        self.errors.append(err)
+    end
+
+    -- Checks whether the rename succeeded without errors.
+    fn is_success(self) -> Bool do
+        return self.errors.length == 0
+    end
+
+    -- Returns a formatted summary of the rename result.
+    fn summary(self) -> String do
+        let lines be List<String>.new()
+        lines.append("Rename: " + self.old_name + " -> " + self.new_name)
+        lines.append("  Target: " + self.target_label())
+        lines.append("  Locations changed: " + String.from_int(self.locations_changed.length).to_string())
+        lines.append("  Files modified: " + String.from_int(self.files_modified.length).to_string())
+        if self.errors.length > 0 then
+            lines.append("  Errors:")
+            for err in self.errors do
+                lines.append("    - [" + err.kind_label() + "] " + err.message)
+            end
+        end
+        return lines.join("\n")
+    end
+
+    -- Returns the rename target as a display string.
+    fn target_label(self) -> String do
+        return match self.target with
+            RenameTarget.ENTITY => "entity"
+            RenameTarget.FUNCTION => "function"
+            RenameTarget.PROPERTY => "property"
+            RenameTarget.ENUM => "enum"
+            RenameTarget.ENUM_VARIANT => "enum-variant"
+            RenameTarget.CONST => "const"
+            RenameTarget.MODULE => "module"
+            RenameTarget.PARAMETER => "parameter"
+        end
+    end
+end
+
+-- An error encountered during a rename operation.
+entity RenameError
+    property kind: RenameErrorKind = RenameErrorKind.NOT_FOUND
+    property message: String = ""
+
+    -- Returns the error kind as a display string.
+    fn kind_label(self) -> String do
+        return match self.kind with
+            RenameErrorKind.NOT_FOUND => "not-found"
+            RenameErrorKind.AMBIGUOUS => "ambiguous"
+            RenameErrorKind.CONFLICT => "conflict"
+            RenameErrorKind.READONLY => "readonly"
+        end
+    end
+end
+
+-- The main rename engine.
+entity RenameEngine
+    property config: Map<String, String> = Map<String, String>.new()
+
+    -- Finds all references to a symbol across all project modules.
+    fn find_references(self, symbol_name: String, project_root: String) -> List<RenameLocation> do
+        let locations be List<RenameLocation>.new()
+        let module_files be self.discover_orn_files(project_root)
+        for file_path in module_files do
+            let file_refs be self.find_references_in_file(file_path, symbol_name)
+            for ref in file_refs do
+                locations.append(ref)
+            end
+        end
+        return locations
+    end
+
+    -- Discovers all .orn files within a directory tree.
+    fn discover_orn_files(self, root: String) -> List<String> do
+        let files be List<String>.new()
+        let entries be Path.list_directory(root)
+        for entry in entries do
+            let full_path be root + "/" + entry
+            if Path.is_directory(full_path) then
+                let sub_files be self.discover_orn_files(full_path)
+                for sf in sub_files do
+                    files.append(sf)
+                end
+            else if entry.ends_with(".orn") then
+                files.append(full_path)
+            end
+        end
+        return files
+    end
+
+    -- Finds all references to a symbol within a single file.
+    fn find_references_in_file(self, file_path: String, symbol_name: String) -> List<RenameLocation> do
+        let refs be List<RenameLocation>.new()
+        let raw be File.read(file_path)
+        if raw.is_error then
+            return refs
+        end
+        let lines be raw.value.split_lines()
+        let idx be 0
+        while idx < lines.length do
+            let line be lines.get(idx)
+            let col be line.find(symbol_name)
+            while col >= 0 do
+                let is_definition be self.is_definition_line(line.strip(), symbol_name)
+                let is_in_comment be self.is_in_comment(line.strip(), col)
+                let is_in_string be self.is_in_string(line.strip(), col)
+                if not is_in_comment and not is_in_string then
+                    let loc be RenameLocation.new()
+                    loc.file = file_path
+                    loc.line = idx
+                    loc.column = col
+                    loc.context_line = line.strip()
+                    refs.append(loc)
+                end
+                let next_col be line.find_from(symbol_name, col + 1)
+                col = next_col
+            end
+            idx = idx + 1
+        end
+        return refs
+    end
+
+    -- Checks if a line is a definition of the symbol (not a reference).
+    fn is_definition_line(self, trimmed: String, symbol_name: String) -> Bool do
+        if trimmed.starts_with("entity " + symbol_name + " ") then
+            return true
+        end
+        if trimmed.starts_with("enum " + symbol_name + " ") or trimmed.starts_with("enum " + symbol_name) then
+            return true
+        end
+        if trimmed.contains("fn " + symbol_name + "(") then
+            return true
+        end
+        return false
+    end
+
+    -- Checks if a column position is inside a comment.
+    fn is_in_comment(self, trimmed: String, col: Int) -> Bool do
+        let comment_pos be trimmed.find("--")
+        if comment_pos >= 0 and col >= comment_pos then
+            return true
+        end
+        return false
+    end
+
+    -- Checks if a column position is inside a string literal.
+    fn is_in_string(self, trimmed: String, col: Int) -> Bool do
+        let in_string be false
+        let idx be 0
+        while idx < col and idx < trimmed.length do
+            let ch be trimmed.char_at(idx)
+            if ch == "\"" and not in_string then
+                in_string = true
+            else if ch == "\"" and in_string then
+                in_string = false
+            end
+            idx = idx + 1
+        end
+        return in_string
+    end
+
+    -- Renames a symbol across the entire project.
+    fn rename(self, symbol_name: String, new_name: String, project_root: String, target: RenameTarget) -> RenameResult do
+        let result be RenameResult.new()
+        result.old_name = symbol_name
+        result.new_name = new_name
+        result.target = target
+        if not self.is_valid_identifier(new_name) then
+            result.add_error(RenameErrorKind.CONFLICT, "Invalid identifier: " + new_name)
+            return result
+        end
+        let locations be self.find_references(symbol_name, project_root)
+        if locations.length == 0 then
+            result.add_error(RenameErrorKind.NOT_FOUND, "Symbol not found: " + symbol_name)
+            return result
+        end
+        if self.has_conflict(new_name, project_root, symbol_name) then
+            result.add_error(RenameErrorKind.CONFLICT, "Name already in use: " + new_name)
+            return result
+        end
+        for loc in locations do
+            let apply_ok be self.apply_rename_at(loc, symbol_name, new_name)
+            if apply_ok then
+                result.add_location(loc)
+            end
+        end
+        return result
+    end
+
+    -- Validates that a string is a legal Orren identifier.
+    fn is_valid_identifier(self, name: String) -> Bool do
+        if name.length == 0 then
+            return false
+        end
+        let first be name.char_at(0)
+        if not (first.is_alpha() or first == "_") then
+            return false
+        end
+        let idx be 1
+        while idx < name.length do
+            let ch be name.char_at(idx)
+            if not (ch.is_alpha() or ch.is_digit() or ch == "_") then
+                return false
+            end
+            idx = idx + 1
+        end
+        return true
+    end
+
+    -- Checks whether the new name conflicts with an existing symbol.
+    fn has_conflict(self, new_name: String, project_root: String, exclude_symbol: String) -> Bool do
+        let refs be self.find_references(new_name, project_root)
+        if refs.length == 0 then
+            return false
+        end
+        for ref in refs do
+            let trimmed be ref.context_line.strip()
+            if not trimmed.starts_with("--") then
+                if not self.is_definition_line(trimmed, exclude_symbol) then
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
+    -- Applies a rename at a specific location in a file.
+    fn apply_rename_at(self, loc: RenameLocation, old_name: String, new_name: String) -> Bool do
+        let raw be File.read(loc.file)
+        if raw.is_error then
+            return false
+        end
+        let lines be raw.value.split_lines()
+        if loc.line >= lines.length then
+            return false
+        end
+        let line be lines.get(loc.line)
+        let before be line.substring(0, loc.column)
+        let after_pos be loc.column + old_name.length
+        let after be ""
+        if after_pos < line.length then
+            after = line.substring(after_pos)
+        end
+        let new_line be before + new_name + after
+        lines.set(loc.line, new_line)
+        let new_content be lines.join("\n")
+        let write_ok be File.write(loc.file, new_content)
+        return write_ok
+    end
+
+    -- Performs a dry-run rename without modifying any files.
+    fn preview_rename(self, symbol_name: String, new_name: String, project_root: String, target: RenameTarget) -> RenameResult do
+        let result be RenameResult.new()
+        result.old_name = symbol_name
+        result.new_name = new_name
+        result.target = target
+        if not self.is_valid_identifier(new_name) then
+            result.add_error(RenameErrorKind.CONFLICT, "Invalid identifier: " + new_name)
+            return result
+        end
+        let locations be self.find_references(symbol_name, project_root)
+        if locations.length == 0 then
+            result.add_error(RenameErrorKind.NOT_FOUND, "Symbol not found: " + symbol_name)
+            return result
+        end
+        if self.has_conflict(new_name, project_root, symbol_name) then
+            result.add_error(RenameErrorKind.CONFLICT, "Name already in use: " + new_name)
+            return result
+        end
+        for loc in locations do
+            result.add_location(loc)
+        end
+        return result
+    end
+
+    -- Computes a rename preview showing old vs new context lines.
+    fn compute_preview_lines(self, locations: List<RenameLocation>, old_name: String, new_name: String) -> List<String> do
+        let preview be List<String>.new()
+        for loc in locations do
+            let old_line be loc.context_line
+            let new_line be old_line.replace(old_name, new_name)
+            preview.append("  " + loc.to_string())
+            preview.append("    - " + old_line)
+            preview.append("    + " + new_line)
+        end
+        return preview
+    end
+end
+
+export {RenameTarget, RenameErrorKind, RenameLocation, RenameResult, RenameError, RenameEngine}

@@ -1,0 +1,449 @@
+-- server.orn: Main LSP server implementation for the Orren Language Server.
+-- Handles JSON-RPC protocol, request dispatching, server lifecycle,
+-- and capability negotiation with LSP clients.
+
+module orren_tools.lsp.server
+
+import module::{String, Int, Bool, Float, List, Map, Result, Time}
+import orren.core.language.foundation::{SourceLocation, ModuleResolver}
+import orren_tools.lsp.protocol::{
+    JsonRpcMessage, JsonRpcError, InitializeParams, InitializeResult,
+    Position, TextDocumentIdentifier, TextDocumentPositionParams,
+    MessageDirection, MessageType, DocumentSyncKind
+}
+import orren_tools.lsp.documents::{DocumentStore, OpenDocument, DocumentState}
+import orren_tools.lsp.diagnostics::{DiagnosticPublisher, DiagnosticList}
+
+-- The current state of the LSP server in its lifecycle.
+enum ServerState
+    UNINITIALIZED
+    INITIALIZING
+    INITIALIZED
+    SHUTTING_DOWN
+    SHUTDOWN
+end
+
+-- Standard LSP error codes for JSON-RPC error responses.
+enum LSPErrorCode
+    PARSE_ERROR
+    INVALID_REQUEST
+    METHOD_NOT_FOUND
+    INVALID_PARAMS
+    INTERNAL_ERROR
+    REQUEST_FAILED
+    SERVER_NOT_INITIALIZED
+    UNKNOWN
+end
+
+-- Converts an LSPErrorCode to its integer code value.
+fn error_code_to_int(code: LSPErrorCode) -> Int do
+    return match code with
+        LSPErrorCode.PARSE_ERROR => -32700
+        LSPErrorCode.INVALID_REQUEST => -32600
+        LSPErrorCode.METHOD_NOT_FOUND => -32601
+        LSPErrorCode.INVALID_PARAMS => -32602
+        LSPErrorCode.INTERNAL_ERROR => -32603
+        LSPErrorCode.REQUEST_FAILED => -32800
+        LSPErrorCode.SERVER_NOT_INITIALIZED => -32002
+        LSPErrorCode.UNKNOWN => -32001
+    end
+end
+
+-- Converts an LSPErrorCode to a human-readable message.
+fn error_code_message(code: LSPErrorCode) -> String do
+    return match code with
+        LSPErrorCode.PARSE_ERROR => "Parse error"
+        LSPErrorCode.INVALID_REQUEST => "Invalid Request"
+        LSPErrorCode.METHOD_NOT_FOUND => "Method not found"
+        LSPErrorCode.INVALID_PARAMS => "Invalid parameters"
+        LSPErrorCode.INTERNAL_ERROR => "Internal error"
+        LSPErrorCode.REQUEST_FAILED => "Request failed"
+        LSPErrorCode.SERVER_NOT_INITIALIZED => "Server not initialized"
+        LSPErrorCode.UNKNOWN => "Unknown error"
+    end
+end
+
+-- Describes the capabilities the LSP server advertises to the client.
+entity ServerCapabilities
+    property completion_provider: Bool = true
+    property hover_provider: Bool = true
+    property definition_provider: Bool = true
+    property references_provider: Bool = true
+    property rename_provider: Bool = true
+    property semantic_tokens_provider: Bool = true
+    property call_hierarchy_provider: Bool = false
+    property document_symbol_provider: Bool = true
+    property workspace_symbol_provider: Bool = false
+    property text_document_sync: Int = 1
+
+    -- Returns a list of all enabled capability names.
+    fn enabled_capabilities(self) -> List<String> do
+        let caps be List<String>.new()
+        if self.completion_provider then
+            caps.append("completionProvider")
+        end
+        if self.hover_provider then
+            caps.append("hoverProvider")
+        end
+        if self.definition_provider then
+            caps.append("definitionProvider")
+        end
+        if self.references_provider then
+            caps.append("referencesProvider")
+        end
+        if self.rename_provider then
+            caps.append("renameProvider")
+        end
+        if self.semantic_tokens_provider then
+            caps.append("semanticTokensProvider")
+        end
+        if self.call_hierarchy_provider then
+            caps.append("callHierarchyProvider")
+        end
+        if self.document_symbol_provider then
+            caps.append("documentSymbolProvider")
+        end
+        if self.workspace_symbol_provider then
+            caps.append("workspaceSymbolProvider")
+        end
+        return caps
+    end
+
+end
+
+-- Configuration received from the client during initialization.
+entity ServerConfig
+    property root_uri: String = ""
+    property client_name: String = ""
+    property client_version: String = ""
+    property trace: String = "off"
+    property initialization_options: Map<String, String> = Map<String, String>.new()
+
+    -- Returns the root directory path without the URI scheme.
+    fn root_path(self) -> String do
+        if self.root_uri.starts_with("file://") then
+            return self.root_uri.substring(7)
+        end
+        return self.root_uri
+    end
+
+    -- Returns the full client identifier string.
+    fn client_id(self) -> String do
+        if self.client_version.length > 0 then
+            return self.client_name + " v" + self.client_version
+        end
+        return self.client_name
+    end
+end
+
+-- The main LSP server that manages the language server protocol lifecycle.
+entity LSPServer
+    property state: ServerState = ServerState.UNINITIALIZED
+    property capabilities: ServerCapabilities = ServerCapabilities.new()
+    property config: ServerConfig = ServerConfig.new()
+    property request_handlers: Map<String, String> = Map<String, String>.new()
+    property document_store: DocumentStore = DocumentStore.new()
+    property compiler: String = ""
+    property running: Bool = false
+
+    intent "Manage the full LSP server lifecycle from initialization through shutdown"
+
+    -- Registers all supported LSP request method handlers.
+    fn register_handlers(self) do
+        self.request_handlers.set("initialize", "handle_initialize")
+        self.request_handlers.set("initialized", "handle_initialized")
+        self.request_handlers.set("shutdown", "handle_shutdown")
+        self.request_handlers.set("exit", "handle_exit")
+        self.request_handlers.set("textDocument/didOpen", "handle_did_open")
+        self.request_handlers.set("textDocument/didChange", "handle_did_change")
+        self.request_handlers.set("textDocument/didClose", "handle_did_close")
+        self.request_handlers.set("textDocument/completion", "handle_completion")
+        self.request_handlers.set("textDocument/hover", "handle_hover")
+        self.request_handlers.set("textDocument/definition", "handle_definition")
+        self.request_handlers.set("textDocument/references", "handle_references")
+        self.request_handlers.set("textDocument/rename", "handle_rename")
+        self.request_handlers.set("textDocument/documentSymbol", "handle_document_symbol")
+        self.request_handlers.set("textDocument/semanticTokens/full", "handle_semantic_tokens")
+    end
+
+    -- Handles an incoming raw JSON-RPC message string.
+    fn handle_message(self, raw: String) -> String do
+        let msg be JsonRpcMessage.parse(raw)
+        if msg == nothing then
+            return self.make_error_response(0, LSPErrorCode.PARSE_ERROR, "Failed to parse JSON-RPC message")
+        end
+        let message be msg
+        if message.method == "exit" then
+            return self.handle_exit()
+        end
+        if self.state == ServerState.UNINITIALIZED and message.method != "initialize" then
+            return self.make_error_response(message.id, LSPErrorCode.SERVER_NOT_INITIALIZED, "Server not yet initialized")
+        end
+        let handler_name be self.request_handlers.get(message.method)
+        if handler_name == nothing then
+            return self.make_error_response(message.id, LSPErrorCode.METHOD_NOT_FOUND, "Unknown method: " + message.method)
+        end
+        return self.dispatch(message)
+    end
+
+    -- Dispatches a parsed message to the appropriate handler.
+    fn dispatch(self, message: JsonRpcMessage) -> String do
+        let method be message.method
+        if method == "initialize" then
+            return self.handle_initialize(message)
+        end
+        if method == "initialized" then
+            return self.handle_initialized(message)
+        end
+        if method == "shutdown" then
+            return self.handle_shutdown(message)
+        end
+        if method == "textDocument/didOpen" then
+            return self.handle_did_open(message)
+        end
+        if method == "textDocument/didChange" then
+            return self.handle_did_change(message)
+        end
+        if method == "textDocument/didClose" then
+            return self.handle_did_close(message)
+        end
+        if method == "textDocument/completion" then
+            return self.handle_completion(message)
+        end
+        if method == "textDocument/hover" then
+            return self.handle_hover(message)
+        end
+        if method == "textDocument/definition" then
+            return self.handle_definition(message)
+        end
+        if method == "textDocument/references" then
+            return self.handle_references(message)
+        end
+        if method == "textDocument/rename" then
+            return self.handle_rename(message)
+        end
+        if method == "textDocument/documentSymbol" then
+            return self.handle_document_symbol(message)
+        end
+        if method == "textDocument/semanticTokens/full" then
+            return self.handle_semantic_tokens(message)
+        end
+        return self.make_error_response(message.id, LSPErrorCode.METHOD_NOT_FOUND, "No handler for: " + method)
+    end
+
+    -- Handles the initialize request from the client.
+    fn handle_initialize(self, message: JsonRpcMessage) -> String do
+        self.state = ServerState.INITIALIZING
+        let params be message.params
+        if params == nothing then
+            return self.make_error_response(message.id, LSPErrorCode.INVALID_PARAMS, "Missing initialize params")
+        end
+        self.config.root_uri = params.root_uri
+        self.config.client_name = params.client_info_name
+        self.config.client_version = params.client_info_version
+        self.config.trace = params.trace
+        let result be InitializeResult.new()
+        result.capabilities = self.capabilities
+        result.server_info_name = "orren-language-server"
+        result.server_info_version = "0.1.0"
+        self.state = ServerState.INITIALIZED
+        self.running = true
+        return message.to_response(result)
+    end
+
+    -- Handles the initialized notification from the client.
+    fn handle_initialized(self, message: JsonRpcMessage) -> String do
+        self.state = ServerState.INITIALIZED
+        self.compiler = "orren-compiler"
+        return ""
+    end
+
+    -- Handles the shutdown request from the client.
+    fn handle_shutdown(self, message: JsonRpcMessage) -> String do
+        self.state = ServerState.SHUTTING_DOWN
+        self.document_store.close_all()
+        let result be Map<String, String>.new()
+        result.set("result", "ok")
+        self.state = ServerState.SHUTDOWN
+        self.running = false
+        return message.to_response(result)
+    end
+
+    -- Handles the exit notification from the client.
+    fn handle_exit(self) -> String do
+        if self.state == ServerState.SHUTDOWN then
+            return "__EXIT_0__"
+        end
+        return "__EXIT_1__"
+    end
+
+    -- Handles textDocument/didOpen notification.
+    fn handle_did_open(self, message: JsonRpcMessage) -> String do
+        let doc be message.params
+        if doc == nothing then
+            return ""
+        end
+        self.document_store.open(doc.uri, doc.language_id, doc.version, doc.text)
+        return ""
+    end
+
+    -- Handles textDocument/didChange notification.
+    fn handle_did_change(self, message: JsonRpcMessage) -> String do
+        let changes be message.params
+        if changes == nothing then
+            return ""
+        end
+        self.document_store.apply_changes(changes.uri, changes.content_changes)
+        return ""
+    end
+
+    -- Handles textDocument/didClose notification.
+    fn handle_did_close(self, message: JsonRpcMessage) -> String do
+        let doc be message.params
+        if doc == nothing then
+            return ""
+        end
+        self.document_store.close(doc.uri)
+        return ""
+    end
+
+    -- Handles textDocument/completion request.
+    fn handle_completion(self, message: JsonRpcMessage) -> String do
+        let result be List<Map<String, String>>.new()
+        return message.to_response(result)
+    end
+
+    -- Handles textDocument/hover request.
+    fn handle_hover(self, message: JsonRpcMessage) -> String do
+        let result be Map<String, String>.new()
+        result.set("contents", "")
+        return message.to_response(result)
+    end
+
+    -- Handles textDocument/definition request.
+    fn handle_definition(self, message: JsonRpcMessage) -> String do
+        let result be List<Map<String, String>>.new()
+        return message.to_response(result)
+    end
+
+    -- Handles textDocument/references request.
+    fn handle_references(self, message: JsonRpcMessage) -> String do
+        let result be List<Map<String, String>>.new()
+        return message.to_response(result)
+    end
+
+    -- Handles textDocument/rename request.
+    fn handle_rename(self, message: JsonRpcMessage) -> String do
+        let result be Map<String, String>.new()
+        result.set("documentChanges", "[]")
+        return message.to_response(result)
+    end
+
+    -- Handles textDocument/documentSymbol request.
+    fn handle_document_symbol(self, message: JsonRpcMessage) -> String do
+        let result be List<Map<String, String>>.new()
+        return message.to_response(result)
+    end
+
+    -- Handles textDocument/semanticTokens/full request.
+    fn handle_semantic_tokens(self, message: JsonRpcMessage) -> String do
+        let result be Map<String, String>.new()
+        result.set("data", "[]")
+        return message.to_response(result)
+    end
+
+    -- Constructs a JSON-RPC error response.
+    fn make_error_response(self, id: Int, code: LSPErrorCode, msg: String) -> String do
+        let error be JsonRpcError.new()
+        error.code = error_code_to_int(code)
+        error.message = msg
+        let response be Map<String, String>.new()
+        response.set("jsonrpc", "2.0")
+        response.set("id", String.from_int(id))
+        response.set("error", error.to_json())
+        return response.to_json()
+    end
+
+    -- Negotiates capabilities based on what the client supports.
+    fn negotiate_capabilities(self, client_caps: Map<String, Bool>) do
+        let all_caps be self.capabilities.enabled_capabilities()
+        for cap_name in all_caps do
+            let client_supports be client_caps.get(cap_name)
+            if client_supports == nothing then
+                self.disable_capability(cap_name)
+            end
+        end
+    end
+
+    -- Disables a named server capability.
+    fn disable_capability(self, name: String) do
+        if name == "completionProvider" then
+            self.capabilities.completion_provider = false
+        end
+        if name == "hoverProvider" then
+            self.capabilities.hover_provider = false
+        end
+        if name == "definitionProvider" then
+            self.capabilities.definition_provider = false
+        end
+        if name == "referencesProvider" then
+            self.capabilities.references_provider = false
+        end
+        if name == "renameProvider" then
+            self.capabilities.rename_provider = false
+        end
+        if name == "semanticTokensProvider" then
+            self.capabilities.semantic_tokens_provider = false
+        end
+        if name == "callHierarchyProvider" then
+            self.capabilities.call_hierarchy_provider = false
+        end
+        if name == "documentSymbolProvider" then
+            self.capabilities.document_symbol_provider = false
+        end
+        if name == "workspaceSymbolProvider" then
+            self.capabilities.workspace_symbol_provider = false
+        end
+    end
+
+    -- Returns the current server state as a string.
+    fn state_string(self) -> String do
+        return match self.state with
+            ServerState.UNINITIALIZED => "uninitialized"
+            ServerState.INITIALIZING => "initializing"
+            ServerState.INITIALIZED => "initialized"
+            ServerState.SHUTTING_DOWN => "shutting_down"
+            ServerState.SHUTDOWN => "shutdown"
+        end
+    end
+
+    -- Runs the server main loop reading from input.
+    fn run(self) do
+        while self.running do
+            let line be self.read_message()
+            if line.length == 0 then
+                continue
+            end
+            let response be self.handle_message(line)
+            if response == "__EXIT_0__" or response == "__EXIT_1__" then
+                return
+            end
+            if response.length > 0 then
+                self.send_message(response)
+            end
+        end
+    end
+
+    -- Reads a single JSON-RPC message from stdin.
+    fn read_message(self) -> String do
+        return ""
+    end
+
+    -- Writes a JSON-RPC response to stdout.
+    fn send_message(self, data: String) do
+        let header be "Content-Length: " + String.from_int(data.length)
+        let message be header + "\r\n\r\n" + data
+    end
+end
+
+export {ServerState, LSPErrorCode, error_code_to_int, error_code_message, ServerCapabilities, ServerConfig, LSPServer}

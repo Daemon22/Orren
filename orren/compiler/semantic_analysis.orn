@@ -1,0 +1,496 @@
+module orren.compiler.semantic_analysis
+import orren.core.language.foundation::{*}
+import orren.core.semantic.model::{*}
+import orren.parser.ast::{*}
+import orren.parser.tokens::{*}
+
+intent "Semantic analysis for the ORREN compiler: scope management, type checking, validity analysis, and cognitive directive validation"
+
+// ──────────────────────────────────────────────
+// SymbolEntry — represents a single name binding
+// ──────────────────────────────────────────────
+entity SymbolEntry
+  property name: String = ""
+  property type_name: String = ""
+  property kind: String = "variable"
+  property scope_depth: Int = 0
+  property attributes: SemanticAttributes = SemanticAttributes{}
+
+  fn is_type(self) -> Bool do
+    let type_kinds be ["entity", "enum", "cognitive"]
+    for k in type_kinds do
+      if self.kind == k then
+        return true
+      end
+    end
+    return false
+  end
+end
+
+// ──────────────────────────────────────────────
+// Scope — hierarchical symbol table
+// ──────────────────────────────────────────────
+entity Scope
+  property parent: Optional<Scope> = None
+  property symbols: Map<String, SymbolEntry> = {}
+  property children: List<Scope> = []
+  property depth: Int = 0
+
+  fn define(self, name: String, type_name: String, kind: String) -> SymbolEntry do
+    let entry be SymbolEntry{
+      name = name,
+      type_name = type_name,
+      kind = kind,
+      scope_depth = self.depth,
+      attributes = SemanticAttributes{}
+    }
+    let _ be self.symbols[name] = entry
+    return entry
+  end
+
+  fn resolve(self, name: String) -> Optional<SymbolEntry> do
+    if self.symbols[name] exists then
+      return Some(self.symbols[name])
+    else
+      return None
+    end
+  end
+
+  fn resolve_deep(self, name: String) -> Optional<SymbolEntry> do
+    let local be self.resolve(name)
+    match local with
+      Some(entry) => entry,
+      None =>
+        match self.parent with
+          Some(p) => p.resolve_deep(name),
+          None => None
+        end
+    end
+  end
+
+  fn child_scope(self) -> Scope do
+    let child be Scope{
+      parent = Some(self),
+      symbols = {},
+      children = [],
+      depth = self.depth + 1
+    }
+    let _ be self.children.push(child)
+    return child
+  end
+end
+
+// ──────────────────────────────────────────────
+// TypeError — detailed type mismatch information
+// ──────────────────────────────────────────────
+entity TypeError
+  property message: String = ""
+  property expected: String = ""
+  property actual: String = ""
+  property line: Int = 0
+
+  fn to_string(self) -> String do
+    let parts be [
+      "TypeError at line ",
+      self.line.to_string(),
+      ": expected ",
+      self.expected,
+      ", got ",
+      self.actual,
+      " — ",
+      self.message
+    ]
+    return parts.join("")
+  end
+end
+
+// ──────────────────────────────────────────────
+// SemanticError — general semantic analysis error
+// ──────────────────────────────────────────────
+entity SemanticError
+  property message: String = ""
+  property kind: String = "validity"
+  property line: Int = 0
+  property severity: String = "error"
+
+  fn to_string(self) -> String do
+    let parts be [
+      "[",
+      self.severity,
+      "] ",
+      self.kind,
+      " error at line ",
+      self.line.to_string(),
+      ": ",
+      self.message
+    ]
+    return parts.join("")
+  end
+end
+
+// ──────────────────────────────────────────────
+// SemanticAnalyzer — main analysis driver
+// ──────────────────────────────────────────────
+entity SemanticAnalyzer
+  property global_scope: Scope = Scope{}
+  property errors: List<SemanticError> = []
+  property current_scope: Scope = Scope{}
+
+  fn init(self) -> SemanticAnalyzer do
+    let analyzer be SemanticAnalyzer{}
+    let global be Scope{ depth = 0 }
+    let _ be analyzer.global_scope = global
+    let _ be analyzer.current_scope = global
+    let _ be analyzer.errors = []
+    return analyzer
+  end
+
+  fn error(self, msg: String, kind: String, line: Int) -> SemanticError do
+    let err be SemanticError{
+      message = msg,
+      kind = kind,
+      line = line,
+      severity = "error"
+    }
+    let _ be self.errors.push(err)
+    return err
+  end
+
+  // ── Entry point ──────────────────────────────
+  fn analyze(self, program: ProgramNode) -> List<SemanticError> do
+    let _ be self.current_scope = self.global_scope
+    for decl in program.declarations do
+      match decl.node_type with
+        "entity" => self.analyze_entity(decl as EntityNode),
+        "function" => self.analyze_function(decl as FunctionNode),
+        "enum" =>
+          let enum_node be decl as EnumNode
+          let _ be self.global_scope.define(enum_node.name, enum_node.name, "enum"),
+        "const" =>
+          let const_node be decl as ConstNode
+          let _ be self.global_scope.define(const_node.name, const_node.type_name, "constant"),
+        "import" => None,
+        _ => self.error("unknown declaration kind: " + decl.node_type, "validity", decl.line)
+      end
+    end
+    return self.errors
+  end
+
+  // ── Entity analysis ──────────────────────────
+  fn analyze_entity(self, node: EntityNode) do
+    let existing be self.current_scope.resolve(node.name)
+    if existing exists then
+      let _ be self.error("duplicate entity definition: " + node.name, "scope", node.line)
+      return
+    end
+    let _ be self.current_scope.define(node.name, node.name, "entity")
+    let entity_scope be self.current_scope.child_scope()
+    for prop in node.properties do
+      let prop_type be self.resolve_type(prop.type_name)
+      match prop_type with
+        Some(t) =>
+          let _ be entity_scope.define(prop.name, t, "variable"),
+        None =>
+          let _ be self.error("unknown type for property: " + prop.type_name, "type", prop.line)
+      end
+    end
+    for method in node.methods do
+      let _ be entity_scope.define(method.name, method.return_type, "function")
+      let method_scope be entity_scope.child_scope()
+      for param in method.params do
+        let _ be method_scope.define(param.name, param.type_name, "variable")
+      end
+      let prev be self.current_scope
+      let _ be self.current_scope = method_scope
+      let _ be self.analyze_block(method.body)
+      let _ be self.current_scope = prev
+    end
+  end
+
+  // ── Function analysis ────────────────────────
+  fn analyze_function(self, node: FunctionNode) do
+    let existing be self.current_scope.resolve(node.name)
+    if existing exists then
+      let _ be self.error("duplicate function definition: " + node.name, "scope", node.line)
+      return
+    end
+    let _ be self.current_scope.define(node.name, node.return_type, "function")
+    let func_scope be self.current_scope.child_scope()
+    for param in node.params do
+      let _ be func_scope.define(param.name, param.type_name, "variable")
+    end
+    let prev be self.current_scope
+    let _ be self.current_scope = func_scope
+    let _ be self.analyze_block(node.body)
+    let _ be self.current_scope = prev
+  end
+
+  // ── Block analysis ───────────────────────────
+  fn analyze_block(self, block: BlockNode) do
+    for stmt in block.statements do
+      let _ be self.analyze_statement(stmt)
+    end
+  end
+
+  // ── Statement dispatch ───────────────────────
+  fn analyze_statement(self, node: ASTNode) do
+    match node.node_type with
+      "let" => self.analyze_let(node as LetNode),
+      "if" => self.analyze_if(node as IfNode),
+      "for" => self.analyze_for(node as ForNode),
+      "match" => self.analyze_match(node as MatchNode),
+      "call" => self.analyze_call(node as CallNode),
+      "cognitive" => self.analyze_cognitive(node as CognitiveNode),
+      "block" => self.analyze_block(node as BlockNode),
+      "return" => None,
+      "assign" =>
+        let assign_node be node as AssignNode
+        let target be self.current_scope.resolve_deep(assign_node.target)
+        match target with
+          None => self.error("undefined variable: " + assign_node.target, "scope", assign_node.line),
+          _ => None
+        end,
+      _ => None
+    end
+  end
+
+  // ── Let binding analysis ─────────────────────
+  fn analyze_let(self, node: LetNode) do
+    let existing be self.current_scope.resolve(node.name)
+    if existing exists then
+      let _ be self.error("variable already defined in this scope: " + node.name, "scope", node.line)
+      return
+    end
+    let value_type be self.infer_type(node.value)
+    match value_type with
+      Some(t) =>
+        let _ be self.current_scope.define(node.name, t, "variable"),
+      None =>
+        let _ be self.error("cannot infer type for let binding: " + node.name, "type", node.line)
+    end
+  end
+
+  // ── If analysis ──────────────────────────────
+  fn analyze_if(self, node: IfNode) do
+    let cond_type be self.infer_type(node.condition)
+    match cond_type with
+      Some(t) =>
+        if t != "Bool" and t != "bool" then
+          let _ be self.error(
+            "if condition must be Bool-expressible, got: " + t,
+            "type",
+            node.line
+          )
+        end,
+      None =>
+        let _ be self.error("cannot infer type of if condition", "type", node.line)
+    end
+    let then_scope be self.current_scope.child_scope()
+    let prev be self.current_scope
+    let _ be self.current_scope = then_scope
+    let _ be self.analyze_block(node.then_block)
+    match node.else_block with
+      Some(else_blk) =>
+        let else_scope be prev.child_scope()
+        let _ be self.current_scope = else_scope
+        let _ be self.analyze_block(else_blk),
+      None => None
+    end
+    let _ be self.current_scope = prev
+  end
+
+  // ── For analysis ─────────────────────────────
+  fn analyze_for(self, node: ForNode) do
+    let iter_type be self.infer_type(node.iterable)
+    match iter_type with
+      Some(t) =>
+        let is_iterable be t == "List" or t.starts_with("List<") or t == "Range"
+        if not is_iterable then
+          let _ be self.error("for loop requires iterable type, got: " + t, "type", node.line)
+        end,
+      None =>
+        let _ be self.error("cannot infer type of for iterable", "type", node.line)
+    end
+    let loop_scope be self.current_scope.child_scope()
+    let item_type be self.extract_element_type(iter_type)
+    match item_type with
+      Some(t) => let _ be loop_scope.define(node.item_name, t, "variable"),
+      None => let _ be loop_scope.define(node.item_name, "Any", "variable")
+    end
+    let prev be self.current_scope
+    let _ be self.current_scope = loop_scope
+    let _ be self.analyze_block(node.body)
+    let _ be self.current_scope = prev
+  end
+
+  // ── Match analysis ───────────────────────────
+  fn analyze_match(self, node: MatchNode) do
+    let scrutinee_type be self.infer_type(node.scrutinee)
+    for branch in node.branches do
+      let _ = branch.pattern
+      let prev be self.current_scope
+      let branch_scope be prev.child_scope()
+      let _ be self.current_scope = branch_scope
+      let _ be self.analyze_block(branch.body)
+      let _ be self.current_scope = prev
+    end
+  end
+
+  // ── Call analysis ────────────────────────────
+  fn analyze_call(self, node: CallNode) do
+    let callee be self.current_scope.resolve_deep(node.callee_name)
+    match callee with
+      None =>
+        let _ be self.error("undefined function: " + node.callee_name, "scope", node.line),
+      Some(entry) =>
+        if entry.kind != "function" then
+          let _ be self.error(
+            "cannot call non-function: " + node.callee_name + " (kind: " + entry.kind + ")",
+            "validity",
+            node.line
+          )
+        end
+        let arg_count be node.arguments.length()
+        let _ = arg_count
+    end
+  end
+
+  // ── Cognitive directive analysis ─────────────
+  fn analyze_cognitive(self, node: CognitiveNode) do
+    let valid_keywords be ["perceive", "reflect", "reason", "intuit", "believe", "imagine", "feel"]
+    let keyword_valid be false
+    for kw in valid_keywords do
+      if kw == node.keyword then
+        let keyword_valid be true
+      end
+    end
+    if not keyword_valid then
+      let _ be self.error(
+        "unknown cognitive keyword: " + node.keyword,
+        "cognitive",
+        node.line
+      )
+    end
+    let validity_errors be self.check_cognitive_validity(node)
+    for err in validity_errors do
+      let _ be self.errors.push(err)
+    end
+  end
+
+  // ── Type resolution ──────────────────────────
+  fn resolve_type(self, name: String) -> Optional<String> do
+    let entry be self.current_scope.resolve_deep(name)
+    match entry with
+      Some(e) =>
+        if e.is_type() then
+          return Some(e.type_name)
+        else
+          return None
+        end,
+      None =>
+        let builtins be ["Int", "Float", "String", "Bool", "List", "Map", "Any", "None"]
+        for b in builtins do
+          if b == name then
+            return Some(name)
+          end
+        end
+        return None
+    end
+  end
+
+  // ── Cognitive validity checking ──────────────
+  fn check_cognitive_validity(self, node: CognitiveNode) -> List<SemanticError> do
+    let errs be []
+    let valid_strategies be ["analytical", "holistic", "empirical", "creative", "critical", "narrative", "embodied"]
+    let strategy_valid be false
+    for s in valid_strategies do
+      if s == node.strategy then
+        let strategy_valid be true
+      end
+    end
+    if not strategy_valid then
+      let _ be errs.push(SemanticError{
+        message = "unknown cognitive strategy: " + node.strategy,
+        kind = "cognitive",
+        line = node.line,
+        severity = "error"
+      })
+    end
+    if node.keyword == "perceive" then
+      let valid_modalities be ["visual", "auditory", "tactile", "olfactory", "gustatory", "spatial", "temporal"]
+      let modality_valid be false
+      for m in valid_modalities do
+        if m == node.modality then
+          let modality_valid be true
+        end
+      end
+      if not modality_valid then
+        let _ be errs.push(SemanticError{
+          message = "invalid modality for perceive: " + node.modality,
+          kind = "cognitive",
+          line = node.line,
+          severity = "error"
+        })
+      end
+    end
+    if node.keyword == "reflect" then
+      if node.depth < 0 or node.depth > 5 then
+        let _ be errs.push(SemanticError{
+          message = "reflect depth must be between 0 and 5, got: " + node.depth.to_string(),
+          kind = "cognitive",
+          line = node.line,
+          severity = "error"
+        })
+      end
+    end
+    return errs
+  end
+
+  // ── Type inference helper ────────────────────
+  fn infer_type(self, node: ASTNode) -> Optional<String> do
+    match node.node_type with
+      "literal" =>
+        let lit be node as LiteralNode
+        match lit.literal_kind with
+          "integer" => Some("Int"),
+          "float" => Some("Float"),
+          "string" => Some("String"),
+          "bool" => Some("Bool"),
+          _ => Some("Any")
+        end,
+      "identifier" =>
+        let id_node be node as IdentifierNode
+        let entry be self.current_scope.resolve_deep(id_node.name)
+        match entry with
+          Some(e) => Some(e.type_name),
+          None => None
+        end,
+      "call" =>
+        let call_node be node as CallNode
+        let callee be self.current_scope.resolve_deep(call_node.callee_name)
+        match callee with
+          Some(e) => Some(e.type_name),
+          None => None
+        end,
+      "binary_op" => Some("Any"),
+      "unary_op" => Some("Any"),
+      _ => None
+    end
+  end
+
+  // ── Element type extraction ──────────────────
+  fn extract_element_type(self, type_opt: Optional<String>) -> Optional<String> do
+    match type_opt with
+      None => None,
+      Some(t) =>
+        if t.starts_with("List<") and t.ends_with(">") then
+          let inner be t.substring(5, t.length() - 1)
+          return Some(inner)
+        else
+          return None
+        end
+    end
+  end
+end
+
+export { SymbolEntry, Scope, TypeError, SemanticError, SemanticAnalyzer }
