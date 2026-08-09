@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orren-engine"
+version = "0.3.0"
+description = "Orren language — multidimensional semantic interpretation + realization"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Orren Project" }]
+keywords = ["semantic", "dsl", "realization", "sir", "equilibrium"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Compilers",
+    "Topic :: Software Development :: Code Generators",
+]
+
+[project.scripts]
+orren = "orren_engine.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/orren/orren-engine"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["orren_engine*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["orren_engine"]
+omit = ["tests/*"]

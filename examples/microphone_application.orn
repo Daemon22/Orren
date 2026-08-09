@@ -1,0 +1,137 @@
+create microphone_application : Application
+
+    context:
+        purpose: a microphone control on the home screen that feels
+                 calm, organic, emerald and musical, and activates the
+                 device microphone through more than one input path
+        audience: someone who wants a recording tool that does not
+                  feel like a recording tool
+
+    structure:
+        home
+            microphone_control
+
+    spatial:
+        microphone_control located_in home
+        microphone_control scoped_to home.primary_surface
+
+    cognitive:
+        microphone_control.activation   = on_user_intent_to_record
+        microphone_control.recording    = capture_audio_stream(device_microphone)
+        microphone_control.transcription = transcribe(audio_recording)
+        microphone_control.preservation = retain(original_audio)
+        microphone_control.deactivation = on_user_stop_signal
+
+    vibe:
+        microphone_control.color_character    = emerald
+        microphone_control.form_character     = organic
+        microphone_control.tone               = calm
+        microphone_control.aesthetic          = "music for idealists"
+        microphone_control.activation_signal  = steady_glow
+
+    temporal:
+        activation → recording on user_intent
+        recording → stops on user_stop_signal
+        original_audio persists beyond transcription
+
+    relational:
+        microphone_control feeds device_microphone
+        device_microphone feeds recorder
+        recorder feeds transcriber
+        recorder feeds audio_storage
+
+    conditional:
+        microphone_control activates on double_click
+        microphone_control activates on volume_down × 2
+        original_audio retained always (unconditional preservation)
+
+    behavior:
+        microphone_control behaves_as organic_toggle
+        microphone_control transitions from idle to active on activation_intent
+        microphone_control transitions from recording to processing on user_stop_signal
+        microphone_control lifecycle: idle -> active -> recording -> processing -> idle
+
+    calibrate:
+        calibrate emerald for vibe:
+            maps_to color_hue
+            threshold: hue in [150, 170]
+            signal: css_color_value
+
+        calibrate calm for vibe:
+            maps_to motion_intensity
+            threshold: animation_duration >= 600ms
+            signal: transition_timing_function
+
+        calibrate steady_glow for vibe:
+            maps_to luminance_ramp
+            threshold: ramp_duration >= 800ms
+            signal: box_shadow_animation
+
+    equilibrium:
+        calmness_preserves_urgency:
+            when vibe.calm is active AND cognitive.activation is active
+            preserve both
+            resolution: express urgency as steady_glow
+            rationale: calm does not mean no signal
+
+        musical_aesthetic_preserves_functional_clarity:
+            when vibe.aesthetic is active AND cognitive.recording is active
+            preserve both
+            resolution: aesthetic affects color motion font only
+            rationale: aesthetic may soften must not obscure
+
+        preservation_overrides_convenience:
+            when cognitive.preservation is active
+            preserve unconditionally
+            resolution: original_audio retained even if storage constrained
+            rationale: preservation is a hard contract not a preference
+
+    degrade:
+        require full       for cognitive  on activation_logic
+        require full       for cognitive  on recording_capture
+        require full       for cognitive  on transcription_pipeline
+        require full       for cognitive  on audio_preservation
+        require faithful   for vibe       on color_character
+        require faithful   for vibe       on form_character
+        tolerate faithful  for vibe       on tone
+        tolerate proxy     for vibe       on aesthetic
+        tolerate proxy     for vibe       on activation_signal
+        require full       for spatial    on home_placement
+        require full       for temporal   on recording_to_transcription_sequence
+        require full       for relational on button_to_microphone_link
+        require full       for behavioral on lifecycle_completeness
+
+    realize:
+        target: web_interface (HTML/CSS/JS)
+            capabilities: layout, color, motion, event_handling
+            can_express: spatial, vibe.color_character, vibe.form_character, vibe.tone, conditional, behavioral, temporal
+            needs_bridge: device_microphone, audio_storage
+            cannot_express: vibe.aesthetic
+            degradation: aesthetic = proxy, activation_signal = proxy
+            preservation_score: 0.83
+
+        target: native_shell (Swift)
+            capabilities: device_microphone, input_buttons, storage
+            can_express: cognitive.activation, cognitive.recording, cognitive.preservation, spatial, conditional, behavioral, relational
+            needs_bridge: vibe.aesthetic
+            cannot_express: vibe.aesthetic
+            degradation: aesthetic = proxy
+            preservation_score: 0.91
+
+        target: transcription_service (Python)
+            capabilities: speech_to_text, audio_input
+            can_express: cognitive.transcription
+            cannot_express: vibe, spatial, behavioral, relational
+            preservation_score: 1.0
+
+        target: audio_storage (Python)
+            capabilities: write, retain, retrieve
+            can_express: cognitive.preservation
+            cannot_express: vibe, spatial, behavioral, relational
+            preservation_score: 1.0
+
+        target: input_button_watcher (Python)
+            capabilities: detect_volume_down, detect_double_click
+            can_express: conditional, relational
+            cannot_express: vibe, spatial, behavioral
+            preservation_score: 1.0

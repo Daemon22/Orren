@@ -1,0 +1,12 @@
+/* Orren-generated stylesheet */
+/* PROXY markers indicate vibe aspects expressed as proxy. */
+
+#microphone-application-home-microphone-control {
+  background-color: #2ecc71;
+  border-radius: 24px;
+  transition: all 600ms ease;
+  box-shadow: 0 0 16px rgba(80, 200, 120, 0.6);
+}
+  /* PROXY: aesthetic 'music for idealists' has no single CSS signal; approximated via typography + motion. */
+  /* PROXY (tolerated): vibe.aesthetic — target cannot fully express. */
+  /* PROXY (tolerated): vibe.activation_signal — target cannot fully express. */

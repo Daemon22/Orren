@@ -1,0 +1,947 @@
+{
+  "version": "0.3.0",
+  "source_file": "/home/z/my-project/examples/microphone_application.orn",
+  "expressions": 1,
+  "sir_nodes": 3,
+  "equilibrium_outcomes": 3,
+  "unresolved_conflicts": 0,
+  "artifacts": [
+    {
+      "target_name": "web_interface",
+      "target_language": "HTML/CSS/JS",
+      "capabilities": [
+        "layout",
+        "color",
+        "motion",
+        "event_handling"
+      ],
+      "output_files": [
+        {
+          "path": "web_interface/index.html",
+          "language": "html"
+        },
+        {
+          "path": "web_interface/styles.css",
+          "language": "css"
+        },
+        {
+          "path": "web_interface/app.js",
+          "language": "javascript"
+        }
+      ],
+      "degradation_report": [
+        {
+          "node": "microphone_application",
+          "dimension": "expression",
+          "aspect": "default",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application",
+          "dimension": "temporal",
+          "aspect": "transition",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application",
+          "dimension": "temporal",
+          "aspect": "persistence",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application",
+          "dimension": "relational",
+          "aspect": "feeds",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application",
+          "dimension": "conditional",
+          "aspect": "retained",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "activation",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "recording",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "transcription",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "preservation",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "deactivation",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "color_character",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "form_character",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "tone",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "aesthetic",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "activation_signal",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "spatial",
+          "aspect": "located_in",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "spatial",
+          "aspect": "scoped_to",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "conditional",
+          "aspect": "activates",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "behavioral",
+          "aspect": "behaves_as",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "behavioral",
+          "aspect": "transitions",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "behavioral",
+          "aspect": "lifecycle",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        }
+      ],
+      "preservation_score": 1.0
+    },
+    {
+      "target_name": "native_shell",
+      "target_language": "Swift",
+      "capabilities": [
+        "device_microphone",
+        "input_buttons",
+        "storage"
+      ],
+      "output_files": [
+        {
+          "path": "native_shell/Main.swift",
+          "language": "swift"
+        }
+      ],
+      "degradation_report": [
+        {
+          "node": "microphone_application",
+          "dimension": "expression",
+          "aspect": "default",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application",
+          "dimension": "temporal",
+          "aspect": "transition",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application",
+          "dimension": "temporal",
+          "aspect": "persistence",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application",
+          "dimension": "relational",
+          "aspect": "feeds",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application",
+          "dimension": "conditional",
+          "aspect": "retained",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "activation",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "recording",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "transcription",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "preservation",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "deactivation",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "color_character",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "form_character",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "tone",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "aesthetic",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "activation_signal",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "spatial",
+          "aspect": "located_in",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "spatial",
+          "aspect": "scoped_to",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "conditional",
+          "aspect": "activates",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "behavioral",
+          "aspect": "behaves_as",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "behavioral",
+          "aspect": "transitions",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "behavioral",
+          "aspect": "lifecycle",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        }
+      ],
+      "preservation_score": 1.0
+    },
+    {
+      "target_name": "transcription_service",
+      "target_language": "Python",
+      "capabilities": [
+        "speech_to_text",
+        "audio_input"
+      ],
+      "output_files": [
+        {
+          "path": "transcription_service/main.py",
+          "language": "python"
+        }
+      ],
+      "degradation_report": [
+        {
+          "node": "microphone_application",
+          "dimension": "expression",
+          "aspect": "default",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application",
+          "dimension": "temporal",
+          "aspect": "transition",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application",
+          "dimension": "temporal",
+          "aspect": "persistence",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application",
+          "dimension": "relational",
+          "aspect": "feeds",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application",
+          "dimension": "conditional",
+          "aspect": "retained",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "activation",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "recording",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "transcription",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "preservation",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "deactivation",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "color_character",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "form_character",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "tone",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "aesthetic",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "activation_signal",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "spatial",
+          "aspect": "located_in",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "spatial",
+          "aspect": "scoped_to",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "conditional",
+          "aspect": "activates",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "behavioral",
+          "aspect": "behaves_as",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "behavioral",
+          "aspect": "transitions",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "behavioral",
+          "aspect": "lifecycle",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        }
+      ],
+      "preservation_score": 1.0
+    },
+    {
+      "target_name": "audio_storage",
+      "target_language": "Python",
+      "capabilities": [
+        "write",
+        "retain",
+        "retrieve"
+      ],
+      "output_files": [
+        {
+          "path": "audio_storage/main.py",
+          "language": "python"
+        }
+      ],
+      "degradation_report": [
+        {
+          "node": "microphone_application",
+          "dimension": "expression",
+          "aspect": "default",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application",
+          "dimension": "temporal",
+          "aspect": "transition",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application",
+          "dimension": "temporal",
+          "aspect": "persistence",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application",
+          "dimension": "relational",
+          "aspect": "feeds",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application",
+          "dimension": "conditional",
+          "aspect": "retained",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "activation",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "recording",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "transcription",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "preservation",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "deactivation",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "color_character",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "form_character",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "tone",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "aesthetic",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "activation_signal",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "spatial",
+          "aspect": "located_in",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "spatial",
+          "aspect": "scoped_to",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "conditional",
+          "aspect": "activates",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "behavioral",
+          "aspect": "behaves_as",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "behavioral",
+          "aspect": "transitions",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "behavioral",
+          "aspect": "lifecycle",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        }
+      ],
+      "preservation_score": 1.0
+    },
+    {
+      "target_name": "input_button_watcher",
+      "target_language": "Python",
+      "capabilities": [
+        "detect_volume_down",
+        "detect_double_click"
+      ],
+      "output_files": [
+        {
+          "path": "input_button_watcher/main.py",
+          "language": "python"
+        }
+      ],
+      "degradation_report": [
+        {
+          "node": "microphone_application",
+          "dimension": "expression",
+          "aspect": "default",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application",
+          "dimension": "temporal",
+          "aspect": "transition",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application",
+          "dimension": "temporal",
+          "aspect": "persistence",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application",
+          "dimension": "relational",
+          "aspect": "feeds",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application",
+          "dimension": "conditional",
+          "aspect": "retained",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "activation",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "recording",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "transcription",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "preservation",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "cognitive",
+          "aspect": "deactivation",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "no_capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "color_character",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "form_character",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "tone",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "aesthetic",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "vibe",
+          "aspect": "activation_signal",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "spatial",
+          "aspect": "located_in",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "spatial",
+          "aspect": "scoped_to",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "conditional",
+          "aspect": "activates",
+          "severity": "none",
+          "tolerance": "full",
+          "source": "capability"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "behavioral",
+          "aspect": "behaves_as",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "behavioral",
+          "aspect": "transitions",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        },
+        {
+          "node": "microphone_application.home.microphone_control",
+          "dimension": "behavioral",
+          "aspect": "lifecycle",
+          "severity": "out_of_scope",
+          "tolerance": "optional",
+          "source": "cannot_express"
+        }
+      ],
+      "preservation_score": 1.0
+    }
+  ]
+}
