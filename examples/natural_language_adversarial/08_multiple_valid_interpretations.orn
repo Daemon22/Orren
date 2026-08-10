@@ -1,0 +1,77 @@
+create app : Application
+
+    context:
+        purpose: An app with two requirements that admit multiple valid interpretations
+        audience: Product team
+        domain: productivity software
+        vibe_brief: flexible but focused
+
+    structure:
+        app
+            main_panel
+            settings
+
+    cognitive:
+        app.autosave = every_5_or_30_seconds
+        app.data_retention = indefinite_or_30_days
+        main_panel.display = full_or_minimal_view
+        settings.persistence = session_or_permanent
+
+    vibe:
+        app.color_character = calm_grey
+        app.tone = balanced
+
+    calibrate:
+        calibrate calm_grey for vibe:
+            maps_to color_palette
+            threshold: grey_hue in [200, 240]
+            signal: css_color_value
+
+        calibrate "every_5_or_30_seconds" for cognitive:
+            maps_to autosave_interval
+            threshold: either 5s or 30s both valid
+            signal: timer_config
+            note: two valid interpretations preserved
+
+        calibrate "indefinite_or_30_days" for cognitive:
+            maps_to data_retention_policy
+            threshold: either indefinite or 30_days both valid
+            signal: retention_config
+            note: two valid interpretations preserved
+
+    spatial:
+        main_panel located_in app
+        settings located_in app
+
+    temporal:
+        main_panel → settings on settings_open
+        settings → main_panel on back
+        main_panel persists always
+
+    relational:
+        main_panel feeds settings
+        settings provides config_to main_panel
+
+    conditional:
+        app activates always
+        main_panel activates always
+        settings fires when settings_opened
+        settings retained always
+
+    behavior:
+        app behaves_as dual_mode_app
+        app lifecycle: background -> foreground -> background
+
+    equilibrium:
+        autosave_timing:
+            when cognitive.autosave = dual_interpretation
+            preserve both
+            resolution: offer user preference setting between 5s and 30s
+            rationale: both 5 and 30 seconds are valid — preserve the choice
+
+    realize:
+        target: productivity_app (HTML/CSS/JS)
+            capabilities: layout, color, event_handling
+            can_express: spatial, vibe, cognitive
+            cannot_express: cognitive.ml
+            preservation_score: 0.85

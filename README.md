@@ -97,7 +97,7 @@ orren hash app.orn   # SHA-256 of the SIR signature
 ## Test suite
 
 ```bash
-pytest tests/ -v          # 634 tests across 13 phases
+pytest tests/ -v          # 766 tests across 16 phases
 orren validate-suite      # canonical 48-test validation against bundled examples
 ```
 
@@ -116,6 +116,9 @@ orren validate-suite      # canonical 48-test validation against bundled example
 | 11 | Adversarial natural-language       | 96    |
 | 12 | Preview quality (layout-agnostic)  | 105   |
 | 13 | Preview variation                  | 28    |
+| 14 | Codegen expansion                  | 74    |
+| 15 | Natural language hard              | 29    |
+| 16 | Semantic comprehension             | 42    |
 
 ## Adversarial testing
 
@@ -212,3 +215,24 @@ The 7 example files live in `examples/`:
 5. `05_greenhouse_controller.orn` — IoT/hardware, safety hierarchy + qualitative stress
 6. `06_tell_your_story.orn` — Mobile app, all 8 dimensions simultaneously
 7. `07_master_builder_book.orn` — PDF/document, conditional layout, semantic color
+
+## Error handling
+
+The parser distinguishes nine error categories (see `orren_engine/errors.py`):
+
+| Code  | Category              | Description                                         |
+|-------|-----------------------|-----------------------------------------------------|
+| E001  | `invalid_expression`  | Unknown expression type in `create` header          |
+| E002  | `unknown_concept`     | Unknown section keyword (e.g. `bogus:`)             |
+| E003  | `semantic_ambiguous`  | Ambiguous input resolvable two or more valid ways   |
+| E004  | `conflicting_requirement` | Contradictory requirements across dimensions   |
+| E005  | `invalid_syntax`      | Malformed or unrecognized statement in a section    |
+| E006  | `unknown_dimension`   | Unknown dimension name in calibrate/degrade line    |
+| E007  | `unsupported_realization` | Realization target cannot express the semantics |
+| E008  | `recoverable_degradation` | Degraded output retains core semantics          |
+| E012  | `unrecoverable_error` | Empty source or no `create` statement found         |
+
+Errors are collected during parsing via `CoParser().parse()` (the default) or
+returned explicitly via `parse_with_errors(source)` which returns `(expressions, errors)`.
+Errors do **not** halt parsing — the parser continues and collects as many
+errors as possible so the user sees all issues in one pass.

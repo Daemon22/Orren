@@ -51,6 +51,20 @@ from .design_tokens import DesignTokens, extract_design_tokens
 from .preview import generate_preview, write_preview
 from .engine import Engine
 from .validate import run_all as run_validation_suite
+from .errors import (
+    ErrorCategory,
+    ErrorCode,
+    ErrorCollector,
+    OrrenError,
+    OrrenSyntaxError,
+    OrrenIncompleteError,
+    OrrenAmbiguityError,
+    OrrenUnknownConceptError,
+    OrrenConflictError,
+    OrrenUnsupportedTarget,
+    OrrenRecoverableWarning,
+    OrrenUnrecoverableError,
+)
 
 __all__ = [
     "CoParser",
@@ -87,5 +101,17 @@ __all__ = [
     "SIRNode",
     "SIRGraph",
     "EditOperation",
+    "ErrorCategory",
+    "ErrorCode",
+    "ErrorCollector",
+    "OrrenError",
+    "OrrenSyntaxError",
+    "OrrenIncompleteError",
+    "OrrenAmbiguityError",
+    "OrrenUnknownConceptError",
+    "OrrenConflictError",
+    "OrrenUnsupportedTarget",
+    "OrrenRecoverableWarning",
+    "OrrenUnrecoverableError",
     "__version__",
 ]

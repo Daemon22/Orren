@@ -1,0 +1,68 @@
+create app : Application
+
+    context:
+        purpose: An app with three vague but meaningful requirements: secure, fast, accessible
+        audience: General consumers
+        domain: mobile application
+        vibe_brief: safe swift inclusive
+
+    structure:
+        app
+            login
+            home
+            profile
+
+    cognitive:
+        app.security = secure
+        app.performance = fast
+        app.accessibility = accessible
+
+    vibe:
+        app.color_character = safety_green
+        app.tone = trustworthy
+
+    calibrate:
+        calibrate safety_green for vibe:
+            maps_to color_palette
+            threshold: green_hue in [100, 140]
+            signal: css_color_value
+
+    spatial:
+        login located_in app
+        home located_in app
+        profile located_in app
+
+    temporal:
+        login → home on auth_success
+        home → profile on profile_selected
+        home persists always
+
+    relational:
+        login feeds home
+        home feeds profile
+        profile provides data_to home
+
+    conditional:
+        app activates always
+        login fires when user_authenticates
+        home activates when authenticated
+        profile activates when profile_selected
+
+    behavior:
+        app behaviors_as secure_fast_accessible
+        app lifecycle: locked -> unlocked -> active -> locked
+
+    equilibrium:
+        security_vs_performance:
+            when cognitive.security = secure AND cognitive.performance = fast
+            preserve both
+            resolution: security is a constraint performance is an optimization within it
+            rationale: both are required but underspecified
+
+    realize:
+        target: mobile_app (Swift)
+            capabilities: layout, color, event_handling
+            can_express: spatial, vibe, cognitive
+            needs_bridge: auth_service, keychain
+            cannot_express: cognitive.ml
+            preservation_score: 0.87

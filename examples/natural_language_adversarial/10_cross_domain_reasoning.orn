@@ -1,0 +1,127 @@
+create trading_system : Application
+
+    context:
+        purpose: A trading system where a security requirement (encryption) affects implementation choices (language, library) and performance constraints affect UI behavior (update frequency)
+        audience: Quantitative traders, platform engineers
+        domain: financial technology
+        vibe_brief: secure high-performance trading
+
+    structure:
+        frontend
+            trading_dashboard
+            price_ladder
+        backend
+            strategy_engine
+            risk_engine
+            matching_engine
+        security_layer
+            encryption_service
+            key_manager
+        market_data
+            feed_handler
+            normalizer
+
+    cognitive:
+        trading_system.security_required = end_to_end_encryption
+        trading_system.performance_target = sub_50_microsecond_latency
+        trading_system.encryption_scope = all_wire_traffic
+        trading_system.encryption_algorithm = aes_256_gcm
+        strategy_engine.compilation = native_binary
+        risk_engine.evaluation = per_order
+        matching_engine.throughput = 1000000_orders_per_second
+        feed_handler.protocol = fix_over_tls
+        price_ladder.update_frequency = 100ms
+        trading_dashboard.refresh = every_heartbeat
+
+    vibe:
+        trading_system.color_character = signal_green
+        trading_system.tone = hypervigilant
+        trading_system.form_character = precision_instrument
+
+    calibrate:
+        calibrate signal_green for vibe:
+            maps_to color_palette
+            threshold: green_hue in [90, 150]
+            signal: css_color_value
+
+    spatial:
+        frontend located_in trading_system
+        backend located_in trading_system
+        security_layer located_in trading_system
+        market_data located_in trading_system
+        trading_dashboard located_in frontend
+        price_ladder located_in frontend
+        strategy_engine located_in backend
+        risk_engine located_in backend
+        matching_engine located_in backend
+        encryption_service located_in security_layer
+        key_manager located_in security_layer
+        feed_handler located_in market_data
+        normalizer located_in market_data
+
+    temporal:
+        market_data.feed_handler → normalizer on packet_received
+        normalizer → strategy_engine on normalized_event
+        strategy_engine → matching_engine on order_generated
+        matching_engine → price_ladder on execution
+        price_ladder → trading_dashboard on update
+        trading_dashboard → trading_engine on user_action
+        encryption_service persists beyond session_end
+        trading_system continuous_operation persists beyond power_cycle
+
+    relational:
+        feed_handler feeds normalizer
+        normalizer feeds strategy_engine
+        strategy_engine triggers matching_engine
+        matching_engine produces fills
+        fills feed price_ladder
+        price_ladder updates trading_dashboard
+        security_layer encrypts all communication
+        encryption_service depends_on key_manager
+
+    conditional:
+        trading_system activates always
+        feed_handler activates on market_open
+        strategy_engine fires when signal_generated
+        matching_engine fires when order_submitted
+        encryption_service fires when data_at_rest_or_in_transit
+        price_ladder activates when market_data_available
+        trading_dashboard retained always
+        encryption_service retained always for key_security
+
+    behavior:
+        trading_system behaves_as latency_arbitrage_engine
+        trading_system lifecycle: dormant -> calibrating -> active -> settling -> dormant
+        strategy_engine behaves_as signal_generator
+        strategy_engine lifecycle: idle -> scanning -> signaling -> idle
+        encryption_service behaves_as always_on_guard
+        encryption_service lifecycle: initialized -> active -> active -> initialized
+
+    equilibrium:
+        security_vs_performance:
+            when cognitive.security_required = encryption AND cognitive.performance_target = sub_50_microsecond
+            preserve both
+            resolution: AES-NI hardware acceleration encryption without copy encryption at socket layer
+            rationale: security is non-negotiable performance is the competitive edge
+
+    realize:
+        target: low_latency_trading (C)
+            capabilities: zero_copy, memory_safety, lock_free, simd
+            can_express: cognitive, temporal, relational, conditional, behavioral
+            needs_bridge: crypto_library, network_stack
+            cannot_express: vibe, spatial
+            preservation_score: 0.95
+
+        target: trading_ui (TypeScript)
+            capabilities: dom_manipulation, type_safety, chart_rendering
+            can_express: spatial, vibe, cognitive.prioritization
+            needs_bridge: websocket_stream
+            cannot_express: cognitive.encryption, cognitive.compilation
+            preservation_score: 0.82
+
+        target: key_vault (Python)
+            capabilities: file_storage, crypto, retention
+            can_express: cognitive.encryption, cognitive.preservation
+            needs_bridge: kms_integration
+            cannot_express: vibe, spatial, behavioral, temporal, cognitive.trading
+            preservation_score: 0.99

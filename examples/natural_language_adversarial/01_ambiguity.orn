@@ -1,0 +1,82 @@
+create ambiguous_interface : Application
+
+    context:
+        purpose: An interface that should feel calm but not sterile — the user wants the calming effect of a serene environment without the clinical emptiness that comes from too much white space and minimal typography
+        audience: General consumers, elderly users, healthcare patients
+        domain: consumer software / accessibility
+        vibe_brief: calm but not sterile — warm minimalism
+
+    structure:
+        main_view
+            content_area
+            navigation
+            action_panel
+        feedback_system
+            subtle_animations
+            haptic_response
+
+    cognitive:
+        main_view.readability = high_contrast_sans_serif
+        main_view.navigation_simplicity = no_more_than_three_taps
+        main_view.accessibility = screen_reader_compatible
+        feedback_system.animation_subtlety = below_300ms_duration
+        feedback_system.interruptiveness = non_modal
+
+    vibe:
+        ambiguous_interface.color_character = warm_neutral
+        ambiguous_interface.tone = calm
+        ambiguous_interface.tone = sterile
+        ambiguous_interface.aesthetic = "calm minimalism but with warmth and texture so it doesn't feel like a hospital"
+        ambiguous_interface.form_character = organic_edges
+        ambiguous_interface.activation_signal = "subtle pulse then fade"
+
+    calibrate:
+        calibrate warm_neutral for vibe:
+            maps_to color_palette
+            threshold: no single valid interpretation
+            signal: css_color_value
+            note: "warm" implies amber/orange, "neutral" implies grey — contradictory
+
+        calibrate "calm minimalism but with warmth and texture so it doesn't feel like a hospital" for vibe:
+            maps_to layout_and_color
+            threshold: calm requires minimalism; warmth requires richness; texture implies non-flat
+            signal: undefined
+            note: three-way tension that has no single resolution
+
+    spatial:
+        main_view located_in ambiguous_interface
+        feedback_system located_in ambiguous_interface
+        content_area located_in main_view
+        navigation located_in main_view
+        action_panel located_in main_view
+        subtle_animations located_in feedback_system
+        haptic_response located_in feedback_system
+
+    temporal:
+        subtle_animations → fade_out on user_interaction_complete
+        haptic_response → pulse on action_confirm
+        subtle_animations persists beyond session_end
+
+    relational:
+        main_view feeds feedback_system
+        navigation triggers content_area_change
+        action_panel triggers haptic_response
+        subtle_animations produces tactile_output
+
+    conditional:
+        main_view activates always
+        feedback_system activates when user_interaction_detected
+        subtle_animations fires when action_completes
+        haptic_response fires when critical_action_confirmed
+
+    behavior:
+        ambiguous_interface behaves_as soothing_environment
+        ambiguous_interface lifecycle: idle -> active -> idle
+
+    realize:
+        target: web_interface (HTML/CSS/JS)
+            capabilities: layout, color, motion, event_handling, typography
+            can_express: spatial, vibe, cognitive
+            needs_bridge: haptic_api
+            cannot_express: cognitive.ml
+            preservation_score: 0.82

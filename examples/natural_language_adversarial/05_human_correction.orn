@@ -1,0 +1,92 @@
+create app_system : Application
+
+    context:
+        purpose: An app where the human initially specifies PostgreSQL then corrects to NOT use it
+        audience: Backend engineers deploying to edge infrastructure
+        domain: backend infrastructure
+        vibe_brief: lightweight and portable
+
+    structure:
+        data_layer
+            storage_engine
+            query_interface
+        business_logic
+            service_core
+            api_gateway
+        persistence
+            migration_tool
+
+    cognitive:
+        app_system.initial_choice = postgresql
+        app_system.revised_choice = sqlite
+        app_system.reason = edge_environment_no_postgresql
+        app_system.storage_persistence = unconditional
+        app_system.query_pattern = keyvalue_lookup
+        storage_engine.type = sqlite
+        service_core.logic = stateless
+        api_gateway.protocol = http_rest
+        migration_tool.strategy = schema_migration
+
+    vibe:
+        app_system.color_character = forest_green
+        app_system.tone = pragmatic
+        app_system.form_character = lean
+
+    calibrate:
+        calibrate forest_green for vibe:
+            maps_to color_palette
+            threshold: green_hue in [120, 150]
+            signal: css_color_value
+
+    spatial:
+        data_layer located_in app_system
+        business_logic located_in app_system
+        persistence located_in app_system
+        storage_engine located_in data_layer
+        query_interface located_in data_layer
+        service_core located_in business_logic
+        api_gateway located_in business_logic
+        migration_tool located_in persistence
+
+    temporal:
+        api_gateway → service_core on request_received
+        service_core → storage_engine on data_operation
+        storage_engine → query_interface on query_issued
+        migration_tool → storage_engine on schema_change
+        storage_engine persists beyond request_cycle
+
+    relational:
+        api_gateway feeds service_core
+        service_core feeds storage_engine
+        query_interface provides data_to service_core
+        migration_tool transforms storage_engine_schema
+        storage_engine produces data_records
+
+    conditional:
+        app_system activates always
+        storage_engine activates on data_access
+        service_core fires when request_received
+        api_gateway retained always
+        storage_engine retained always for data_persistence
+        migration_tool fires when schema_version_mismatch
+
+    behavior:
+        app_system behaves_as portable_backend
+        app_system lifecycle: stopped -> started -> running -> stopped
+        storage_engine behaves_as embedded_store
+        storage_engine lifecycle: closed -> open -> active -> closed
+
+    equilibrium:
+        portability_vs_power:
+            when cognitive.initial_choice = postgresql AND cognitive.revised_choice = sqlite
+            preserve both
+            resolution: document the revision sqlite used for edge portability
+            rationale: the human changed their mind — the revision must be preserved not the original
+
+    realize:
+        target: portable_service (Python)
+            capabilities: file_storage, json_serialization, http_handling
+            can_express: cognitive.storage, cognitive.query, spatial
+            needs_bridge: none
+            cannot_express: vibe, spatial_layout, behavioral.lifecycle
+            preservation_score: 0.93

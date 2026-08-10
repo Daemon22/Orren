@@ -1,0 +1,103 @@
+create meditation_app : Application
+
+    context:
+        purpose: A meditation app where metaphors are used to describe interface behavior
+        audience: Meditation practitioners, mindfulness seekers
+        domain: wellness / meditation
+        vibe_brief: the interface should breathe
+
+    structure:
+        meditation_room
+            breath_visualizer
+            session_timer
+            ambient_soundscape
+
+    cognitive:
+        meditation_app.focus = sustained_attention
+        meditation_app.session_length = adaptive
+        meditation_app.attention_management = gentle_guided_waves
+        breath_visualizer.rendering = expanding_contracting_circle
+        session_timer.mode = soft_start_hard_stop
+        ambient_soundscape.generation = procedural_wind
+
+    vibe:
+        meditation_app.color_character = warm_blue
+        meditation_app.tone = calm
+        meditation_app.tone = "has a spine"
+        meditation_app.aesthetic = "like a quiet forest at dawn"
+        meditation_app.activation_signal = "gentle fade in then fade out"
+        meditation_app.form_character = organic
+        meditation_app.aesthetic = "warm and inviting but never chaotic"
+
+    calibrate:
+        calibrate warm_blue for vibe:
+            maps_to color_palette
+            threshold: blue_hue in [200, 240] AND saturation in [0.3, 0.6]
+            signal: css_color_value
+
+        calibrate "the interface should breathe" for vibe:
+            maps_to animation_pattern
+            threshold: pulsing scale transform
+            signal: css_keyframes_breathing
+            note: metaphor — mapped to CSS animation
+
+        calibrate "has a spine" for vibe:
+            maps_to layout_hierarchy
+            threshold: clear vertical information hierarchy
+            signal: flexbox_direction_column
+            note: metaphor — mapped to structural concept
+
+        calibrate "warm and inviting but never chaotic" for vibe:
+            maps_to color_and_layout_balance
+            threshold: warm colors but minimal elements
+            signal: undefined
+            note: tension between warmth and order — needs human resolution
+
+    spatial:
+        meditation_room located_in meditation_app
+        breath_visualizer located_in meditation_room
+        session_timer located_in meditation_room
+        ambient_soundscape located_in meditation_room
+
+    temporal:
+        breath_visualizer → expand on inhale
+        breath_visualizer → contract on exhale
+        session_timer → count_down on session_start
+        session_timer → signal_end on time_expired
+        ambient_soundscape → fade_in on session_start
+        ambient_soundscape → fade_out on session_end
+        session_timer persists beyond breath_cycle
+
+    relational:
+        breath_visualizer feeds session_timer
+        session_timer triggers ambient_soundscape
+        ambient_soundscape produces sound_output
+        breath_visualizer produces visual_rhythm
+
+    conditional:
+        meditation_app activates always
+        breath_visualizer activates during session
+        session_timer fires when session_started
+        ambient_soundscape activates when session_in_progress
+        session_timer retained always for history
+
+    behavior:
+        meditation_app behaves_as calm_guide
+        meditation_app lifecycle: closed -> opening -> active -> closing -> closed
+        breath_visualizer behaves_as breathing_indicator
+        breath_visualizer transitions from expanding to contracting on inhale_complete
+
+    equilibrium:
+        warmth_vs_order:
+            when vibe.warmth is active AND vibe.chaos is absent
+            preserve both
+            resolution: warm colors but limited palette
+            rationale: warmth without chaos is achievable through color restraint
+
+    realize:
+        target: web_interface (HTML/CSS/JS)
+            capabilities: layout, color, motion, event_handling
+            can_express: spatial, vibe, cognitive.prioritization
+            needs_bridge: webaudio_api
+            cannot_express: cognitive.ml
+            preservation_score: 0.88

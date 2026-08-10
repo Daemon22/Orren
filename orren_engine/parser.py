@@ -52,6 +52,12 @@ from .data_model import (
     ToleranceLevel,
     VibeStatement,
 )
+from .errors import (
+    ErrorCategory,
+    ErrorCode,
+    ErrorCollector,
+    OrrenError,
+)
 
 # ---------------------------------------------------------------------------
 # Lexer
@@ -85,6 +91,11 @@ SECTION_HEADER_RE = re.compile(
     + "|".join(SECTION_KEYWORDS)
     + r""")\s*:\s*$"""
 )
+
+# General section-header detection: any `identifier:` at the start of a
+# line.  Used to catch unknown section keywords that look like valid
+# headers but aren't in SECTION_KEYWORDS.
+GENERIC_HEADER_RE = re.compile(r"""^\s*(?P<keyword>[A-Za-z_][A-Za-z0-9_]*)\s*:\s*$""")
 
 # Calibration sub-header:  calibrate TERM for DIM:
 CALIBRATE_SUB_RE = re.compile(
@@ -202,7 +213,7 @@ def split_sections(chunk: List[LexedLine]) -> List[_Section]:
                     "calibrate",
                     ln.lineno,
                     [],
-                    sub_name=sub.group("term").strip().strip('"'),
+                    sub_name=_strip_quotes(sub.group("term")),
                     sub_dim=sub.group("dim"),
                 )
                 continue
@@ -231,6 +242,18 @@ def split_sections(chunk: List[LexedLine]) -> List[_Section]:
                     sub_name=sub.group("name"),
                 )
                 continue
+        # Detect unknown section headers: a bare `word:` line that isn't
+        # a recognized keyword and wasn't claimed as a sub-header above.
+        gm = GENERIC_HEADER_RE.match(ln.text)
+        if gm and gm.group("keyword") not in SECTION_KEYWORDS:
+            # Not a known keyword and not a sub-header → unknown section.
+            if current is not None:
+                sections.append(current)
+                current = None
+            sections.append(
+                _Section(gm.group("keyword"), ln.lineno, [])
+            )
+            continue
         if current is None:
             # Lines outside any section — skip but record.
             continue
@@ -275,6 +298,29 @@ def _strip_prefix(body_line: str) -> str:
     """Strip the line-number prefix."""
     _, _, rest = body_line.partition(":")
     return rest.strip()
+
+
+def _strip_quotes(val: str) -> str:
+    """Strip whitespace and a single matching pair of surrounding quote
+    characters ('"' or "'').
+
+    Unlike a naive ``val.strip('"')``, this only removes quotes when they
+    form a matching pair at the start and end of the value.  Unquoted
+    identifiers, numeric literals, and values with embedded (non-wrapping)
+    quotes are returned unchanged.
+
+    Examples:
+        >>> _strip_quotes('"hello world"')
+        'hello world'
+        >>> _strip_quotes('hello_world')
+        'hello'
+        >>> _strip_quotes('"say "hi" please"')
+        'say "hi" please'
+    """
+    val = val.strip()
+    if len(val) >= 2 and val[0] == val[-1] and val[0] in ('"', "'"):
+        return val[1:-1]
+    return val
 
 
 def _parse_context(body: List[str]) -> List[ContextStatement]:
@@ -360,7 +406,7 @@ def _parse_cognitive(body: List[str]) -> List[CognitiveStatement]:
                 CognitiveStatement(
                     subject=m.group("subj"),
                     predicate=m.group("pred"),
-                    value=m.group("val").strip(),
+                    value=_strip_quotes(m.group("val")),
                     line=ln,
                 )
             )
@@ -372,7 +418,7 @@ def _parse_cognitive(body: List[str]) -> List[CognitiveStatement]:
                 CognitiveStatement(
                     subject=m.group("subj"),
                     predicate="value",
-                    value=m.group("val").strip(),
+                    value=_strip_quotes(m.group("val")),
                     line=ln,
                 )
             )
@@ -409,7 +455,7 @@ def _parse_vibe(body: List[str]) -> List[VibeStatement]:
                 VibeStatement(
                     subject=m.group("subj"),
                     aspect=m.group("aspect"),
-                    term=m.group("term").strip().strip('"'),
+                    term=_strip_quotes(m.group("term")),
                     annotation=pending_annotation,
                     line=ln,
                 )
@@ -423,7 +469,7 @@ def _parse_vibe(body: List[str]) -> List[VibeStatement]:
                 VibeStatement(
                     subject=m.group("subj"),
                     aspect="default",
-                    term=m.group("term").strip().strip('"'),
+                    term=_strip_quotes(m.group("term")),
                     annotation=pending_annotation,
                     line=ln,
                 )
@@ -464,7 +510,7 @@ def _parse_temporal(body: List[str]) -> List[TemporalStatement]:
             continue
         # A → B on TRIGGER
         m = re.match(
-            r"^(?P<src>[A-Za-z_][\w ]*?)\s*→\s*(?P<tgt>[A-Za-z_][\w ]*?)\s+on\s+(?P<trig>.+)$",
+            r"^(?P<src>[A-Za-z_][\w. ]*?)\s*→\s*(?P<tgt>[A-Za-z_][\w. ]*?)\s+(?:on|when)\s+(?P<trig>.+)$",
             text,
         )
         if m:
@@ -480,7 +526,7 @@ def _parse_temporal(body: List[str]) -> List[TemporalStatement]:
             continue
         # A → B  (no trigger)
         m = re.match(
-            r"^(?P<src>[A-Za-z_][\w ]*?)\s*→\s*(?P<tgt>.+)$", text
+            r"^(?P<src>[A-Za-z_][\w. ]*?)\s*→\s*(?P<tgt>.+)$", text
         )
         if m:
             out.append(
@@ -492,9 +538,25 @@ def _parse_temporal(body: List[str]) -> List[TemporalStatement]:
                 )
             )
             continue
-        # X persists beyond Y
+        # X persists/persists always  (unconditional persistence)
+        # Also supports multi-word subjects: "data_pipeline continuous_operation persists always"
         m = re.match(
-            r"^(?P<src>[A-Za-z_][\w ]*?)\s+persists\s+(?:beyond|after)\s+(?P<tgt>.+)$",
+            r"^(?P<src>.+?)\s+persists?\s+always\s*$",
+            text,
+        )
+        if m:
+            out.append(
+                TemporalStatement(
+                    kind="persistence",
+                    source=m.group("src").strip(),
+                    target="",
+                    line=ln,
+                )
+            )
+            continue
+        # X persists beyond Y / X persists after Y
+        m = re.match(
+            r"^(?P<src>.+?)\s+persists?\s+(?:beyond|after)\s+(?P<tgt>.+)$",
             text,
         )
         if m:
@@ -503,6 +565,22 @@ def _parse_temporal(body: List[str]) -> List[TemporalStatement]:
                     kind="persistence",
                     source=m.group("src").strip(),
                     target=m.group("tgt").strip(),
+                    line=ln,
+                )
+            )
+            continue
+        # X persists beyond Y when Z
+        m = re.match(
+            r"^(?P<src>.+?)\s+persists?\s+(?:beyond|after)\s+(?P<tgt>[A-Za-z_][\w.]*)\s+(?:on|when)\s+(?P<trig>.+)$",
+            text,
+        )
+        if m:
+            out.append(
+                TemporalStatement(
+                    kind="persistence",
+                    source=m.group("src").strip(),
+                    target=m.group("tgt").strip(),
+                    trigger=m.group("trig").strip(),
                     line=ln,
                 )
             )
@@ -517,7 +595,13 @@ def _parse_relational(body: List[str]) -> List[RelationalStatement]:
         if not text:
             continue
         m = re.match(
-            r"^(?P<src>[A-Za-z_][\w.]*)\s+(?P<rel>feeds|triggers|produces|depends_on)\s+(?P<tgt>[A-Za-z_][\w.]*)\s*(?:\((?P<qual>[^)]+)\))?\s*$",
+            r"^(?P<src>[A-Za-z_][\w.]*)\s+"
+            r"(?P<rel>feeds|feed|triggers|produces|depends_on|provides|controls|"
+            r"transforms|drives|fills|updates|encrypts|monitors|maps|"
+            r"trigger|fires|appends|reports)"
+            r"\s+(?P<tgt>.+?)"
+            r"(?:\s*\((?P<qual>[^)]+)\))?"
+            r"\s*$",
             text,
         )
         if m:
@@ -525,11 +609,29 @@ def _parse_relational(body: List[str]) -> List[RelationalStatement]:
                 RelationalStatement(
                     source=m.group("src"),
                     relation=m.group("rel"),
-                    target=m.group("tgt"),
+                    target=m.group("tgt").strip(),
                     qualifier=m.group("qual"),
                     line=ln,
                 )
             )
+            continue
+        # attempts_to VERB TARGET  (e.g. "unknown_mapper attempts_to map aurora")
+        m = re.match(
+            r"^(?P<src>[A-Za-z_][\w.]*)\s+attempts_to\s+"
+            r"(?P<verb>[a-z_]+)\s+(?P<tgt>.+?)\s*$",
+            text,
+        )
+        if m:
+            out.append(
+                RelationalStatement(
+                    source=m.group("src"),
+                    relation=f"attempts_to_{m.group('verb')}",
+                    target=m.group("tgt").strip(),
+                    qualifier=None,
+                    line=ln,
+                )
+            )
+            continue
     return out
 
 
@@ -540,9 +642,48 @@ def _parse_conditional(body: List[str]) -> List[ConditionalStatement]:
         text = _strip_prefix(raw)
         if not text:
             continue
-        # unconditional preservation: X retained always (...)
+        # key=value form: subject.property = value [on|when CONDITION]
         m = re.match(
-            r"^(?P<subj>[A-Za-z_][\w.]*)\s+(?P<act>retained)\s+(?P<cond>always|unconditionally)\s*(?:\((?P<note>[^)]+)\))?\s*$",
+            r"^(?P<subj>[A-Za-z_][\w.]*)\.(?P<pred>[A-Za-z_][\w]*)"
+            r"\s*=\s*(?P<val>\S+)\s*"
+            r"(?:on|when|during)\s+(?P<cond>.+)$",
+            text,
+        )
+        if m:
+            out.append(
+                ConditionalStatement(
+                    subject=f"{m.group('subj')}.{m.group('pred')}",
+                    action="is",
+                    condition=m.group("cond").strip(),
+                    unconditional=False,
+                    line=ln,
+                )
+            )
+            continue
+        # Plain key=value with when/on: subject = value when condition
+        m = re.match(
+            r"^(?P<subj>[A-Za-z_][\w.]*)\s*=\s*(?P<val>\S+)\s*"
+            r"(?:on|when|during)\s+(?P<cond>.+)$",
+            text,
+        )
+        if m:
+            out.append(
+                ConditionalStatement(
+                    subject=m.group("subj"),
+                    action="is",
+                    condition=m.group("cond").strip(),
+                    unconditional=False,
+                    line=ln,
+                )
+            )
+            continue
+        # unconditional preservation: X [retained|retains|appends] always [for/in <context>] [(note)]
+        m = re.match(
+            r"^(?P<subj>[A-Za-z_][\w.]*)\s+"
+            r"(?P<act>retained|retains|appends|activates|begins|deactivates)\s+"
+            r"(?:always|unconditionally)"
+            r"(?:\s+for\s+(?P<ctx>.+?))?"
+            r"\s*(?:\((?P<note>[^)]+)\))?\s*$",
             text,
         )
         if m:
@@ -550,17 +691,20 @@ def _parse_conditional(body: List[str]) -> List[ConditionalStatement]:
                 ConditionalStatement(
                     subject=m.group("subj"),
                     action=m.group("act"),
-                    condition=m.group("cond"),
+                    condition="always",
                     unconditional=True,
                     line=ln,
                 )
             )
             continue
-        # subject activates/begins/deactivates/retained/intensifies/lightens/etc.
-        # on|when CONDITION  — accepts both 'on' and 'when' as the trigger word,
-        # and any verb as the action (natural-language tolerant).
+        # subject.property ALWAYS [for <context>] [(note)]
+        #   e.g. "dashboard_app.retained always for operational_history"
         m = re.match(
-            r"^(?P<subj>[A-Za-z_][\w.]*)\s+(?P<act>[a-z_]+)\s+(?:on|when)\s+(?P<cond>.+)$",
+            r"^(?P<subj>[A-Za-z_][\w]*)\."
+            r"(?P<act>retained|retains|appends|activates|begins|deactivates)\s+"
+            r"(?:always|unconditionally)"
+            r"(?:\s+for\s+(?P<ctx>.+?))?"
+            r"\s*(?:\((?P<note>[^)]+)\))?\s*$",
             text,
         )
         if m:
@@ -568,7 +712,68 @@ def _parse_conditional(body: List[str]) -> List[ConditionalStatement]:
                 ConditionalStatement(
                     subject=m.group("subj"),
                     action=m.group("act"),
-                    condition=m.group("cond").strip(),
+                    condition="always",
+                    unconditional=True,
+                    line=ln,
+                )
+            )
+            continue
+        # X [retained|retains|appends] always in <context> when|on CONDITION
+        m = re.match(
+            r"^(?P<subj>[A-Za-z_][\w.]*)\s+"
+            r"(?P<act>retained|retains|appends|activates|begins|deactivates)\s+"
+            r"always\s+in\s+(?P<loc>\S+)\s+"
+            r"(?:on|when|during)\s+(?P<cond>.+)$",
+            text,
+        )
+        if m:
+            out.append(
+                ConditionalStatement(
+                    subject=m.group("subj"),
+                    action=m.group("act"),
+                    condition=f"always in {m.group('loc')} when {m.group('cond').strip()}",
+                    unconditional=False,
+                    line=ln,
+                )
+            )
+            continue
+        # X [retained|retains|appends] always for <context> when|on CONDITION
+        m = re.match(
+            r"^(?P<subj>[A-Za-z_][\w.]*)\s+"
+            r"(?P<act>retained|retains|appends|activates|begins|deactivates)\s+"
+            r"always\s+for\s+(?P<ctx>.+?)\s+"
+            r"(?:on|when|during)\s+(?P<cond>.+)$",
+            text,
+        )
+        if m:
+            out.append(
+                ConditionalStatement(
+                    subject=m.group("subj"),
+                    action=m.group("act"),
+                    condition=f"always for {m.group('ctx').strip()} when {m.group('cond').strip()}",
+                    unconditional=False,
+                    line=ln,
+                )
+            )
+            continue
+        # subject activates/begins/deactivates/retained/intensifies/lightens/etc.
+        # [adverb] on|when CONDITION
+        m = re.match(
+            r"^(?P<subj>[A-Za-z_][\w.]*)\s+"
+            r"(?P<act>[a-z_]+)"
+            r"(?:\s+(?P<adv>\w+))?"
+            r"\s+(?:on|when|during)\s+(?P<cond>.+)$",
+            text,
+        )
+        if m:
+            cond = m.group("cond").strip()
+            if m.group("adv"):
+                cond = f"{m.group('adv')} when {cond}"
+            out.append(
+                ConditionalStatement(
+                    subject=m.group("subj"),
+                    action=m.group("act"),
+                    condition=cond,
                     unconditional=False,
                     line=ln,
                 )
@@ -592,7 +797,7 @@ def _parse_conditional(body: List[str]) -> List[ConditionalStatement]:
             continue
         # Blocked-when form: X blocked when Y  (e.g. "cloud_processing blocked when privacy_mode_on")
         m = re.match(
-            r"^(?P<subj>[A-Za-z_][\w.]*)\s+blocked\s+(?:on|when)\s+(?P<cond>.+)$",
+            r"^(?P<subj>[A-Za-z_][\w.]*)\s+blocked\s+(?:on|when|during)\s+(?P<cond>.+)$",
             text,
         )
         if m:
@@ -618,7 +823,7 @@ def _parse_behavior(body: List[List[str]]) -> List[BehavioralStatement]:
             continue
         # behaves_as
         m = re.match(
-            r"^(?P<subj>[A-Za-z_][\w.]*)\s+behaves_as\s+(?P<role>.+)$", text
+            r"^(?P<subj>[A-Za-z_][\w.]*)\s+behav(?:es?|iors?)_as\s+(?P<role>.+)$", text
         )
         if m:
             out.append(
@@ -646,9 +851,9 @@ def _parse_behavior(body: List[List[str]]) -> List[BehavioralStatement]:
                 )
             )
             continue
-        # transitions from A to B on EVENT
+        # transitions from A to B on|when EVENT
         m = re.match(
-            r"^(?P<subj>[A-Za-z_][\w.]*)\s+transitions\s+from\s+(?P<from>[A-Za-z_][\w]*)\s+to\s+(?P<to>[A-Za-z_][\w]*)\s+on\s+(?P<evt>.+)$",
+            r"^(?P<subj>[A-Za-z_][\w.]*)\s+transitions\s+from\s+(?P<from>[A-Za-z_][\w]*)\s+to\s+(?P<to>[A-Za-z_][\w]*)\s+(?:on|when)\s+(?P<evt>.+)$",
             text,
         )
         if m:
@@ -888,22 +1093,54 @@ class CoParser:
 
     Public API:
         parse(source) -> List[Expression]
+
+    Error collection:
+        After calling parse(), inspect self.errors to retrieve all
+        detected issues, classified into the 9 error categories
+        defined in orren_engine.errors.
     """
 
     def __init__(self) -> None:
         self.last_lexed: List[LexedLine] = []
         self.last_sections: Dict[int, List[_Section]] = {}
+        self.errors: ErrorCollector = ErrorCollector()
 
     def parse(self, source: str) -> List[Expression]:
         lines = lex(source)
         self.last_lexed = lines
+        self.errors.clear()
+        # Category 3: empty source.
+        if not source.strip():
+            self.errors.add(
+                ErrorCode.EMPTY_SOURCE,
+                "source file is empty — no `create` expression found",
+                category=ErrorCategory.INCOMPLETE,
+            )
+            return []
         chunks = split_expressions(lines)
+        # Category 3: no create block found at all.
+        if not chunks:
+            first_non_blank = 0
+            for ln in lines:
+                if not ln.is_blank and not ln.is_comment:
+                    first_non_blank = ln.lineno
+                    break
+            self.errors.add(
+                ErrorCode.INCOMPLETE_EXPRESSION,
+                "no `create` expression found; file must start with "
+                "`create NAME : Type`",
+                category=ErrorCategory.INCOMPLETE,
+                line=first_non_blank,
+            )
+            return []
         expressions: List[Expression] = []
         for start_line, chunk in chunks:
             sections = split_sections(chunk)
             self.last_sections[start_line] = sections
             expr = self._build_expression(chunk, sections)
             expressions.append(expr)
+        # Run post-parse error detection for syntax-level issues.
+        self._detect_syntax_errors(lines, chunks, expressions)
         return expressions
 
     # -- internal --------------------------------------------------------
@@ -1020,6 +1257,135 @@ class CoParser:
             ]
         return expr
 
+    # ------------------------------------------------------------------
+    # Error detection
+    # ------------------------------------------------------------------
+
+    def _detect_syntax_errors(
+        self,
+        lines: List[LexedLine],
+        chunks: List[Tuple[int, List[LexedLine]]],
+        expressions: List[Expression],
+    ) -> None:
+        """Post-parse pass: detect issues that the dimension parsers
+        silently skipped (unknown sections, malformed statements).
+
+        This call does NOT change parsing results — it only populates
+        self.errors so callers can report issues when desired.
+        """
+        for start_line, chunk in chunks:
+            sections = self.last_sections.get(start_line, [])
+            for sec in sections:
+                # Unknown section keyword (a `keyword:` header that is
+                # not one of the 13 known keywords).
+                if sec.keyword and sec.keyword not in SECTION_KEYWORDS:
+                    self.errors.add(
+                        ErrorCode.UNKNOWN_SECTION,
+                        f"unknown section keyword '{sec.keyword}'",
+                        category=ErrorCategory.UNKNOWN,
+                        line=sec.header_line,
+                    )
+                    continue
+                # Unknown dimension name in a `degrade` or `calibrate` line.
+                if sec.keyword == "degrade":
+                    self._check_degrade_errors(sec)
+                if sec.keyword in DIMENSION_PARSERS:
+                    # Check for malformed lines in known sections.
+                    self._check_dimension_syntax(sec)
+            # Check for malformed create header.
+            for ln in chunk:
+                if ln.is_blank or ln.is_comment:
+                    continue
+                m = CREATE_RE.match(ln.text)
+                if m:
+                    try:
+                        ExpressionType(m.group("type"))
+                    except ValueError:
+                        self.errors.add(
+                            ErrorCode.MALFORMED_CREATE,
+                            f"unknown expression type '{m.group('type')}'; "
+                            f"valid types: Application, Subsystem, Equilibrium, "
+                            f"Interface, Document, Device, Service",
+                            category=ErrorCategory.UNKNOWN,
+                            line=ln.lineno,
+                        )
+                    # Check if the first non-blank/non-comment line is a
+                    # `create` header; if not, it's invalid syntax.
+                    break
+            else:
+                # No `create` line found in this chunk — the first
+                # non-blank/non-comment line is something else.
+                for ln in chunk:
+                    if ln.is_blank or ln.is_comment:
+                        continue
+                    self.errors.add(
+                        ErrorCode.MALFORMED_CREATE,
+                        f"expected `create NAME : Type` but found: '{ln.stripped}'",
+                        category=ErrorCategory.SYNTAX,
+                        line=ln.lineno,
+                    )
+                    break
+
+    def _check_degrade_errors(self, sec: _Section) -> None:
+        """Flag unknown dimension names in degrade lines."""
+        for raw in sec.body:
+            text = _strip_prefix(raw)
+            if not text:
+                continue
+            m = re.match(
+                r"^(?P<mode>tolerate|require)\s+\w+\s+for\s+"
+                r"(?P<dim>\w+)\s+on\s+.+$",
+                text,
+            )
+            if m:
+                dim_name = m.group("dim")
+                try:
+                    Dimension(dim_name)
+                except ValueError:
+                    self.errors.add(
+                        ErrorCode.UNKNOWN_DIMENSION,
+                        f"unknown dimension '{dim_name}' in degrade line",
+                        category=ErrorCategory.UNKNOWN,
+                        line=_line_no(raw),
+                    )
+            else:
+                self.errors.add(
+                    ErrorCode.MALFORMED_STATEMENT,
+                    f"malformed degrade line: '{text}'",
+                    category=ErrorCategory.SYNTAX,
+                    line=_line_no(raw),
+                )
+
+    def _check_dimension_syntax(self, sec: _Section) -> None:
+        """Flag unparsed lines in dimension sections.
+
+        Skips the context section because it supports multi-line
+        continuation values — lines that don't match the key=value
+        pattern are continuation text appended to the previous value.
+        """
+        if sec.keyword == "context":
+            return
+        parser = DIMENSION_PARSERS[sec.keyword]
+        parsed = parser(sec.body)
+        parsed_lines = set()
+        for item in parsed:
+            if hasattr(item, "line"):
+                parsed_lines.add(item.line)
+        # Lines in the body that produced no parsed output.
+        for raw in sec.body:
+            ln = _line_no(raw)
+            text = _strip_prefix(raw)
+            if not text:
+                continue
+            if ln not in parsed_lines:
+                self.errors.add(
+                    ErrorCode.MALFORMED_STATEMENT,
+                    f"unrecognized statement in '{sec.keyword}' section: "
+                    f"'{text}'",
+                    category=ErrorCategory.SYNTAX,
+                    line=ln,
+                )
+
 
 def _payload_to_dicts(payload: Any) -> List[Dict[str, object]]:
     """Convert a list of dataclass instances to a list of dicts."""
@@ -1049,3 +1415,14 @@ __all__ = [
     "DIMENSION_PARSERS",
     "SECTION_KEYWORDS",
 ]
+
+
+def parse_with_errors(source: str) -> Tuple[List["Expression"], List[OrrenError]]:
+    """Parse source and return (expressions, errors).
+
+    The errors list is sorted deterministically (by line, then code).
+    An empty errors list means the input is valid (category 1).
+    """
+    parser = CoParser()
+    exprs = parser.parse(source)
+    return exprs, parser.errors.sorted()

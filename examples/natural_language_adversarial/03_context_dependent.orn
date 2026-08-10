@@ -1,0 +1,75 @@
+create dashboard_app : Application
+
+    context:
+        purpose: A dashboard where the meaning of "minimal" is defined later by a contradictory requirement
+        audience: Operations teams, executives
+        domain: business intelligence / dashboarding
+        vibe_brief: minimal then comprehensive
+
+    structure:
+        dashboard
+            overview_panel
+            detail_section
+            controls
+            alert_banner
+
+    cognitive:
+        dashboard.optimization_target = minimal_clutter
+        dashboard.first_principle = simplicity_above_all
+        dashboard.data_scope = comprehensive_detail_set
+        overview_panel.metrics = essential_kpis_only
+
+    vibe:
+        dashboard_app.color_character = calm_blue
+        dashboard_app.tone = minimal
+        dashboard_app.form_character = clean_layout
+
+    calibrate:
+        calibrate calm_blue for vibe:
+            maps_to color_palette
+            threshold: blue_hue in [200, 240]
+            signal: css_color_value
+
+    spatial:
+        dashboard located_in dashboard_app
+        overview_panel located_in dashboard
+        detail_section located_in dashboard
+        controls located_in dashboard
+        alert_banner located_in dashboard
+
+    temporal:
+        overview_panel → detail_view on metric_click
+        alert_banner → auto_dismiss on timeout_30s
+        overview_panel persists always
+
+    relational:
+        overview_panel feeds detail_section
+        controls trigger overview_panel_refresh
+        alert_banner produces notification
+
+    conditional:
+        dashboard_app activates always
+        overview_panel activates always
+        detail_section activates when metric_selected
+        alert_banner fires when alert_threshold_exceeded
+        dashboard_app.retained always for operational_history
+
+    behavior:
+        dashboard_app behaves_as operational_view
+        dashboard_app lifecycle: loading -> ready -> error -> loading
+        overview_panel behaves_as summary_provider
+
+    equilibrium:
+        simplicity_vs_comprehensiveness:
+            when cognitive.optimization_target = minimal_clutter AND cognitive.data_scope = comprehensive_detail_set
+            preserve both
+            resolution: summary view minimal detail view expandable
+            rationale: "everything" is context-dependent — resolved by progressive disclosure
+
+    realize:
+        target: web_dashboard (HTML/CSS/JS)
+            capabilities: layout, color, event_handling, chart_rendering
+            can_express: spatial, vibe, cognitive
+            needs_bridge: websocket_stream
+            cannot_express: cognitive.ml
+            preservation_score: 0.88

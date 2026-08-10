@@ -86,7 +86,8 @@ def _read_source(path: str) -> str:
 
 def _cmd_parse(args) -> int:
     source = _read_source(args.file)
-    exprs = CoParser().parse(source)
+    parser = CoParser()
+    exprs = parser.parse(source)
     print(f"Parsed {len(exprs)} expression(s):")
     for e in exprs:
         print(f"  - {e.name} : {e.type.value}")
@@ -94,6 +95,13 @@ def _cmd_parse(args) -> int:
             print(f"      {ctx.key}: {ctx.value}")
         for kw, payload in e.raw_sections.items():
             print(f"      {kw}: {len(payload)} entries")
+    # Report any parse-time errors detected.
+    errors = parser.errors.sorted()
+    if errors:
+        print(f"\nParse errors ({len(errors)}):")
+        for err in errors:
+            cat = err.category.value
+            print(f"  [{cat}] {err.code} line {err.line}: {err.message}")
     return 0
 
 
@@ -152,7 +160,7 @@ def _cmd_realize(args) -> int:
     # Write a manifest with all artifact metadata.
     manifest = {
         "version": __version__,
-        "source_file": os.path.abspath(args.file),
+        "source_file": os.path.basename(args.file),
         "expressions": result.expressions_count,
         "sir_nodes": result.sir_node_count,
         "equilibrium_outcomes": result.equilibrium_outcomes,

@@ -1,0 +1,89 @@
+create concept_app : Application
+
+    context:
+        purpose: An app that uses the Aurora interaction model — a concept that does not exist in any known design system
+        audience: UX researchers, experimental designers
+        domain: experimental interaction design
+        vibe_brief: use the Aurora interaction model
+
+    structure:
+        interaction_space
+            focus_surface
+            peripheral_layer
+            temporal_flow
+        concept_bridge
+            unknown_mapper
+
+    cognitive:
+        concept_app.architecture = aurora_interaction_model
+        concept_app.interaction_paradigm = unknown
+        concept_app.user_model = speculative
+        focus_surface.rendering = dynamic_occlusion
+        peripheral_layer.visibility = contextual_reveal
+        temporal_flow.timing = adaptive_rhythm
+
+    vibe:
+        concept_app.color_character = aurora_violet
+        concept_app.tone = ethereal
+        concept_app.aesthetic = "like standing in the northern lights"
+        concept_app.activation_signal = "phased resonance"
+
+    calibrate:
+        calibrate aurora_interaction_model for cognitive:
+            maps_to interaction_paradigm
+            threshold: no known mapping exists
+            signal: unknown
+            note: this is a genuinely unknown concept — must not be fabricated
+
+        calibrate aurora_violet for vibe:
+            maps_to color_palette
+            threshold: purple_hue in [260, 300]
+            signal: css_color_value
+            note: the color is named but the interaction model is not
+
+        calibrate "phased resonance" for vibe:
+            maps_to activation_signal
+            threshold: no CSS equivalent
+            signal: undefined
+            note: metaphorical — needs clarification
+
+    spatial:
+        interaction_space located_in concept_app
+        concept_bridge located_in concept_app
+        focus_surface located_in interaction_space
+        peripheral_layer located_in interaction_space
+        temporal_flow located_in interaction_space
+        unknown_mapper located_in concept_bridge
+
+    temporal:
+        focus_surface → peripheral_layer on attention_shift
+        peripheral_layer → temporal_flow on context_change
+        temporal_flow → focus_surface on rhythm_cycle
+        concept_app continuous_operation persists beyond session
+
+    relational:
+        focus_surface feeds concept_bridge
+        peripheral_layer provides context_to focus_surface
+        temporal_flow drives focus_surface
+        unknown_mapper attempts_to map aurora_interaction_model
+
+    conditional:
+        concept_app activates always
+        focus_surface activates when user_present
+        peripheral_layer activates when context_available
+        concept_bridge fires when concept_requires_mapping
+        temporal_flow retained always
+
+    behavior:
+        concept_app behaves_as experimental_space
+        concept_app lifecycle: dormant -> initializing -> active -> dormant
+        concept_bridge behaves_as unknown_resolver
+        concept_bridge lifecycle: awaiting_definition -> attempting_mapping -> needs_clarification -> awaiting_definition
+
+    realize:
+        target: experimental_ui (HTML/CSS/JS)
+            capabilities: layout, color, motion, event_handling
+            can_express: spatial, vibe, cognitive.prioritization
+            needs_bridge: aurora_sdk
+            cannot_express: cognitive.unknown_concepts
+            preservation_score: 0.45

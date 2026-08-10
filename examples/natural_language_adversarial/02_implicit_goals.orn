@@ -1,0 +1,113 @@
+create data_pipeline : Application
+
+    context:
+        purpose: A data ingestion pipeline where the primary goal is implied: the system should prioritize correctness over speed, and when a data source is degraded it should fall back to cached results rather than failing, but only if the cache is fresh enough
+        audience: Data engineers, analysts
+        domain: data engineering / ETL
+        vibe_brief: reliable but adaptive
+
+    structure:
+        ingestion
+            source_connector
+            validation_layer
+            error_handler
+        processing
+            transformer
+            aggregator
+        output
+            sink_writer
+            cache_layer
+
+    cognitive:
+        data_pipeline.priority = correctness_over_speed
+        data_pipeline.activation_logic = continuous_ingestion
+        data_pipeline.error_handling = fallback_to_cache_if_fresh
+        data_pipeline.cache_freshness = 4_hours
+        data_pipeline.throughput_target = best_effort
+        data_pipeline.data_integrity = strict_validation
+        ingestion.activation = always_running
+        validation_layer.validation = schema_and_semantic_checks
+        error_handler.on_failure = route_to_dead_letter_queue
+        aggregator.aggregation = windowed_group_by_5min
+        sink_writer.delivery = at_least_once
+        cache_layer.freshness = ttl_based
+
+    vibe:
+        data_pipeline.color_character = trust_blue
+        data_pipeline.tone = methodical
+        data_pipeline.form_character = pipeline_sequencer
+        data_pipeline.aesthetic = "like a well-organized warehouse — everything has its place"
+
+    calibrate:
+        calibrate trust_blue for vibe:
+            maps_to color_palette
+            threshold: blue_hue in [200, 240]
+            signal: css_color_value
+
+        calibrate "fallback_to_cache_if_fresh" for cognitive:
+            maps_to error_handling_strategy
+            threshold: implied by priority=correctness_over_speed + cache_freshness=4_hours
+            signal: conditional_logic_branch
+            note: this priority structure is IMPLIED, not stated as an explicit rule
+
+    spatial:
+        ingestion located_in data_pipeline
+        processing located_in data_pipeline
+        output located_in data_pipeline
+        source_connector located_in ingestion
+        validation_layer located_in ingestion
+        error_handler located_in ingestion
+        transformer located_in processing
+        aggregator located_in processing
+        sink_writer located_in output
+        cache_layer located_in output
+
+    temporal:
+        source_connector → validation_layer on data_received
+        validation_layer → transformer on validation_passed
+        transformer → aggregator on data_transformed
+        aggregator → sink_writer on batch_complete
+        error_handler → cache_layer on validation_failure
+        cache_layer → sink_writer on fallback_complete
+        source_connector persists beyond batch
+        data_pipeline continuous_operation persists beyond system_restart
+
+    relational:
+        source_connector feeds validation_layer
+        validation_layer feeds transformer
+        transformer feeds aggregator
+        aggregator feeds sink_writer
+        error_handler triggers cache_layer
+        cache_layer provides data_to_sink_writer
+        sink_writer produces output_records
+
+    conditional:
+        data_pipeline activates when new_data_available
+        validation_layer activates on data_received
+        error_handler fires when validation_fails
+        cache_layer activates when primary_source_unavailable AND cache_fresh
+        sink_writer retains always for audit
+
+    behavior:
+        data_pipeline behaves_as resilient_processor
+        data_pipeline lifecycle: idle -> ingesting -> processing -> outputting -> idle
+
+    equilibrium:
+        correctness_vs_speed:
+            when cognitive.priority = correctness AND cognitive.throughput = best_effort
+            preserve both
+            resolution: correctness is a hard gate speed is best-effort
+            rationale: implied priority structure must be preserved
+
+    degrade:
+        require full for cognitive on data_integrity
+        require faithful for cognitive on error_handling
+        tolerate proxy for vibe on aesthetic
+
+    realize:
+        target: pipeline_service (Go)
+            capabilities: http_handling, concurrent_workers, json_serialization
+            can_express: cognitive, temporal, relational, conditional, behavioral
+            needs_bridge: source_adapter, sink_adapter
+            cannot_express: vibe, spatial
+            preservation_score: 0.94

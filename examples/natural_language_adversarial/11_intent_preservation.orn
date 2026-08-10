@@ -1,0 +1,81 @@
+create user_data_app : Application
+
+    context:
+        purpose: An app with two different wordings of the same intent: protect user data and never expose private information
+        audience: Product team, privacy engineers
+        domain: data privacy / user trust
+        vibe_brief: protect then never expose
+
+    structure:
+        app
+            data_handler
+            privacy_guard
+            export_module
+
+    cognitive:
+        user_data_app.requirement_1 = "Protect the user's data"
+        user_data_app.requirement_2 = "Never expose private user information"
+        user_data_app.privacy_policy = both_requirements_apply
+        user_data_app.data_handling = encrypted_at_rest_and_in_transit
+        user_data_app.access_control = role_based_minimum_necessary
+        data_handler.storage = encrypted_store
+        privacy_guard.enforcement = deny_on_policy_violation
+        export_module.filtering = sensitive_data_redacted
+
+    vibe:
+        user_data_app.color_character = trust_blue
+        user_data_app.tone = trustworthy
+        user_data_app.form_character = secure_by_default
+
+    calibrate:
+        calibrate trust_blue for vibe:
+            maps_to color_palette
+            threshold: blue_hue in [200, 240]
+            signal: css_color_value
+
+    spatial:
+        app located_in user_data_app
+        data_handler located_in app
+        privacy_guard located_in app
+        export_module located_in app
+
+    temporal:
+        data_handler → privacy_guard on data_access_request
+        privacy_guard → export_module on access_approved
+        privacy_guard → deny_access on policy_violation
+        data_handler persists always
+
+    relational:
+        data_handler feeds privacy_guard
+        privacy_guard feeds export_module
+        privacy_guard triggers audit_log_on deny
+        export_module produces filtered_output
+
+    conditional:
+        user_data_app activates always
+        data_handler activates on data_received
+        privacy_guard fires when access_requested
+        export_module activates when approval_granted
+        data_handler retained always for compliance
+        privacy_guard retained always for audit
+
+    behavior:
+        user_data_app behaves_as trusted_guardian
+        user_data_app lifecycle: locked -> unlocked -> active -> locked
+        privacy_guard behaves_as policy_enforcer
+        privacy_guard lifecycle: monitoring -> enforcing -> monitoring
+
+    equilibrium:
+        protect_vs_never_expose:
+            when cognitive.requirement_1 = protect AND cognitive.requirement_2 = never_expose
+            preserve both
+            resolution: requirement_1 mandates encryption requirement_2 mandates no exposure both are the same intent
+            rationale: "Protect the user's data" and "Never expose private user information" are semantically equivalent
+
+    realize:
+        target: privacy_service (Python)
+            capabilities: file_storage, crypto, retention, json_serialization
+            can_express: cognitive.storage, cognitive.privacy, cognitive.access_control
+            needs_bridge: kms_integration
+            cannot_express: vibe, spatial
+            preservation_score: 0.96

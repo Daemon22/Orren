@@ -1,0 +1,77 @@
+create app : Application
+
+    context:
+        purpose: An app where two requirements sound similar but have different intent — performance optimization vs performance monitoring
+        audience: Engineering team
+        domain: software engineering
+        vibe_brief: optimize then monitor
+
+    structure:
+        app
+            request_processor
+            metrics_collector
+            config_store
+
+    cognitive:
+        app.requirement_1 = "Optimize the request processing pipeline for throughput"
+        app.requirement_2 = "Monitor the request processing pipeline for bottlenecks"
+        app.requirement_1_interpretation = "change code to make it faster"
+        app.requirement_2_interpretation = "add instrumentation to measure it"
+        request_processor.optimization = batch_processing
+        request_processor.instrumentation = latency_histograms
+        metrics_collector.collection = prometheus_format
+        config_store.scope = runtime_tunables
+
+    vibe:
+        app.color_character = analytics_blue
+        app.tone = observant
+
+    calibrate:
+        calibrate analytics_blue for vibe:
+            maps_to color_palette
+            threshold: blue_hue in [200, 240]
+            signal: css_color_value
+
+    spatial:
+        app located_in app
+        request_processor located_in app
+        metrics_collector located_in app
+        config_store located_in app
+
+    temporal:
+        request_processor → metrics_collector on request_complete
+        metrics_collector → config_store on threshold_crossed
+        request_processor persists always
+
+    relational:
+        request_processor feeds metrics_collector
+        metrics_collector provides metrics_to config_store
+        config_store provides config_to request_processor
+        metrics_collector monitors request_processor
+
+    conditional:
+        app activates always
+        request_processor activates on request_received
+        metrics_collector fires when request_processed
+        config_store retained always
+
+    behavior:
+        app behaves_as instrumented_pipeline
+        app lifecycle: starting -> active -> draining -> starting
+        request_processor behaves_as throughput_optimizer
+        metrics_collector behaves_as bottleneck_detector
+
+    equilibrium:
+        optimization_vs_monitoring:
+            when cognitive.requirement_1 = optimize AND cognitive.requirement_2 = monitor
+            preserve both
+            resolution: optimize the code and instrument it — two different interventions on the same pipeline
+            rationale: "optimize for throughput" changes code "monitor for bottlenecks" adds instrumentation they are NOT the same intent
+
+    realize:
+        target: instrumented_backend (Go)
+            capabilities: concurrent_workers, json_serialization, http_handling
+            can_express: cognitive, temporal, relational, conditional, behavioral
+            needs_bridge: metrics_endpoint
+            cannot_express: vibe, spatial
+            preservation_score: 0.90
