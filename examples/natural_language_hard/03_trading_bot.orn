@@ -1,0 +1,291 @@
+create trading_bot : Application
+
+    context:
+        purpose: a high-frequency trading bot that makes split-second decisions on market microstructure, manages a portfolio of crypto and equity positions, executes trades through multiple venues, manages risk in real-time, and must never lose track of a position or a dollar — it should feel like a calm, hyper-aware trader watching multiple screens, alert but never panicked
+        audience: quantitative traders, risk managers, compliance officers
+        domain: finance / algorithmic trading / market microstructure
+        vibe_brief: hypervigilant but never frantic precise but not rigid
+
+    structure:
+        trading_core
+            market_data
+                order_book_watcher
+                price_oracle
+                liquidity_scanner
+                news_sentiment
+            strategy_engine
+                alpha_generator
+                risk_model
+                position_sizer
+                execution_planner
+            execution
+                venue_selector
+                order_router
+                fill_tracker
+                slippage_guard
+            position_manager
+                portfolio_state
+                exposure_calculator
+                margin_monitor
+                rebalance_trigger
+            risk
+                stop_loss
+                max_drawdown
+                concentration_guard
+                position_limit
+
+    cognitive:
+        trading_core.decision_latency = sub_millisecond
+        order_book_watcher.book_depth = top_10_levels
+        order_book_watcher.update_frequency = on_every_tick
+        price_oracle.feed = websocket_stream
+        price_oracle.staleness = reject_after_1_second
+        liquidity_scanner.scan = cross_venue
+        news_sentiment.feed = rss_plus_websocket
+        alpha_generator.model = ensemble_of_12
+        alpha_generator.retraining = online
+        risk_model.volatility = ewma_30_day
+        risk_model.correlation = dynamic_pearson
+        position_sizer.algorithm = kelly_criterion
+        position_sizer.max_leverage = 3x
+        execution_planner.slicing = twap_with_jit
+        venue_selector.routing = smart_order_router
+        order_router.protocol = FIX_over_TLS
+        fill_tracker.confirmation = immediate
+        slippage_guard.threshold = 0.5_percent
+        exposure_calculator.real_time = streaming
+        margin_monitor.margin_call = auto_deleverage
+        rebalance_trigger.frequency = adaptive
+        stop_loss.type = trailing_percent
+        max_drawdown.limit = 3_percent_daily
+        concentration_guard.max_sector = 15_percent
+        position_limit.per_asset = 2_percent_portfolio
+
+    vibe:
+        trading_bot.color_character = signal_green
+        trading_bot.tone = hypervigilant_calm
+        trading_bot.form_character = precision_instrument
+        trading_bot.aesthetic = "like a trading floor at 3am — intense focus, zero chaos, every pixel has purpose"
+        trading_bot.activation_signal = subtle_pulse_then_alert
+        order_book_watcher.tone = attentive
+        alpha_generator.tone = analytical
+        risk_model.tone = conservative
+        execution_planner.tone = decisive
+        stop_loss.color_character = danger_red
+        stop_loss.tone = emergency_but_controlled
+        position_manager.color_character = portfolio_gold
+        position_manager.tone = authoritative
+        max_drawdown.color_character = warning_amber
+        max_drawdown.tone = vigilant
+
+    spatial:
+        market_data located_in trading_core
+        strategy_engine located_in trading_core
+        execution located_in trading_core
+        position_manager located_in trading_core
+        risk located_in trading_core
+        order_book_watcher located_in market_data
+        price_oracle located_in market_data
+        liquidity_scanner located_in market_data
+        news_sentiment located_in market_data
+        alpha_generator located_in strategy_engine
+        risk_model located_in strategy_engine
+        position_sizer located_in strategy_engine
+        execution_planner located_in strategy_engine
+        venue_selector located_in execution
+        order_router located_in execution
+        fill_tracker located_in execution
+        slippage_guard located_in execution
+        portfolio_state located_in position_manager
+        exposure_calculator located_in position_manager
+        margin_monitor located_in position_manager
+        rebalance_trigger located_in position_manager
+        stop_loss located_in risk
+        max_drawdown located_in risk
+        concentration_guard located_in risk
+        position_limit located_in risk
+
+    temporal:
+        market_data_update → alpha_check on tick
+        alpha_check → position_size on signal_generated
+        position_size → risk_check on sizing_complete
+        risk_check → venue_select on risk_approved
+        venue_select → order_route on venue_chosen
+        order_route → fill_track on order_sent
+        fill_track → position_update on fill_received
+        position_update → exposure_calc on position_changed
+        exposure_calc → margin_check on exposure_updated
+        margin_check → rebalance_or_stop on margin_changed
+        stop_loss_triggers → emergency_liquidation on threshold_breached
+        news_event → alpha_override on breaking_news
+        portfolio_state persist beyond session_end
+        raw_order persist beyond fill_confirmation
+
+    relational:
+        order_book_watcher feeds alpha_generator
+        price_oracle feeds liquidity_scanner
+        liquidity_scanner feeds venue_selector
+        news_sentiment feeds alpha_generator
+        alpha_generator feeds position_sizer
+        risk_model feeds position_sizer
+        position_sizer feeds execution_planner
+        execution_planner feeds venue_selector
+        venue_selector feeds order_router
+        order_router feeds fill_tracker
+        fill_tracker feeds position_manager
+        exposure_calculator feeds risk_model
+        margin_monitor feeds stop_loss
+        max_drawdown feeds stop_loss
+        concentration_guard feeds position_limit
+        position_manager feeds risk
+
+    conditional:
+        stop_loss fires when price_moves_against_position
+        stop_loss fires when margin_ratio_below_threshold
+        max_drawdown fires when daily_loss_exceeds_limit
+        concentration_guard fires when sector_exposure_exceeds_max
+        position_limit fires when single_asset_exceeds_limit
+        venue_selector activates on liquidity_signal_present
+        execution_planner activates when risk_approved
+        order_router activates when venue_chosen
+        fill_tracker updates on execution_report
+        news_sentiment overrides alpha_generator on breaking_news
+        position_manager rebalances when leverage_below_threshold
+        margin_monitor calls on margin_call_triggered
+        portfolio_state retained always (accounting ledger)
+        raw_order retained always (audit trail)
+
+    behavior:
+        trading_bot behaves_as vigilant_trader
+        trading_bot transitions from idle to watching on market_open
+        trading_bot transitions from watching to executing on signal_generated
+        trading_bot transitions from executing to reviewing on all_orders_filled
+        trading_bot transitions from reviewing to watching on cycle_complete
+        trading_bot transitions from any_state to emergency on stop_loss_triggered
+        trading_bot lifecycle: idle -> watching -> executing -> reviewing -> watching -> idle
+        stop_loss lifecycle: monitoring -> armed -> triggered -> liquidating -> monitoring
+        position_manager lifecycle: stable -> adjusting -> rebalancing -> stable
+        execution_planner behaviors_as tactical_orchestrator
+        execution_planner transitions from planning to routing on execution_approved
+        execution_planner lifecycle: planning -> routing -> filling -> confirming -> planning
+
+    calibrate:
+        calibrate signal_green for vibe:
+            maps_to profit_indicator_color
+            threshold: green_hue in [90, 150] AND saturation >= 0.7
+            signal: css_color_value
+
+        calibrate hypervigilant_calm for vibe:
+            maps_to alert_intensity
+            threshold: normal_pulse_duration 800ms AND urgent_pulse_duration 120ms
+            signal: animation_timing
+
+        calibrate "intense focus zero chaos" for vibe:
+            maps_to interface_density
+            threshold: no_decorative_elements AND all_pixels_informed
+            signal: layout_metric
+            note: proxy — the feeling of focus is emergent
+
+        calibrate danger_red for vibe:
+            maps_to stop_loss_color
+            threshold: red_hue in [0, 15] AND luminance_contrast >= 4.5
+            signal: visual_alert_spec
+
+        calibrate precision_instrument for vibe:
+            maps_to layout_precision
+            threshold: pixel_perfect_alignment AND monospaced_data
+            signal: typography_and_layout
+
+    equilibrium:
+        speed_vs_accuracy:
+            when cognitive.decision_latency is active AND risk_model.volatility is active
+            preserve both
+            resolution: fast path for liquid pairs slow path for volatile
+            rationale: speed kills accuracy kills accounts
+
+        aggression_vs_safety:
+            when position_sizer.leverage is active AND max_drawdown.limit is active
+            preserve both
+            resolution: scale down as drawdown approaches limit
+            rationale: survival first growth second
+
+        signal_vs_noise:
+            when alpha_generator.model is active AND news_sentiment.feed is active
+            preserve both
+            resolution: news overrides only on breaking severity 9+
+            rationale: not every headline deserves a trade
+
+        transparency_vs_edge:
+            when vibe.precision is active AND cognitive.slippage is active
+            preserve both
+            resolution: show slippage not strategy internals
+            rationale: show costs hide edges
+
+        urgency_vs_control:
+            when vibe.hypervigilant is active AND stop_loss.tone is active
+            preserve both
+            resolution: urgent visuals controlled execution
+            rationale: speed with a brake not speed with panic
+
+        persistence_vs_performance:
+            when cognitive.portfolio_state is active AND cognitive.decision_latency is active
+            preserve both
+            resolution: async writes no blocking sync
+            rationale: every dollar must be accounted for but never slow the trade
+
+    degrade:
+        require full for cognitive on alpha_generation
+        require full for cognitive on risk_model
+        require full for cognitive on stop_loss
+        require full for cognitive on execution
+        require faithful for vibe on color_character
+        require faithful for vibe on tone
+        tolerate proxy for vibe on aesthetic
+        require full for temporal on execution_sequence
+        require full for relational on data_flow
+        require full for behavioral on lifecycle_completeness
+        require full for conditional on risk_gates
+        require documented for vibe on activation_signal
+
+    realize:
+        target: trader_terminal (HTML/CSS/JS)
+            capabilities: dom_manipulation, websocket, chart_rendering, event_handling, color
+            can_express: spatial, vibe, conditional, temporal, relational, cognitive.prioritization
+            needs_bridge: websocket_stream, auth_service
+            cannot_express: cognitive.ml, cognitive.crypto, cognitive.signal_processing
+            preservation_score: 0.83
+
+        target: strategy_engine (Rust)
+            capabilities: simd_processing, zero_copy, lock_free, memory_safety, crypto
+            can_express: cognitive, temporal, relational, conditional, behavioral
+            needs_bridge: model_serving, data_feed
+            cannot_express: vibe, spatial
+            preservation_score: 0.99
+
+        target: execution_gateway (Go)
+            capabilities: http_handling, json_serialization, concurrent_workers, connection_pooling
+            can_express: cognitive, temporal, relational, conditional, behavioral, risk
+            needs_bridge: fix_client, rest_apis, order_gateway
+            cannot_express: vibe, spatial
+            preservation_score: 0.96
+
+        target: risk_monitor (Go)
+            capabilities: streaming_analytics, alerting, state_machine, time_series_db
+            can_express: cognitive, temporal, relational, conditional, behavioral
+            needs_bridge: prometheus, alertmanager, kafka
+            cannot_express: vibe, spatial, behavioral.lifecycle
+            preservation_score: 0.97
+
+        target: portfolio_tracker (TypeScript)
+            capabilities: dom_manipulation, type_safety, state_management, charting
+            can_express: spatial, vibe, conditional, relational, temporal
+            needs_bridge: wallet_api, portfolio_oracle
+            cannot_express: cognitive.ml, cognitive.signal_processing
+            preservation_score: 0.89
+
+        target: audit_store (Python)
+            capabilities: append_only_log, merkle_tree, compression, json_serialization
+            can_express: cognitive.storage, cognitive.retention, temporal
+            needs_bridge: secure_db, kms_integration
+            cannot_express: vibe, spatial, behavioral, cognitive.detection
+            preservation_score: 1.0

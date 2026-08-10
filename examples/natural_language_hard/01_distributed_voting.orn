@@ -1,0 +1,249 @@
+create distributed_voting_system : Application
+
+    context:
+        purpose: a Byzantine fault-tolerant voting system that lets a committee of validators reach consensus on proposals even when up to a third of them are malicious or faulty, and it should feel trustworthy and transparent to honest voters while never revealing individual votes
+        audience: election administrators, validators, and voters
+        domain: distributed systems / consensus
+        vibe_brief: trustworthy transparent but not opaque not flashy not bureaucratic
+
+    structure:
+        network
+            validator_cluster
+                primary_validator
+                backup_validators
+                byzantine_detector
+            proposal_queue
+                pending_proposals
+                finalized_ballots
+            voting_phase
+                pre_vote
+                pre_commit
+                commit
+            user_frontend
+                voter_dashboard
+                ballot_box
+                tally_display
+                audit_trail
+        security
+            identity_guard
+            vote_encryption
+            anonymity_mixer
+            replay_protector
+
+    cognitive:
+        validator_cluster.consensus = byzantine_agreement
+        primary_validator.leader_election = rotating
+        backup_validators.quorum = two_thirds
+        byzantine_detector.fault_tolerance = up_to_one_third
+        proposal_queue.queuing = fcfs_with_priority
+        pending_proposals.buffering = bounded
+        finalized_ballots.retention = permanent
+        voting_phase.gate = three_phase_commit
+        pre_vote.broadcast = signed_vote
+        pre_commit.ack = quorum_certificate
+        commit.finality = irreversible
+        vote_encryption.algorithm = threshold_elgamal
+        anonymity_mixer.mixing = shuffle
+        replay_protector.nonce = unique_per_round
+        voter_dashboard.authentication = anonymous_credential
+        ballot_box.sealing = cryptographic
+        tally_display.aggregation = homomorphic
+        tally_display.visibility = delayed_until_finalized
+        audit_trail.immutable = merkle_tree
+        identity_guard.verification = zero_knowledge
+        vote_encryption.storage = encrypted_at_rest
+
+    vibe:
+        distributed_voting_system.color_character = trust_blue
+        distributed_voting_system.tone = measured
+        distributed_voting_system.form_character = structured
+        distributed_voting_system.aesthetic = "a marble building with glass walls — you can see the process but not the individual slips of paper"
+        distributed_voting_system.intensity = steady
+        voter_dashboard.color_character = clean_white
+        voter_dashboard.tone = accessible
+        ballot_box.tone = sealed
+        tally_display.tone = authoritative
+        tally_display.color_character = neutral_count
+        audit_trail.tone = archival
+        identity_guard.tone = invisible
+        identity_guard.activation_signal = subtle_indicator
+        byzantine_detector.color_character = warning_amber
+        byzantine_detector.tone = vigilant
+        voting_phase.tone = procedural
+
+    spatial:
+        validator_cluster located_in network
+        proposal_queue located_in network
+        voting_phase located_in network
+        user_frontend located_in network
+        security located_in network
+        primary_validator located_in validator_cluster
+        backup_validators located_in validator_cluster
+        byzantine_detector located_in validator_cluster
+        pending_proposals located_in proposal_queue
+        finalized_ballots located_in proposal_queue
+        pre_vote located_in voting_phase
+        pre_commit located_in voting_phase
+        commit located_in voting_phase
+        voter_dashboard located_in user_frontend
+        ballot_box located_in user_frontend
+        tally_display located_in user_frontend
+        audit_trail located_in user_frontend
+        identity_guard located_in security
+        vote_encryption located_in security
+        anonymity_mixer located_in security
+        replay_protector located_in security
+
+    temporal:
+        proposal_submitted → pre_vote on validator_receives
+        pre_vote → pre_commit on two_thirds_quorum
+        pre_commit → commit on two_thirds_quorum
+        commit → finalized on irreversible_marker
+        finalized_ballots persist beyond round_end
+        identity_verified → ballot_cast on zero_knowledge_proof
+        ballot_cast → vote_encrypted on user_submit
+        vote_encrypted → anonymity_mixed on mix_complete
+        anonymity_mixed → merkle_committed on batch_complete
+        validator_rotation → new_primary on round_timeout
+
+    relational:
+        primary_validator feeds backup_validators
+        backup_validators feeds byzantine_detector
+        byzantine_detector feeds security_alerts
+        pending_proposals feeds pre_vote
+        pre_vote feeds pre_commit
+        pre_commit feeds commit
+        commit feeds finalized_ballots
+        finalized_ballots feeds tally_display
+        voter_dashboard feeds ballot_box
+        ballot_box feeds vote_encryption
+        vote_encryption feeds anonymity_mixer
+        anonymity_mixer feeds merkle_committed
+        identity_guard feeds voter_dashboard
+        replay_protector feeds voting_phase
+        tally_display feeds audit_trail
+
+    conditional:
+        voting_phase activates on proposal_ready
+        byzantine_detector activates when fault_suspected
+        byzantine_detector reports when fault_confirmed
+        tally_display updates on commit_finalized
+        audit_trail appends always (unconditional logging)
+        identity_guard blocks when replay_detected
+        security_alerts triggers when byzantine_detector_fires
+        voter_dashboard disables when identity_verified
+        ballot_box rejects when replay_detected
+        finalized_ballots retained always (immutable ledger)
+
+    behavior:
+        voting_phase behaves_as state_machine
+        voting_phase lifecycle: idle -> pre_vote -> pre_commit -> commit -> finalized -> idle
+        validator_cluster behaves_as rotating_committee
+        validator_cluster transitions from normal to degraded on fault_detected
+        validator_cluster transitions from degraded to normal on quorum_restored
+        identity_guard behaves_as gatekeeper
+        identity_guard transitions from open to blocked on threat_detected
+        identity_guard transitions from blocked to open on threat_cleared
+        byzantine_detector lifecycle: monitoring -> detecting -> reporting -> monitoring
+
+    calibrate:
+        calibrate trust_blue for vibe:
+            maps_to color_palette
+            threshold: blue_hue in [200, 230] AND saturation >= 0.8
+            signal: css_color_value
+
+        calibrate measured for vibe:
+            maps_to animation_and_transition
+            threshold: animation_duration >= 500ms AND easing ease_in_out
+            signal: transition_timing
+
+        calibrate "a marble building with glass walls" for vibe:
+            maps_to visual_metaphor
+            threshold: transparent_overlays AND layered_depth
+            signal: ui_rendering
+            note: proxy — architectural metaphor cannot be fully expressed in CSS
+
+        calibrate structured for vibe:
+            maps_to layout_and_spacing
+            threshold: grid_aligned AND consistent_margins
+            signal: layout_metric
+
+    equilibrium:
+        transparency_vs_anonymity:
+            when vibe.transparent is active AND cognitive.anonymity is active
+            preserve both
+            resolution: show process steps hide individual votes
+            rationale: voters need to trust the system without seeing others' choices
+
+        liveness_vs_safety:
+            when cognitive.finality is active AND cognitive.fault_tolerant is active
+            preserve both
+            resolution: progress when healthy stall when suspect
+            rationale: the system must be safe to be trustworthy
+
+        trust_vs_complexity:
+            when vibe.measured is active AND cognitive.threshold is active
+            preserve both
+            resolution: surface only quorum status to voters
+            rationale: voters should not need to understand cryptography
+
+        accountability_vs_privacy:
+            when cognitive.audit is active AND vibe.invisible is active
+            preserve both
+            resolution: auditable by authorities not by observers
+            rationale: privacy for voters accountability for administrators
+
+        rotation_vs_stability:
+            when cognitive.leader_election is active AND vibe.steady is active
+            preserve both
+            resolution: smooth handover no visible gap
+            rationale: validators should not see downtime during rotation
+
+    degrade:
+        require full for cognitive on byzantine_agreement
+        require full for cognitive on three_phase_commit
+        require full for cognitive on threshold_elgamal
+        require faithful for vibe on color_character
+        require faithful for vibe on tone
+        tolerate proxy for vibe on aesthetic
+        require full for temporal on voting_sequence
+        require full for relational on validator_feeds
+        require full for behavioral on lifecycle_completeness
+        require full for conditional on fault_detection
+        require documented for vibe on activation_signal
+
+    realize:
+        target: voting_dashboard (HTML/CSS/JS)
+            capabilities: layout, color, motion, event_handling, dom_animation
+            can_express: spatial, vibe, conditional, behavioral, temporal, relational
+            needs_bridge: zero_knowledge_prover, threshold_client
+            cannot_express: vibe.aesthetic fully
+            preservation_score: 0.82
+
+        target: validator_node (Rust)
+            capabilities: memory_safety, concurrent_processing, zero_copy, crypto
+            can_express: cognitive, temporal, relational, behavioral, conditional
+            needs_bridge: network_transport, key_management
+            cannot_express: vibe, spatial
+            preservation_score: 0.95
+
+        target: audit_logger (Go)
+            capabilities: append_only_log, merkle_tree, json_serialization, http_health
+            can_express: cognitive, temporal, relational
+            needs_bridge: secure_storage
+            cannot_express: vibe, spatial, behavioral
+            preservation_score: 1.0
+
+        target: voter_api (TypeScript)
+            capabilities: dom_manipulation, event_handling, type_safety, crypto_api
+            can_express: spatial, vibe, conditional, relational
+            needs_bridge: wallet_integration, zkp_verifier
+            cannot_express: cognitive.consensus fully
+            preservation_score: 0.88
+
+        target: encryption_service (Python)
+            capabilities: threshold_crypto, key_derivation, secure_random
+            can_express: cognitive.encryption, cognitive.anonymity
+            needs_bridge: hsm_integration
+            cannot_express: vibe, spatial, behavioral, temporal
+            preservation_score: 0.97

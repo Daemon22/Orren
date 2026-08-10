@@ -1,0 +1,294 @@
+create hospital_patient_monitor : Application
+
+    context:
+        purpose: a real-time patient monitoring system for an ICU that continuously aggregates vitals from multiple sensors, detects critical events like cardiac arrest or sepsis onset, escalates alerts through a nurse triage workflow, and preserves every reading for medical review — it must feel calm and reassuring to clinical staff during normal operation but immediately command attention during emergencies, and under no circumstances should a critical alert be silently dropped
+        audience: ICU nurses, charge nurses, attending physicians, medical records staff
+        domain: healthcare / medical devices
+        vibe_brief: calm during normal alarm only during true emergencies never cry wolf
+
+    structure:
+        monitoring_hub
+            sensor_array
+                ecg_lead
+                pulse_oximetry
+                blood_pressure
+                respiratory_monitor
+                temperature_probe
+            alert_engine
+                arrhythmia_detector
+                sepsis_predictor
+                hypotension_watcher
+            escalation
+                nurse_call
+                charge_alert
+                code_blue
+                pcr_notification
+            display
+                vitals_dashboard
+                trend_charts
+                alert_timeline
+                patient_context
+            archival
+                ehr_integration
+                raw_waveform_store
+                alert_log
+        safety
+            alarm_suppression
+            fail_safe
+            audit_trail
+
+    cognitive:
+        monitoring_hub.monitoring = continuous_real_time
+        sensor_array.sampling_rate = every_second
+        sensor_array.redundancy = triple
+        ecg_lead.signal_quality = stft_analysis
+        pulse_oximetry.spO2_range = 70_to_100
+        blood_pressure.measurement = oscillometric
+        respiratory_monitor.rr_range = 4_to_60
+        temperature_probe.accuracy = plus_minus_0.2
+        arrhythmia_detector.detection = ml_model_v2
+        arrhythmia_detector.sensitivity = 0.98
+        arrhythmia_detector.specificity = 0.95
+        sepsis_predictor.early_warning = every_5_minutes
+        sepsis_predictor.risk_score = sofa_based
+        hypotension_watcher.threshold = systolic_below_90
+        alert_engine.deduplication = 30_second_suppression
+        alert_engine.prioritization = acuity_based
+        nurse_call.routing = nearest_available
+        charge_alert.sticky = true_until_acknowledged
+        code_blue.escalation = simultaneous_page_and_task
+        pcr_notification.trigger = critical_event_logged
+        vitals_dashboard.refresh = every_2_seconds
+        trend_charts.retention = 24_hours
+        alert_timeline.chronological = true
+        patient_context.integration = ehr_lookup
+        ehr_integration.api = fhir
+        raw_waveform_store.compression = lossless
+        alert_log.immutable = append_only
+        alarm_suppression.mode = manual_override
+        fail_safe.behavior = alarm_on_failure
+        audit_trail.tamper = detectable
+
+    vibe:
+        hospital_patient_monitor.color_character = clinical_blue
+        hospital_patient_monitor.tone = calm_until_alert
+        hospital_patient_monitor.form_character = clean_structured
+        hospital_patient_monitor.aesthetic = "like a high-end medical device display in a quiet ward — functional but not cold"
+        hospital_patient_monitor.activation_signal = soft_glow_then_urgent_flash
+        vitals_dashboard.color_character = vital_white
+        vitals_dashboard.tone = legible
+        vitals_dashboard.form_character = grid_aligned
+        alert_engine.tone = vigilant
+        alert_engine.color_character = warning_amber
+        sepsis_predictor.tone = cautious
+        arrhythmia_detector.tone = precise
+        nurse_call.activation_signal = gentle_pulse
+        code_blue.color_character = emergency_red
+        code_blue.tone = urgent_no_panic
+        alarm_suppression.tone = discreet
+        audit_trail.tone = archival
+
+    spatial:
+        sensor_array located_in monitoring_hub
+        alert_engine located_in monitoring_hub
+        escalation located_in monitoring_hub
+        display located_in monitoring_hub
+        archival located_in monitoring_hub
+        safety located_in monitoring_hub
+        ecg_lead located_in sensor_array
+        pulse_oximetry located_in sensor_array
+        blood_pressure located_in sensor_array
+        respiratory_monitor located_in sensor_array
+        temperature_probe located_in sensor_array
+        arrhythmia_detector located_in alert_engine
+        sepsis_predictor located_in alert_engine
+        hypotension_watcher located_in alert_engine
+        nurse_call located_in escalation
+        charge_alert located_in escalation
+        code_blue located_in escalation
+        pcr_notification located_in escalation
+        vitals_dashboard located_in display
+        trend_charts located_in display
+        alert_timeline located_in display
+        patient_context located_in display
+        ehr_integration located_in archival
+        raw_waveform_store located_in archival
+        alert_log located_in archival
+        alarm_suppression located_in safety
+        fail_safe located_in safety
+        audit_trail located_in safety
+
+    temporal:
+        ecg_signal → signal_analysis on sample
+        signal_analysis → arrhythmia_check on batch_complete
+        arrhythmia_check → nurse_call on arrhythmia_detected
+        sepsis_check → charge_alert on risk_score_high
+        hypotension_alert → code_blue on sustained_crash
+        alert_acknowledged → alarm_cleared on nurse_response
+        raw_sample persists beyond display_refresh
+        raw_waveform persists beyond patient_discharge
+        code_blue → pcr_notification on escalation_confirmed
+        alarm_suppression → fail_safe on suppression_fail
+        fail_safe → nurse_call on fallback
+
+    relational:
+        ecg_lead feeds arrhythmia_detector
+        pulse_oximetry feeds sepsis_predictor
+        blood_pressure feeds hypotension_watcher
+        respiratory_monitor feeds sepsis_predictor
+        temperature_probe feeds sepsis_predictor
+        arrhythmia_detector feeds alert_engine
+        sepsis_predictor feeds escalation
+        hypotension_watcher feeds escalation
+        alert_engine feeds display
+        vitals_dashboard feeds trend_charts
+        trend_charts feeds alert_timeline
+        alert_timeline feeds audit_trail
+        raw_waveform_store feeds ehr_integration
+        alarm_suppression feeds alert_engine
+        fail_safe feeds alarm_suppression
+        audit_trail feeds raw_waveform_store
+
+    conditional:
+        alert_engine activates always (continuous monitoring)
+        arrhythmia_detector activates when ecg_quality_good
+        sepsis_predictor activates when spo2_data_available
+        hypotension_watcher activates when bp_signal_present
+        nurse_call fires when arrhythmia_confirmed
+        charge_alert fires when sepsis_score_exceeds_threshold
+        code_blue fires when systolic_sustained_below
+        pcr_notification fires when critical_event_logged
+        alarm_suppression blocks when manual_suppress_active
+        fail_safe triggers when any_sensor_failure
+        audit_trail appends always (unconditional medical logging)
+        vitals_dashboard retains always for patient_record
+        raw_waveform_store retained always (legal requirement)
+
+    behavior:
+        monitoring_hub behaves_as vigilant_guardian
+        monitoring_hub transitions from idle to monitoring on system_start
+        monitoring_hub transitions from monitoring to alert on critical_event
+        monitoring_hub transitions from alert to monitoring on event_resolved
+        monitoring_hub lifecycle: idle -> monitoring -> alert -> resolved -> idle
+        alert_engine behaves_as triage_filter
+        alert_engine transitions from quiet to vigilant on first_abnormal
+        alert_engine transitions from vigilant to urgent on repeated_events
+        alert_engine lifecycle: quiet -> vigilant -> urgent -> critical -> quiet
+        nurse_call behaves_as escalation_ladder
+        nurse_call lifecycle: pending -> routed -> acknowledged -> resolved -> pending
+        code_blue lifecycle: armed -> triggered -> acknowledged -> dismissed -> armed
+        fail_safe lifecycle: nominal -> degraded -> fail_safe -> nominal
+
+    calibrate:
+        calibrate clinical_blue for vibe:
+            maps_to color_palette
+            threshold: blue_hue in [210, 230] AND saturation in [0.3, 0.6]
+            signal: css_color_value
+
+        calibrate calm_until_alert for vibe:
+            maps_to motion_and_intensity
+            threshold: normal_duration >= 600ms AND alert_duration <= 200ms
+            signal: transition_timing
+
+        calibrate "calm during normal alarm only during true emergencies" for vibe:
+            maps_to alert_urgency_mapping
+            threshold: no_alert_below_priority_2
+            signal: alert_routing
+            note: proxy — urgency is emergent across multiple detectors
+
+        calibrate emergency_red for vibe:
+            maps_to attention_grabbing_color
+            threshold: luminance_contrast >= 4.5 AND animation_flashing
+            signal: visual_alert_spec
+
+        calibrate clean_structured for vibe:
+            maps_to layout_and_spacing
+            threshold: grid_aligned AND consistent_padding
+            signal: layout_metric
+
+    equilibrium:
+        sensitivity_vs_noise:
+            when cognitive.sensitivity is active AND vibe.vigilant is active
+            preserve both
+            resolution: tune per_sensor not global
+            rationale: false positives cause alert fatigue false negatives cause deaths
+
+        urgency_vs_calr:
+            when vibe.urgent_no_panic is active AND cognitive.suppression is active
+            preserve both
+            resolution: urgent color but not strobe pattern
+            rationale: grab attention without triggering panic or photosensitive seizures
+
+        trust_vs_transparency:
+            when vibe.calm is active AND cognitive.deduplication is active
+            preserve both
+            resolution: calm UI but logs show all alerts
+            rationale: staff confidence requires both reassurance and accountability
+
+        availability_vs_privacy:
+            when cognitive.fhir is active AND vibe.archival is active
+            preserve both
+            resolution: audit logs encrypted access controlled
+            rationale: medical privacy is non-negotiable availability is life-critical
+
+        escalation_does_not_amplify:
+            when cognitive.code_blue is active AND vibe.urgent is active
+            preserve both
+            resolution: one escalation path no duplicate paging
+            rationale: over-paging desensitizes staff to real emergencies
+
+        monitoring_vs_battery:
+            when cognitive.continuous is active AND form_character clean is active
+            preserve both
+            resolution: reduce non-critical display_refresh not sampling
+            rationale: monitoring fidelity cannot degrade
+
+    degrade:
+        require full for cognitive on arrhythmia_detection
+        require full for cognitive on sepsis_prediction
+        require full for cognitive on hypotension_watching
+        require full for cognitive on fail_safe
+        require faithful for vibe on color_character
+        require faithful for vibe on tone
+        tolerate proxy for vibe on aesthetic
+        require full for temporal on alert_sequence
+        require full for relational on sensor_to_alert
+        require full for behavioral on lifecycle_completeness
+        require full for conditional on fault_detection
+        require documented for vibe on activation_signal
+
+    realize:
+        target: clinician_dashboard (HTML/CSS/JS)
+            capabilities: layout, color, motion, event_handling, chart_rendering, websocket
+            can_express: spatial, vibe, conditional, behavioral, temporal, relational, cognitive.prioritization
+            needs_bridge: websocket_stream, ehr_api, websocket_to_sensors
+            cannot_express: cognitive.ml_model, cognitive.crypto
+            preservation_score: 0.85
+
+        target: detector_engine (Rust)
+            capabilities: signal_processing, ml_inference, real_time, memory_safety
+            can_express: cognitive, temporal, relational, behavioral, conditional
+            needs_bridge: sensor_io, model_registry
+            cannot_express: vibe, spatial
+            preservation_score: 0.98
+
+        target: alert_coordinator (Go)
+            capabilities: state_machine, http_handling, json_serialization, concurrent_workers
+            can_express: cognitive, temporal, relational, conditional, behavioral
+            needs_bridge: pagerduty_api, websocket_push
+            cannot_express: vibe, spatial
+            preservation_score: 0.94
+
+        target: ehr_gateway (TypeScript)
+            capabilities: dom_manipulation, fhir_client, event_handling, type_safety
+            can_express: spatial, vibe, conditional, relational
+            needs_bridge: fhir_server, auth_service
+            cannot_express: cognitive.signal_processing, cognitive.ml
+            preservation_score: 0.89
+
+        target: waveform_archive (Python)
+            capabilities: file_storage, compression, merkle_tree, append_only
+            can_express: cognitive.storage, cognitive.retention
+            needs_bridge: cloud_storage, kms_integration
+            cannot_express: vibe, spatial, behavioral, temporal, cognitive.detection
+            preservation_score: 1.0
