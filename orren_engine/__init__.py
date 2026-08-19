@@ -50,6 +50,9 @@ from .codegen import generate as generate_code
 from .design_tokens import DesignTokens, extract_design_tokens
 from .preview import generate_preview, write_preview
 from .engine import Engine
+from .realization_ir import IR_VERSION, IRNode, IRTarget, RealizationIR, lower_graph
+from .backends import BackendSpec, BACKENDS, backend_for_language, backend_for_target
+from .platforms import PlatformStatus, inspect_platform, load_capabilities
 from .validate import run_all as run_validation_suite
 from .errors import (
     ErrorCategory,
@@ -73,6 +76,18 @@ __all__ = [
     "RealizationCoordinator",
     "SemanticEditor",
     "Engine",
+    "IR_VERSION",
+    "IRNode",
+    "IRTarget",
+    "RealizationIR",
+    "lower_graph",
+    "BackendSpec",
+    "BACKENDS",
+    "backend_for_language",
+    "backend_for_target",
+    "PlatformStatus",
+    "inspect_platform",
+    "load_capabilities",
     "Dimension",
     "ToleranceLevel",
     "Severity",

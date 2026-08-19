@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "platforms": {
+    "linux": {
+      "desktop": {"adapter": "tauri", "toolchains": ["rustc", "cargo", "node"], "targets": ["appimage", "deb"]},
+      "native_core": {"adapter": "rust", "toolchains": ["rustc", "cargo"]}
+    },
+    "windows": {
+      "desktop": {"adapter": "tauri", "toolchains": ["rustc", "cargo", "node", "msvc-or-gnu"], "targets": ["msi", "nsis"]},
+      "native_core": {"adapter": "rust", "toolchains": ["rustc", "cargo"]}
+    },
+    "android": {
+      "mobile": {"adapter": "gradle-kotlin", "toolchains": ["java", "gradle", "android-sdk"], "targets": ["apk", "aab"]},
+      "native_core": {"adapter": "kotlin-contract", "toolchains": ["java", "gradle", "android-sdk"]}
+    }
+  }
+}

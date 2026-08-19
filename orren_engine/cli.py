@@ -35,6 +35,7 @@ from .codegen import generate as generate_code
 from .conformance import run_conformance, write_report
 from .conformance_sovereign import run_conformance as run_sovereign_conformance, write_report as write_sovereign_report
 from .database import graph_hash
+from .realization_ir import lower_graph
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -168,17 +169,21 @@ def _cmd_realize(args) -> int:
             with open(fpath, "w", encoding="utf-8") as f:
                 f.write(code)
             print(f"  wrote {fpath}")
-    # Write a manifest with all artifact metadata.
+    # Write a manifest with artifact metadata and the backend-neutral IR.
+    realization_ir = lower_graph(result.graph, source)
     manifest = {
         "version": __version__,
         "source_file": os.path.basename(args.file),
         "source_sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
         "sir_sha256": graph_hash(result.graph),
+        "realization_ir_sha256": realization_ir.content_hash(),
+        "realization_ir": realization_ir.to_dict(),
         "provenance": {
             "compiler": "orren",
             "compiler_version": __version__,
             "source_sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
             "sir_sha256": graph_hash(result.graph),
+            "realization_ir_sha256": realization_ir.content_hash(),
         },
         "expressions": result.expressions_count,
         "sir_nodes": result.sir_node_count,

@@ -278,3 +278,21 @@ Errors are collected during parsing via `CoParser().parse()` (the default) or
 returned explicitly via `parse_with_errors(source)` which returns `(expressions, errors)`.
 Errors do **not** halt parsing — the parser continues and collects as many
 errors as possible so the user sees all issues in one pass.
+
+## Realization IR and capability-driven backends
+
+The SIR graph now lowers into a deterministic, backend-neutral **Realization IR** before source emission. The IR preserves every node dimension, target capability declarations, degradation obligations, source/SIR provenance, and a canonical content hash. It is serialized into `manifest.json` under `realization_ir` and is independently validated before backend selection.
+
+Backend identity and native output contracts are registered in `orren_engine/backends.py`. The coordinator uses this registry for Rust, Go, C, TypeScript, WebAudio, LaTeX, Swift, Kotlin, and Python-compatible target planning. A backend is not selected merely because a filename can be emitted; its declared capabilities, toolchains, platforms, and runtime contract are explicit metadata.
+
+## Native platform adapters
+
+The repository includes a shared Rust native core under `native_core/rust`, a Tauri desktop adapter under `native/tauri`, and an Android Gradle/Kotlin adapter under `native/android`. The Tauri bundle declares Linux `AppImage`/`deb` and Windows `MSI`/`NSIS` targets. The Android module declares API 26 minimum support and a Kotlin implementation of the same deterministic realization-state contract.
+
+```bash
+cargo test --manifest-path native_core/rust/Cargo.toml
+cargo check --manifest-path native/tauri/src-tauri/Cargo.toml
+cd native/android && gradle assembleDebug
+```
+
+Platform readiness is reported from `platforms/capabilities.json` rather than inferred from file presence. In the current Linux sandbox, the shared Rust core passes its unit tests and the Tauri Linux adapter passes `cargo check`. Windows packaging is structurally configured but not executable on Linux without a Windows-compatible toolchain. Android packaging is structurally configured but remains `SKIP` until Gradle and the Android SDK are available.

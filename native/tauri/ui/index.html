@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Orren</title>
+    <style>body { font-family: system-ui, sans-serif; margin: 2rem; } pre { white-space: pre-wrap; }</style>
+  </head>
+  <body>
+    <main>
+      <h1>Orren</h1>
+      <label>Application <input id="application" value="orren" /></label>
+      <label>Input title <input id="input-title" value="default" /></label>
+      <button id="realize">Realize state</button>
+      <pre id="output">Ready.</pre>
+    </main>
+    <script type="module">
+      const output = document.querySelector('#output');
+      document.querySelector('#realize').addEventListener('click', async () => {
+        const { invoke } = window.__TAURI__.core;
+        const response = await invoke('realize_state', {
+          application: document.querySelector('#application').value,
+          inputTitle: document.querySelector('#input-title').value,
+        });
+        output.textContent = response.records.join('\n');
+      });
+    </script>
+  </body>
+</html>

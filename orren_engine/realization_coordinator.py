@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Set, Tuple
 
+from .backends import backend_for_language
 from .data_model import (
     DegradationEntry,
     Dimension,
@@ -235,22 +236,6 @@ class RealizationCoordinator:
                 OutputFile(path=f"{target.name}/styles.css", language="css"),
                 OutputFile(path=f"{target.name}/app.js", language="javascript"),
             ])
-        elif "rust" in lang:
-            files.append(OutputFile(path=f"{target.name}/main.rs", language="rust"))
-        elif lang == "go" or " go" in lang:
-            files.append(OutputFile(path=f"{target.name}/main.go", language="go"))
-        elif lang in {"c", "c++"} or lang.startswith("c/"):
-            files.append(OutputFile(path=f"{target.name}/main.c", language="c"))
-        elif "typescript" in lang:
-            files.append(OutputFile(path=f"{target.name}/app.ts", language="typescript"))
-        elif "webaudio" in lang:
-            files.append(OutputFile(path=f"{target.name}/audio_engine.js", language="webaudio"))
-        elif "latex" in lang or lang == "tex":
-            files.append(OutputFile(path=f"{target.name}/document.tex", language="latex"))
-        elif "swift" in lang:
-            files.append(OutputFile(path=f"{target.name}/Main.swift", language="swift"))
-        elif "kotlin" in lang:
-            files.append(OutputFile(path=f"{target.name}/Main.kt", language="kotlin"))
         elif "python" in lang:
             if "storage" in target.name:
                 filename = "storage.py"
@@ -261,6 +246,13 @@ class RealizationCoordinator:
             else:
                 filename = "service.py"
             files.append(OutputFile(path=f"{target.name}/{filename}", language="python"))
+        elif backend_for_language(lang) is not None:
+            backend = backend_for_language(lang)
+            assert backend is not None
+            files.extend(
+                OutputFile(path=f"{target.name}/{filename}", language=language)
+                for filename, language in backend.native_files
+            )
         else:
             files.append(
                 OutputFile(path=f"{target.name}/MANIFEST.txt", language="text")

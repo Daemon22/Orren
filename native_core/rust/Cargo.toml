@@ -1,0 +1,9 @@
+[package]
+name = "orren_native_core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Deterministic Orren native-core contract"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
