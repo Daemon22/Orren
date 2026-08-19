@@ -8,3 +8,8 @@ __pycache__/
 *.pyc
 *.pyo
 target/
+.env
+*.env
+
+# Stakpak session files
+.stakpak/session*

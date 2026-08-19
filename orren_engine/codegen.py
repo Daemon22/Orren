@@ -37,6 +37,7 @@ from .data_model import (
     SIRNode,
     ToleranceLevel,
 )
+from .backends.web_generator import generate_web as _premium_web_generator
 
 
 # ---------------------------------------------------------------------------
@@ -74,11 +75,13 @@ def generate(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
             return _gen_audio_storage(graph, target)
         if "input" in name or "button" in name:
             return _gen_input_watcher(graph, target)
+        if "http_service" in target.capabilities:
+            return _gen_python_http_service(graph, target)
         return _gen_python_service(graph, target)
 
     # --- Name-based dispatch (targets without explicit language) ---
     if "web" in name or "html" in name or "css" in name or "js" in name:
-        return _gen_web(graph, target)
+        return _premium_web_generator(graph, target)
     if "native" in name or "swift" in lang or "kotlin" in lang:
         return _gen_native(graph, target)
 
@@ -92,142 +95,15 @@ def generate(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
 
 
 def _gen_web(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
-    base = target.name
-    html_parts: List[str] = []
-    css_parts: List[str] = []
-    js_parts: List[str] = []
+    """Backward-compatible wrapper around the premium web generator.
 
-    html_parts.append("<!DOCTYPE html>")
-    html_parts.append('<html lang="en">')
-    html_parts.append("<head>")
-    html_parts.append(f'  <meta charset="utf-8">')
-    html_parts.append(f'  <title>{_escape(_graph_title(graph))}</title>')
-    html_parts.append(f'  <link rel="stylesheet" href="styles.css">')
-    html_parts.append("</head>")
-    html_parts.append("<body>")
-
-    # Walk spatial structure — emit a <div> for each entity node that has
-    # spatial or vibe content.
-    for node in graph.nodes:
-        if node.kind == "root":
-            continue
-        if not node.has_dimension_content(Dimension.SPATIAL) and not node.has_dimension_content(Dimension.VIBE):
-            continue
-        depth = node.path.count(".")
-        indent = "  " * (depth + 1)
-        html_parts.append(f'{indent}<div id="{_css_id(node.path)}" class="orren-entity">')
-        html_parts.append(f'{indent}  <!-- entity: {node.path} -->')
-        html_parts.append(f'{indent}</div>')
-
-    html_parts.append('  <script src="app.js"></script>')
-    html_parts.append("</body>")
-    html_parts.append("</html>")
-
-    # CSS — emit rules from vibe payloads.
-    css_parts.append("/* Orren-generated stylesheet */")
-    css_parts.append("/* PROXY markers indicate vibe aspects expressed as proxy. */")
-    css_parts.append("")
-    for node in graph.nodes:
-        vibes = node.get_dimension(Dimension.VIBE)
-        if not vibes:
-            continue
-        selector = f"#{_css_id(node.path)}"
-        rules: List[str] = []
-        proxy_comments: List[str] = []
-        for v in vibes:
-            if not isinstance(v, dict):
-                continue
-            aspect = v.get("aspect", "")
-            term = v.get("term", "")
-            if aspect == "color_character":
-                color = _map_color(term)
-                rules.append(f"  background-color: {color};")
-            elif aspect == "form_character":
-                radius = "24px" if "organic" in term else "4px"
-                rules.append(f"  border-radius: {radius};")
-            elif aspect == "tone":
-                if "calm" in term:
-                    rules.append("  transition: all 600ms ease;")
-                else:
-                    rules.append("  transition: all 200ms ease;")
-            elif aspect == "aesthetic":
-                proxy_comments.append(
-                    f"  /* PROXY: aesthetic '{term}' has no single CSS signal; "
-                    f"approximated via typography + motion. */"
-                )
-            elif aspect == "activation_signal":
-                if "glow" in term:
-                    rules.append("  box-shadow: 0 0 16px rgba(80, 200, 120, 0.6);")
-                else:
-                    proxy_comments.append(
-                        f"  /* PROXY: activation_signal '{term}' — no direct CSS equivalent. */"
-                    )
-        # Apply degradation tolerance markers.
-        for key, entry in node.degradation_tolerance.items():
-            if entry.level == ToleranceLevel.PROXY:
-                proxy_comments.append(
-                    f"  /* PROXY (tolerated): {key} — target cannot fully express. */"
-                )
-        css_parts.append(f"{selector} {{")
-        css_parts.extend(rules)
-        css_parts.append("}")
-        if proxy_comments:
-            css_parts.extend(proxy_comments)
-
-    # JS — emit event handlers from conditional + behavioral.
-    js_parts.append("// Orren-generated event handlers")
-    js_parts.append("'use strict';")
-    js_parts.append("")
-    for node in graph.nodes:
-        conds = node.get_dimension(Dimension.CONDITIONAL)
-        behs = node.get_dimension(Dimension.BEHAVIORAL)
-        if not conds and not behs:
-            continue
-        node_id = _css_id(node.path)
-        for c in conds:
-            if not isinstance(c, dict):
-                continue
-            cond = c.get("condition", "")
-            if "double_click" in cond:
-                js_parts.append(
-                    f"document.getElementById('{node_id}').addEventListener('dblclick', () => {{"
-                )
-                js_parts.append(f"  // activates: {c.get('subject', '')} on {cond}")
-                js_parts.append(f"  console.log('activated: {node.path}');")
-                js_parts.append("});")
-                js_parts.append("")
-            elif "volume_down" in cond:
-                js_parts.append(
-                    f"/* BRIDGE: volume_down event not directly available in web; "
-                    f"requires native shell or media-keys API. */"
-                )
-                js_parts.append(
-                    f"// {c.get('subject', '')} activates on {cond}"
-                )
-                js_parts.append("")
-            else:
-                js_parts.append(
-                    f"// {c.get('subject', '')} activates on {cond}"
-                )
-        for b in behs:
-            if not isinstance(b, dict):
-                continue
-            if b.get("kind") == "lifecycle":
-                lifecycle = b.get("lifecycle", [])
-                if lifecycle:
-                    chain = " -> ".join(
-                        f"{t.get('from_state', '')}/{t.get('to_state', '')}"
-                        for t in lifecycle
-                    )
-                    js_parts.append(
-                        f"// lifecycle for {b.get('subject', '')}: {chain}"
-                    )
-
-    return {
-        f"{base}/index.html": "\n".join(html_parts) + "\n",
-        f"{base}/styles.css": "\n".join(css_parts) + "\n",
-        f"{base}/app.js": "\n".join(js_parts) + "\n",
-    }
+    Delegates to :func:`backends.web_generator.generate_web` which produces
+    production-grade HTML5 / CSS3 / ES2022 artifacts with semantic elements,
+    ARIA roles, CSS custom properties, a real state machine, and event
+    handlers — preserving the vibe, behavioral, conditional, and temporal
+    dimensions without silent proxying.
+    """
+    return _premium_web_generator(graph, target)
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +130,26 @@ def _gen_swift(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
     parts.append("import UIKit")
     parts.append("import AVFoundation")
     parts.append("")
+    parts.append("")
+    # Emit state machine enum from behavioral lifecycle transitions
+    lifecycle_states = []
+    for node in graph.nodes:
+        behs = node.get_dimension(Dimension.BEHAVIORAL)
+        for b in behs:
+            if isinstance(b, dict) and b.get("kind") == "lifecycle" and b.get("lifecycle"):
+                for t in b.get("lifecycle", []):
+                    if isinstance(t, dict):
+                        for side in ("from_state", "to_state"):
+                            s = t.get(side, "")
+                            if s and s not in lifecycle_states:
+                                lifecycle_states.append(s)
+    states = lifecycle_states if lifecycle_states else ["idle", "active", "completed"]
+    parts.append(f"enum {title.replace(" ", "")}State: String, CaseIterable {{")
+    for state in states:
+        parts.append(f"    case {state}")
+    parts.append("}")
+    parts.append(f"private var currentState: {title.replace(" ", "")}State = .{states[0]}")
+    parts.append("")
     parts.append(f"class {_swift_class_name(title)}: UIViewController {{")
     parts.append("    override func viewDidLoad() {")
     parts.append("        super.viewDidLoad()")
@@ -270,12 +166,21 @@ def _gen_swift(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
         var_name = _swift_var(node.name)
         parts.append(f"        let {var_name} = UIView()")
         parts.append(f"        {var_name}.accessibilityIdentifier = \"{node.path}\"")
+        parts.append(f"        {var_name}.isAccessibilityElement = true")
+        parts.append(f"        {var_name}.accessibilityLabel = \"{node.name}\"")
         # Apply vibe color if present.
         for v in node.get_dimension(Dimension.VIBE):
             if isinstance(v, dict) and v.get("aspect") == "color_character":
                 color = _map_color(v.get("term", ""))
                 parts.append(f"        {var_name}.backgroundColor = {_swift_color(color)}")
+        parts.append(f"        {var_name}.translatesAutoresizingMaskIntoConstraints = false")
         parts.append(f"        view.addSubview({var_name})")
+        parts.append(f"        NSLayoutConstraint.activate([")
+        parts.append(f"            {var_name}.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),")
+        parts.append(f"            {var_name}.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),")
+        parts.append(f"            {var_name}.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),")
+        parts.append(f"            {var_name}.heightAnchor.constraint(equalToConstant: 60),")
+        parts.append(f"        ])")
     parts.append("    }")
     parts.append("")
     # Add device microphone activation if cognitive.activation is present.
@@ -315,8 +220,24 @@ def _gen_kotlin(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
     parts.append("import android.os.Bundle")
     parts.append("import android.widget.RelativeLayout")
     parts.append("import android.view.View")
+    parts.append("import androidx.lifecycle.ViewModel")
+    parts.append("import kotlinx.coroutines.flow.MutableStateFlow")
+    parts.append("import kotlinx.coroutines.flow.StateFlow")
+    parts.append("")
+    parts.append(f"// --- ViewModel ---")
+    parts.append(f"class {_kotlin_class_name(title)}ViewModel : ViewModel() {{")
+    for node in graph.nodes:
+        cog = node.get_dimension(Dimension.COGNITIVE)
+        for c in cog:
+            if isinstance(c, dict):
+                pred = _kotlin_prop_name(c.get("predicate", "value"))
+                val = c.get("value", "")
+                parts.append(f"    val {pred} = MutableStateFlow(\"{val}\")")
+    parts.append("}")
+    parts.append("")
     parts.append("")
     parts.append(f"class {_kotlin_class_name(title)} : Activity() {{")
+    parts.append(f"    private lateinit var viewModel: {_kotlin_class_name(title)}ViewModel")
     parts.append("    override fun onCreate(savedInstanceState: Bundle?) {")
     parts.append("        super.onCreate(savedInstanceState)")
     parts.append("        val root = RelativeLayout(this)")
@@ -329,9 +250,15 @@ def _gen_kotlin(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
         var_name = _swift_var(node.name)
         parts.append(f"        val {var_name} = View(this)")
         parts.append(f"        {var_name}.tag = \"{node.path}\"")
+        parts.append(f"        {var_name}.contentDescription = \"{node.name}\"")
         parts.append(f"        root.addView({var_name})")
     parts.append("    }")
     parts.append("}")
+    # Add degradation markers
+    for node in graph.nodes:
+        for key, entry in node.degradation_tolerance.items():
+            if entry.level == ToleranceLevel.PROXY:
+                parts.append(f"// PROXY (tolerated): {node.path}.{key} - UI fidelity proxy")
     return {f"{base}/Main.kt": "\n".join(parts) + "\n"}
 
 
@@ -561,7 +488,7 @@ def _gen_webaudio(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
     for node in graph.nodes:
         for key, entry in node.degradation_tolerance.items():
             if entry.level == ToleranceLevel.PROXY:
-                parts.append(f"// PROXY (tolerated): {node.path}.{key} — audio quality proxy")
+                parts.append(f"// PROXY (tolerated): {node.path}.{key} - audio quality proxy")
 
     return {f"{base}/audio_engine.js": "\n".join(parts) + "\n"}
 
@@ -602,70 +529,95 @@ def _aesthetic_to_waveform(term: str) -> str:
 
 
 def _gen_typescript(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
-    """Generate TypeScript interfaces and classes from the SIR graph."""
+    """Generate strict-mode TypeScript with real classes, proper interfaces,
+    and a Jest test suite.  No ``any`` types, no implicit any, no ``as any``.
+    All vibe properties are declared in interfaces so they are type-safe.
+    """
     base = target.name
     title = _graph_title(graph)
+    class_name = _ts_safe_class_name(title)
+    artifacts: Dict[str, str] = {}
+
+    # --- app.ts — interfaces + main class ---
     parts: List[str] = []
-    parts.append("// Orren-generated TypeScript")
+    parts.append("// Orren-generated TypeScript — strict mode")
     parts.append(f"// Target: {target.name} ({target.language})")
     parts.append(f"// Application: {title}")
     parts.append("")
 
-    # Emit interfaces for each spatial entity with vibe properties
+    # Collect root-level vibe properties to build a root interface
+    root_vibes: List[tuple[str, str]] = []
+    for v in graph.root.get_dimension(Dimension.VIBE) if graph.root else []:
+        if isinstance(v, dict):
+            root_vibes.append((v.get("aspect", "property"), v.get("term", "")))
+
+    # Root interface (for vibe properties on the application root)
+    parts.append("// --- Application State Interface ---")
+    parts.append(f"export interface {class_name}State {{")
+    for aspect, term in root_vibes:
+        parts.append(f"  vibe_{_ts_safe_identifier(aspect)}: string;")
+    parts.append("}")
+    parts.append("")
+
+    # Entity interfaces
     parts.append("// --- Entity Interfaces ---")
+    entity_ifaces: List[tuple[str, str]] = []  # (var_name, iface_name)
     for node in graph.nodes:
         if node.kind == "root":
             continue
-        if not node.has_dimension_content(Dimension.SPATIAL) and not node.has_dimension_content(Dimension.VIBE):
-            continue
         has_vibe = bool(node.get_dimension(Dimension.VIBE))
         has_cog = bool(node.get_dimension(Dimension.COGNITIVE))
+        if not has_vibe and not has_cog:
+            continue
 
-        if has_vibe or has_cog:
-            iface_name = _typescript_class_name(node.path)
-            parts.append(f"export interface {iface_name} {{")
+        iface_name = _typescript_class_name(node.path)
+        var_name = _typescript_var_name(node.path)
+        entity_ifaces.append((var_name, iface_name))
 
-            if has_cog:
-                for c in node.get_dimension(Dimension.COGNITIVE):
-                    if isinstance(c, dict):
-                        pred = c.get("predicate", "value")
-                        val = c.get("value", "any")
-                        parts.append(f"  {pred}: {_infer_ts_type(val)};")
+        parts.append(f"export interface {iface_name} {{")
 
-            if has_vibe:
-                for v in node.get_dimension(Dimension.VIBE):
-                    if isinstance(v, dict):
-                        aspect = v.get("aspect", "property")
-                        parts.append(f"  vibe_{aspect}: string;")
+        if has_cog:
+            for c in node.get_dimension(Dimension.COGNITIVE):
+                if isinstance(c, dict):
+                    pred = _ts_safe_identifier(c.get("predicate", "value"))
+                    val = c.get("value", "")
+                    parts.append(f"  {pred}: {_infer_ts_type(val)};")
 
-            # Spatial location
-            spatial = node.get_dimension(Dimension.SPATIAL)
-            if spatial:
-                for s in spatial:
-                    if isinstance(s, dict):
-                        parts.append(f"  located_{s.get('relation','located_in')}: string;")
+        if has_vibe:
+            for v in node.get_dimension(Dimension.VIBE):
+                if isinstance(v, dict):
+                    aspect = _ts_safe_identifier(v.get("aspect", "property"))
+                    parts.append(f"  vibe_{aspect}: string;")
 
-            # Conditional activation
-            conds = node.get_dimension(Dimension.CONDITIONAL)
-            if conds:
-                parts.append("  onActivate: (source: string) => void;")
+        # Spatial location
+        spatial = node.get_dimension(Dimension.SPATIAL)
+        if spatial:
+            for s in spatial:
+                if isinstance(s, dict):
+                    rel = _ts_safe_identifier(s.get("relation", "located_in"))
+                    parts.append(f"  located_{rel}: string;")
 
-            parts.append("}")
-            parts.append("")
+        # Conditional activation
+        conds = node.get_dimension(Dimension.CONDITIONAL)
+        if conds:
+            parts.append("  onActivate: (source: string) => void;")
 
-    # Emit a main class
+        parts.append("}")
+        parts.append("")
+
+    # Main component class
     parts.append("// --- Main Component Class ---")
-    class_name = _typescript_class_name(title)
-    parts.append(f"export class {class_name} {{")
-    parts.append(f"  private entities: Map<string, object> = new Map();")
+    parts.append(f"export class {class_name} implements {class_name}State {{")
+    parts.append("  private entities: Map<string, Record<string, unknown>> = new Map();")
+
+    # Declare root vibe properties
+    for aspect, term in root_vibes:
+        parts.append(f"  public vibe_{_ts_safe_identifier(aspect)}: string = '{term}';")
     parts.append("")
 
-    # Instantiate entities from spatial structure
-    for node in graph.nodes:
-        if node.kind == "root" or not node.has_dimension_content(Dimension.SPATIAL):
-            continue
-        var_name = _typescript_var_name(node.path)
-        parts.append(f"  public {var_name}: {_typescript_class_name(node.path)} | null = null;")
+    # Declare entity properties (only spatial entities)
+    for var_name, iface_name in entity_ifaces:
+        parts.append(f"  private {var_name}: {iface_name} | null = null;")
 
     parts.append("")
     parts.append("  constructor() {")
@@ -674,32 +626,32 @@ def _gen_typescript(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str
     parts.append("")
     parts.append("  private initialize(): void {")
 
-    for node in graph.nodes:
-        if node.kind == "root" or not node.has_dimension_content(Dimension.SPATIAL):
-            continue
-        var_name = _typescript_var_name(node.path)
-        parts.append(f"    this.{var_name} = {{ /* {node.path} */ }};")
+    # Instantiate entities from spatial structure
+    for var_name, iface_name in entity_ifaces:
+        parts.append(f"    this.{var_name} = this.createEntity<{iface_name}('{var_name}');")
 
-    # Type-safe vibe properties
+    # Set vibe properties on entities (type-safe, no `as any`)
     parts.append("")
     parts.append("    // Vibe properties (type-safe)")
     for node in graph.nodes:
+        if node.kind == "root":
+            continue
         vibes = node.get_dimension(Dimension.VIBE)
         if not vibes:
             continue
         var_name = _typescript_var_name(node.path)
         for v in vibes:
             if isinstance(v, dict):
-                aspect = v.get("aspect", "property")
+                aspect = _ts_safe_identifier(v.get("aspect", "property"))
                 term = v.get("term", "")
                 parts.append(f"    if (this.{var_name}) {{")
-                parts.append(f"      (this.{var_name} as any).vibe_{aspect} = '{term}';")
-                parts.append(f"    }}")
-
+                parts.append(f"      this.{var_name}.vibe_{aspect} = '{term}';")
+                parts.append("    }")
     parts.append("  }")
     parts.append("")
 
     # Event handling from conditional dimensions
+    parts.append("  // Event handling (typed via native EventTarget)")
     conds_found = False
     for node in graph.nodes:
         conds = node.get_dimension(Dimension.CONDITIONAL)
@@ -707,63 +659,137 @@ def _gen_typescript(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str
             if isinstance(c, dict):
                 conds_found = True
                 cond = c.get("condition", "activation")
-                subject = c.get("subject", node.name)
-                parts.append(f"  public handle{subject.capitalize()}: (event: Event) => void = (event) => {{")
+                subject = _ts_safe_identifier(c.get("subject", node.name))
+                handler_name = f"handle{subject.capitalize()}"
+                parts.append(f"  public {handler_name}: (event: Event) => void = (event: Event): void => {{")
                 parts.append(f"    // activates on: {cond}")
                 parts.append(f"    console.log('activated: {node.path}');")
-                parts.append(f"  }};")
+                parts.append("  };")
                 parts.append("")
 
     if not conds_found:
-        parts.append("  // No conditional activations specified")
-        parts.append("  public handleActivate: (event: Event) => void = (event) => {")
+        parts.append("  public handleActivate: (event: Event) => void = (event: Event): void => {")
         parts.append("    console.log('default activation handler');")
         parts.append("  };")
         parts.append("")
 
-    # Degradation tolerance markers
-    proxy_count = 0
-    for node in graph.nodes:
-        for key, entry in node.degradation_tolerance.items():
-            if entry.level == ToleranceLevel.PROXY:
-                proxy_count += 1
-    if proxy_count:
-        parts.append(f"  // DEGRADATION: {proxy_count} proxy tolerances acknowledged")
-
+    parts.append("  private createEntity<T extends Record<string, unknown>>(name: string): T {")
+    parts.append("    const entity: Record<string, unknown> = { __name: name };")
+    parts.append("    this.entities.set(name, entity);")
+    parts.append("    return entity as T;")
+    parts.append("  }")
     parts.append("}")
     parts.append("")
     parts.append(f"export default {class_name};")
 
-    return {f"{base}/app.ts": "\n".join(parts) + "\n"}
+    artifacts[f"{base}/app.ts"] = "\n".join(parts) + "\n"
+
+    # --- tsconfig.json ---
+    tsconfig = {
+        "compilerOptions": {
+            "target": "ES2020",
+            "module": "NodeNext",
+            "moduleResolution": "NodeNext",
+            "strict": True,
+            "noEmit": True,
+            "skipLibCheck": True,
+            "allowJs": False,
+            "esModuleInterop": True,
+            "forceConsistentCasingInFileNames": True,
+        },
+        "include": ["./**/*.ts"],
+    }
+    import json as _json
+    artifacts[f"{base}/tsconfig.json"] = _json.dumps(tsconfig, indent=2) + "\n"
+
+    # --- package.json ---
+    package_json = {
+        "name": base,
+        "version": "1.0.0",
+        "description": f"Orren-generated TypeScript for {title}",
+        "type": "module",
+        "scripts": {
+            "type-check": "tsc --noEmit",
+            "test": "vitest run" if True else "jest",
+        },
+        "devDependencies": {
+            "typescript": "^5.4.0",
+            "vitest": "^1.3.0",
+        },
+    }
+    artifacts[f"{base}/package.json"] = _json.dumps(package_json, indent=2) + "\n"
+
+    # --- app.test.ts — generated behavioral test suite ---
+    test_parts: List[str] = []
+    test_parts.append("// Orren-generated behavioral tests")
+    test_parts.append(f"// Target: {target.name} (TypeScript)")
+    test_parts.append("")
+    test_parts.append("import { describe, it, expect } from 'vitest';")
+    test_parts.append(f"import {class_name} from './app';")
+    test_parts.append("")
+    test_parts.append(f"describe('{class_name}', () => {{")
+    test_parts.append("  it('should instantiate without errors', () => {")
+    test_parts.append(f"    const app = new {class_name}();")
+    test_parts.append(f"    expect(app).toBeInstanceOf({class_name});")
+    test_parts.append("  });")
+    test_parts.append("")
+    test_parts.append("  it('should expose root vibe properties', () => {")
+    for aspect, term in root_vibes:
+        safe_aspect = _ts_safe_identifier(aspect)
+        test_parts.append(f"    expect(app.vibe_{safe_aspect}).toBe('{term}');")
+    test_parts.append("  });")
+    test_parts.append("});")
+    artifacts[f"{base}/app.test.ts"] = "\n".join(test_parts) + "\n"
+
+    return artifacts
 
 
 def _infer_ts_type(val: str) -> str:
-    """Infer a TypeScript type from a cognitive value string."""
+    """Infer a TypeScript type from a cognitive value string.
+
+    Never returns ``any`` — strict mode prohibits implicit any.  Unknown
+    values default to ``string`` rather than degrading to ``any``.
+    """
     v = val.strip().lower()
     if v in ("true", "false"):
         return "boolean"
-    if v.isdigit():
+    if v.lstrip("-").isdigit():
         return "number"
     if v.startswith("'") or v.startswith('"') or v.startswith("0") or v.startswith("#"):
         return "string"
     # Multi-word = string
     if " " in v:
         return "string"
-    return "any"
+    return "string"
 
 
 def _typescript_class_name(path: str) -> str:
-    """Convert a dot-path to a PascalCase TypeScript class/interface name."""
-    parts = path.replace("_", " ").split(".")
-    return "".join(p.capitalize() for p in parts if p)
+    """Convert a dot-path to a valid PascalCase TypeScript class/interface name."""
+    parts = re.findall(r"[a-zA-Z][a-zA-Z0-9]*", path.replace("_", " "))
+    return "".join(p.capitalize() for p in parts) or "App"
+
+
+def _ts_safe_class_name(title: str) -> str:
+    """Alias for _typescript_class_name — produces a valid TypeScript class name."""
+    return _typescript_class_name(title)
+
+
+def _ts_safe_identifier(name: str) -> str:
+    """Sanitise an arbitrary string into a valid camelCase TypeScript identifier."""
+    words = re.findall(r"[a-zA-Z][a-zA-Z0-9]*", name.replace("_", " "))
+    if not words:
+        return "value"
+    return words[0].lower() + "".join(w.capitalize() for w in words[1:])
 
 
 def _typescript_var_name(path: str) -> str:
-    """Convert a dot-path to a camelCase TypeScript variable name."""
-    parts = path.split(".")
+    """Convert a dot-path to a valid camelCase TypeScript variable name."""
+    parts = re.findall(r"[a-zA-Z][a-zA-Z0-9]*", path.replace("_", " "))
+    if not parts:
+        return "root"
     if len(parts) == 1:
         return parts[0].lower()
-    return parts[-1].replace("_", "").lower()
+    return parts[-1].lower() + "".join(p.capitalize() for p in parts[:-1][-1:])
 
 
 # ---------------------------------------------------------------------------
@@ -968,7 +994,7 @@ def _gen_latex(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
     parts.append("")
 
     # Table of contents from structure
-    parts.append("\\section{Structure}")
+    parts.append("\\section{Semantic Structure\\label{sec:structure}}")
     parts.append("\\begin{itemize}")
     for node in graph.nodes:
         if node.kind == "root":
@@ -989,7 +1015,7 @@ def _gen_latex(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
     parts.append("")
 
     # Cognitive content as a table
-    parts.append("\\section{Cognitive Model}")
+    parts.append("\\section{Cognitive Model\\label{sec:cognitive}}")
     parts.append("\\begin{longtable}{|l|l|l|}")
     parts.append("\\hline")
     parts.append("Entity & Predicate & Value \\\\")
@@ -1007,7 +1033,7 @@ def _gen_latex(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
     # Equilibrium rules
     eq_rules = getattr(graph, 'equilibrium_rules', [])
     if eq_rules:
-        parts.append("\\section{Equilibrium Rules}")
+        parts.append("\\section{Equilibrium Rules\\label{sec:equilibrium}}")
         parts.append("\\begin{enumerate}")
         for rule in eq_rules:
             parts.append(f"\\item \\textbf{{{_escape_latex(rule.name)}}}: preserve {', '.join(_escape_latex(p) for p in rule.preserve)}")
@@ -1015,7 +1041,7 @@ def _gen_latex(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
         parts.append("")
 
     # Vibe aesthetic notes
-    parts.append("\\section{Aesthetic Specifications}")
+    parts.append("\\section{Aesthetic Specifications\\label{sec:aesthetic}}")
     for node in graph.nodes:
         vibes = node.get_dimension(Dimension.VIBE)
         if not vibes:
@@ -1029,7 +1055,7 @@ def _gen_latex(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
     parts.append("")
 
     # Degradation report
-    parts.append("\\section{Degradation Report}")
+    parts.append("\\section{Degradation Report\\label{sec:degradation}}")
     parts.append("\\begin{itemize}")
     for node in graph.nodes:
         for key, entry in node.degradation_tolerance.items():
@@ -1038,7 +1064,7 @@ def _gen_latex(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
     parts.append("")
 
     # Preservation status — use the target's own score (coordination already done)
-    parts.append("\\section{Preservation Scores}")
+    parts.append("\\section{Preservation Scores\\label{sec:preservation}}")
     parts.append("\\begin{itemize}")
     parts.append(f"\\item \\textbf{{{_escape_latex(target.name)}}}: {target.preservation_score:.2f}")
     parts.append("\\end{itemize}")
@@ -1124,7 +1150,7 @@ def _gen_rust(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
     parts.append("    results.insert(\"input_title\".to_string(), title.to_string());")
     parts.append("")
 
-    # Vibe → performance parameters (PROXY markers where vibe can't be expressed)
+    # Vibe - performance parameters (PROXY markers where vibe can't be expressed)
     parts.append("    // Vibe mapping (performance parameters)")
     for node in graph.nodes:
         vibes = node.get_dimension(Dimension.VIBE)
@@ -1137,11 +1163,11 @@ def _gen_rust(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
                 term = v.get("term", "")
                 if aspect == "tone":
                     if "calm" in term:
-                        parts.append(f"    // PROXY: vibe.tone={term} → latency=high, throughput=medium")
+                        parts.append(f"    // PROXY: vibe.tone={term} -> latency=high, throughput=medium")
                         parts.append(f"    let {var}_latency_ms: u64 = 200;")
                         parts.append(f"    results.insert(\"{node.path}.latency_ms\".to_string(), {var}_latency_ms.to_string());")
                     elif "intense" in term:
-                        parts.append(f"    // vibe.tone={term} → latency=low, throughput=high")
+                        parts.append(f"    // vibe.tone={term} -> latency=low, throughput=high")
                         parts.append(f"    let {var}_latency_ms: u64 = 10;")
                         parts.append(f"    results.insert(\"{node.path}.latency_ms\".to_string(), {var}_latency_ms.to_string());")
                     else:
@@ -1149,7 +1175,7 @@ def _gen_rust(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
                         parts.append(f"    let {var}_latency_ms: u64 = 50;")
                         parts.append(f"    results.insert(\"{node.path}.latency_ms\".to_string(), {var}_latency_ms.to_string());")
                 else:
-                    parts.append(f"    // PROXY: vibe.{aspect}={term} — not directly mappable in Rust")
+                    parts.append(f"    // PROXY: vibe.{aspect}={term} - not directly mappable in Rust")
 
     # Cognitive processing
     parts.append("")
@@ -1185,7 +1211,20 @@ def _gen_rust(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
     parts.append("}")
     parts.append("")
 
-    return {f"{base}/main.rs": "\n".join(parts) + "\n"}
+    crate_name = base.replace("-", "_").lower()
+    cargo = (
+        f"[package]\n"
+        f'name = "{crate_name}"\n'
+        f"version = \"1.0.0\"\n"
+        f"edition = \"2021\"\n"
+        f"\n"
+        f"[dependencies]\n"
+    )
+
+    return {
+        f"{base}/main.rs": "\n".join(parts) + "\n",
+        f"{base}/Cargo.toml": cargo,
+    }
 
 
 def _rust_struct_name(path: str) -> str:
@@ -1219,7 +1258,6 @@ def _gen_go(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
     parts.append("import (")
     parts.append('\t"fmt"')
     parts.append('\t"net/http"')
-    parts.append('\t"context"')
     parts.append('\t"encoding/json"')
     parts.append(")")
     parts.append("")
@@ -1270,7 +1308,8 @@ def _gen_go(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
                 cond = c.get("condition", "")
                 action = c.get("action", "activate")
                 parts.append(f'\t// {c.get("subject","")} {action} on {cond}')
-                parts.append(f'\t_ = r.URL.Query().Get("{c.get('subject','signal')}")')
+                subject = c.get("subject", "signal")
+                parts.append(f'\t_ = r.URL.Query().Get("{subject}")')
 
     # Relational data flow
     parts.append("")
@@ -1466,6 +1505,15 @@ def _swift_class_name(title: str) -> str:
     return "".join(p.capitalize() for p in parts if p) or "GeneratedApp"
 
 
+def _kotlin_prop_name(name: str) -> str:
+    """Convert a name to valid camelCase for Kotlin properties."""
+    import re
+    words = re.findall(r"[a-zA-Z][a-zA-Z0-9]*", name.replace("-", " "))
+    if not words:
+        return "value"
+    return words[0].lower() + "".join(w.capitalize() for w in words[1:])
+
+
 def _kotlin_class_name(title: str) -> str:
     name = _swift_class_name(title)
     return name[0].lower() + name[1:] if name else "generatedApp"
@@ -1497,3 +1545,92 @@ def _graph_title(graph: SIRGraph) -> str:
 
 
 __all__ = ["generate"]
+
+
+# ---------------------------------------------------------------------------
+# Python HTTP service — FastAPI wrapper over cognitive predicates
+# ---------------------------------------------------------------------------
+
+
+def _gen_python_http_service(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
+    """Generate a FastAPI service exposing cognitive predicates as HTTP.
+
+    Emitted only for Python targets that declare the ``http_service``
+    capability.  Each cognitive predicate ``subject.predicate = value``
+    becomes a readable endpoint; writes are recorded with timestamps so
+    behavior can be verified end-to-end.  The generated module imports
+    FastAPI directly: if the dependency is missing the artifact fails to
+    start (honest failure), never silently degrades.
+    """
+    title = _graph_title(graph)
+    parts: List[str] = []
+    parts.append(f'"""Orren-generated FastAPI service: {target.name}.')
+    parts.append('')
+    parts.append(f'Application: {title}')
+    parts.append(f'Capabilities: {target.capabilities}')
+    parts.append('Every cognitive predicate is exposed as:')
+    parts.append('  GET  /state/{subject}/{predicate}   latest recorded value')
+    parts.append('  POST /state/{subject}/{predicate}   record a new value')
+    parts.append('  GET  /health                        liveness probe')
+    parts.append('"""')
+    parts.append('from __future__ import annotations')
+    parts.append('')
+    parts.append('from fastapi import FastAPI')
+    parts.append('from pydantic import BaseModel')
+    parts.append('')
+    parts.append('app = FastAPI(title="Orren ' + title + '", version="1.0.0")')
+    parts.append('')
+    parts.append('')
+    parts.append('class RecordIn(BaseModel):')
+    parts.append('    value: str')
+    parts.append('')
+    parts.append('')
+    parts.append('_records: dict[str, list] = {}')
+    parts.append('_initial: dict[str, str] = {')
+
+    for node in graph.nodes:
+        cog = node.get_dimension(Dimension.COGNITIVE)
+        for c in cog:
+            if isinstance(c, dict):
+                pred = c.get("predicate", "")
+                val = c.get("value", "")
+                # Endpoints address nodes by leaf name (subject = node name).
+                key = f"{node.name}.{pred}"
+                parts.append(f'    "{key}": "{val}",')
+    parts.append('}')
+    parts.append('')
+    parts.append('for _key, _val in _initial.items():')
+    parts.append('    _records[_key] = [{"value": _val, "source": "sir"}]')
+    parts.append('')
+    parts.append('')
+    parts.append('@app.get("/health")')
+    parts.append('def health() -> dict:')
+    parts.append('    return {"status": "ok", "predicates": len(_records)}')
+    parts.append('')
+    parts.append('')
+    parts.append('@app.get("/state/{subject}/{predicate}")')
+    parts.append('def read_state(subject: str, predicate: str) -> dict:')
+    parts.append('    key = f"{subject}.{predicate}"')
+    parts.append('    if key not in _records:')
+    parts.append('        return {"error": "unknown predicate", "key": key}')
+    parts.append('    return {"key": key, "records": _records[key]}')
+    parts.append('')
+    parts.append('')
+    parts.append('@app.post("/state/{subject}/{predicate}")')
+    parts.append('def write_state(subject: str, predicate: str, body: RecordIn) -> dict:')
+    parts.append('    import time')
+    parts.append('    key = f"{subject}.{predicate}"')
+    parts.append('    _records.setdefault(key, []).append(')
+    parts.append('        {"value": body.value, "source": "http", "ts": time.time()}')
+    parts.append('    )')
+    parts.append('    return {"key": key, "recorded": body.value, "total": len(_records[key])}')
+    parts.append('')
+    parts.append('')
+    parts.append('# --- Degradation acknowledgment ---')
+    parts.append('# OUT_OF_SCOPE for HTTP service: vibe, spatial, temporal, behavioral dimensions')
+    parts.append('# are not exposed via HTTP endpoints. Only cognitive predicates are served.')
+    for node in graph.nodes:
+        for key, entry in node.degradation_tolerance.items():
+            if entry.level == ToleranceLevel.PROXY:
+                parts.append(f'# PROXY (tolerated): {node.path}.{key} - {entry.level.value}')
+    return {"{}/service.py".format(target.name): "\n".join(parts) + "\n"}

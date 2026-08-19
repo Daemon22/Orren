@@ -1,0 +1,172 @@
+{
+  "fail_closed": true,
+  "realization_ir_sha256": "4207b9653bee17ae78ac9810da6c7a928bc9ac36e3939cdccf22a5832a81c85d",
+  "reference_backend_verified": true,
+  "sir_sha256": "573f1786021b58457c3518f17bf44fcc40bd2921cabb61bb415bcde50081dc92",
+  "source_sha256": "1fa191cf948472828f53911fc515de378884c7eda0d52b6c87161d831628845f",
+  "targets": [
+    {
+      "artifacts": [
+        {
+          "evidence": "HTML parsed and local script/style references resolved; DOM behavioral testing requires browser toolchain",
+          "path": "web_interface\\index.html",
+          "proxy_only": false,
+          "status": "DEGRADED"
+        },
+        {
+          "evidence": "Stylesheet is non-empty (4522 bytes, 26 rules). CSS compiler unavailable \u2014 cannot validate selectors, properties, or values. This is a SANITY CHECK ONLY, not a conformance validation.",
+          "path": "web_interface\\styles.css",
+          "proxy_only": true,
+          "status": "DEGRADED"
+        },
+        {
+          "evidence": "module executes cleanly; wireUpEvents() initialized; observed semantic events: orren:temporal",
+          "path": "web_interface\\app.js",
+          "proxy_only": false,
+          "status": "PASS"
+        }
+      ],
+      "capabilities": [
+        "event_handling",
+        "async_await",
+        "dynamic_typing",
+        "dom_manipulation"
+      ],
+      "language": "HTML/CSS/JS",
+      "name": "web_interface",
+      "preservation_score": 0.75,
+      "proxy_only": true,
+      "status": "SKIP",
+      "toolchain": null,
+      "toolchain_available": false,
+      "unsupported_cases": [
+        "static_type_safety",
+        "manual_memory_management",
+        "zero_cost_abstractions",
+        "runtime_reflection"
+      ]
+    },
+    {
+      "artifacts": [
+        {
+          "evidence": "swiftc toolchain unavailable \u2014 cannot validate Swift artifacts",
+          "path": "native_shell\\Main.swift",
+          "proxy_only": false,
+          "status": "SKIP"
+        }
+      ],
+      "capabilities": [
+        "state_machine",
+        "event_handling",
+        "ui_rendering",
+        "data_persistence",
+        "garbage_collection"
+      ],
+      "language": "Swift",
+      "name": "native_shell",
+      "preservation_score": 0.82,
+      "proxy_only": false,
+      "status": "SKIP",
+      "toolchain": "swiftc",
+      "toolchain_available": false,
+      "unsupported_cases": [
+        "manual_memory_management",
+        "zero_cost_abstractions"
+      ]
+    },
+    {
+      "artifacts": [
+        {
+          "evidence": "No implementation class found; file executes but no contract",
+          "path": "transcription_service\\transcription.py",
+          "proxy_only": false,
+          "status": "DEGRADED"
+        }
+      ],
+      "capabilities": [
+        "state_machine",
+        "event_handling",
+        "data_persistence",
+        "dynamic_typing",
+        "garbage_collection",
+        "runtime_reflection",
+        "process_dict_contract",
+        "retain_retrieve_contract"
+      ],
+      "language": "Python",
+      "name": "transcription_service",
+      "preservation_score": 0.97,
+      "proxy_only": false,
+      "status": "FAIL",
+      "toolchain": "python3",
+      "toolchain_available": true,
+      "unsupported_cases": [
+        "manual_memory_management",
+        "zero_cost_abstractions"
+      ]
+    },
+    {
+      "artifacts": [
+        {
+          "evidence": "executed retain/retrieve round-trip successfully",
+          "path": "audio_storage\\storage.py",
+          "proxy_only": false,
+          "status": "PASS"
+        }
+      ],
+      "capabilities": [
+        "state_machine",
+        "event_handling",
+        "data_persistence",
+        "dynamic_typing",
+        "garbage_collection",
+        "runtime_reflection",
+        "process_dict_contract",
+        "retain_retrieve_contract"
+      ],
+      "language": "Python",
+      "name": "audio_storage",
+      "preservation_score": 0.97,
+      "proxy_only": false,
+      "status": "PASS",
+      "toolchain": "python3",
+      "toolchain_available": true,
+      "unsupported_cases": [
+        "manual_memory_management",
+        "zero_cost_abstractions"
+      ]
+    },
+    {
+      "artifacts": [
+        {
+          "evidence": "Class instantiated but no process/run/retain/retrieve contract found",
+          "path": "input_button_watcher\\watcher.py",
+          "proxy_only": false,
+          "status": "DEGRADED"
+        }
+      ],
+      "capabilities": [
+        "state_machine",
+        "event_handling",
+        "data_persistence",
+        "dynamic_typing",
+        "garbage_collection",
+        "runtime_reflection",
+        "process_dict_contract",
+        "retain_retrieve_contract"
+      ],
+      "language": "Python",
+      "name": "input_button_watcher",
+      "preservation_score": 0.97,
+      "proxy_only": false,
+      "status": "FAIL",
+      "toolchain": "python3",
+      "toolchain_available": true,
+      "unsupported_cases": [
+        "manual_memory_management",
+        "zero_cost_abstractions"
+      ]
+    }
+  ],
+  "version": "0.3.3"
+}

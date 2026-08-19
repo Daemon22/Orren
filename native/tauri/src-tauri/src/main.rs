@@ -24,3 +24,29 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("error while running Orren Tauri shell");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::realize_state;
+    use serde_json::Value;
+
+    #[test]
+    fn command_bridge_returns_shared_core_records() {
+        let response = realize_state("desktop-app".to_string(), "open file".to_string());
+        assert_eq!(response.records, vec![
+            "application=desktop-app",
+            "input_title=open file",
+        ]);
+        let json: Value = serde_json::from_str(&response.json).expect("core JSON must be valid");
+        assert_eq!(json["application"], "desktop-app");
+        assert_eq!(json["input_title"], "open file");
+    }
+
+    #[test]
+    fn command_bridge_preserves_special_characters() {
+        let response = realize_state("quote\\app".to_string(), "say \"hello\"".to_string());
+        let json: Value = serde_json::from_str(&response.json).expect("escaped core JSON must be valid");
+        assert_eq!(json["application"], "quote\\app");
+        assert_eq!(json["input_title"], "say \"hello\"");
+    }
+}

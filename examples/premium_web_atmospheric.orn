@@ -1,0 +1,78 @@
+create premium_web_atmospheric : Application
+
+    context:
+        purpose: a night-sky observation journal whose interface feels
+                 like standing under a dusk sky that slowly deepens
+        audience: amateur astronomers who record what they see
+
+    structure:
+        journal
+            observation_entry
+                sky_tone
+
+    spatial:
+        observation_entry located_in journal
+        sky_tone located_in observation_entry
+
+    cognitive:
+        observation_entry.capture   = on_user_observation_note
+        observation_entry.rating    = rate_sky_darkness(visual_scale)
+        sky_tone.shift              = follow_local_time(dusk_to_night)
+
+    vibe:
+        journal.atmospheric         = dusk
+        journal.motion              = drift
+        journal.cultural            = communal
+        observation_entry.tone      = calm
+        observation_entry.color_character = indigo
+        sky_tone.activation_signal  = subtle
+
+    temporal:
+        dusk → night on local_time
+        observation → saved on user_commit
+
+    relational:
+        observation_entry feeds sky_tone
+        sky_tone feeds night_archive
+
+    conditional:
+        observation_entry saves on double_click
+        observation preserved always (unconditional preservation)
+
+    behavior:
+        observation_entry behaves_as quiet_form
+        observation_entry transitions from drafting to saved on user_commit
+        observation_entry lifecycle: drafting -> reviewing -> saved -> drafting
+
+    calibrate:
+        calibrate dusk for vibe:
+            maps_to color_hue
+            threshold: hue in [255, 285]
+            signal: css_color_value
+
+        calibrate calm for vibe:
+            maps_to motion_intensity
+            threshold: animation_duration >= 600ms
+            signal: transition_timing_function
+
+    equilibrium:
+        ambience_preserves_readability:
+            when vibe.atmospheric is active AND cognitive.rating is active
+            preserve both
+            resolution: atmosphere affects backdrop only
+            rationale: mood may tint must not obscure text
+
+    degrade:
+        require full       for cognitive  on capture_logic
+        require faithful   for vibe       on atmospheric
+        tolerate proxy     for vibe       on motion
+        require full       for temporal   on dusk_to_night_sequence
+        require full       for behavioral on lifecycle_completeness
+
+    realize:
+        target: web_interface (HTML/CSS/JS)
+            capabilities: layout, color, motion, event_handling
+            can_express: vibe.atmospheric, vibe.motion, vibe.cultural, conditional, behavioral, temporal
+            needs_bridge: local_time_service
+            cannot_express: none
+            preservation_score: 0.88

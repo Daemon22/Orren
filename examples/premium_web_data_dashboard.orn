@@ -1,0 +1,82 @@
+create premium_web_data_dashboard : Application
+
+    context:
+        purpose: an operations dashboard where live metrics land like
+                 water finding its level, precise and never frantic
+        audience: on-call engineers reading system health at a glance
+
+    structure:
+        dashboard
+            metrics_grid
+                latency_chart
+                error_counter
+
+    spatial:
+        metrics_grid located_in dashboard
+        latency_chart located_in metrics_grid
+        error_counter located_in metrics_grid
+
+    cognitive:
+        latency_chart.render   = plot_percentiles(telemetry_stream)
+        error_counter.increment = count_events(error_stream)
+        dashboard.refresh      = poll_metrics(every_five_seconds)
+
+    vibe:
+        dashboard.motion             = surge
+        dashboard.cultural           = solitary
+        dashboard.atmospheric        = stone
+        latency_chart.tone           = precise
+        latency_chart.color_character = steel_blue
+        error_counter.color_character = red
+        error_counter.activation_signal = pulse
+
+    temporal:
+        idle → streaming on telemetry_connected
+        alert → acknowledged on operator_confirm
+
+    relational:
+        latency_chart feeds alert_engine
+        error_counter feeds alert_engine
+        alert_engine feeds pager_bridge
+
+    conditional:
+        latency_chart freezes on shift_held
+        raw_samples discarded after aggregation (unconditional hygiene)
+
+    behavior:
+        latency_chart behaves_as live_instrument
+        latency_chart transitions from idle to streaming on telemetry_connected
+        error_counter transitions from quiet to alarming on threshold_breach
+        latency_chart lifecycle: idle -> streaming -> frozen -> idle
+
+    calibrate:
+        calibrate precise for vibe:
+            maps_to motion_intensity
+            threshold: animation_duration <= 200ms
+            signal: transition_timing_function
+
+        calibrate pulse for vibe:
+            maps_to luminance_ramp
+            threshold: ramp_duration <= 400ms
+            signal: box_shadow_animation
+
+    equilibrium:
+        urgency_preserves_calm_layout:
+            when vibe.motion is active AND cognitive.refresh is active
+            preserve both
+            resolution: motion affects data transitions only
+            rationale: alerts may pulse must not shake the grid
+
+    degrade:
+        require full       for cognitive  on render_logic
+        require faithful   for vibe       on color_character
+        tolerate proxy     for vibe       on atmospheric
+        require full       for behavioral on lifecycle_completeness
+
+    realize:
+        target: web_interface (HTML/CSS/JS)
+            capabilities: layout, color, motion, event_handling
+            can_express: vibe.atmospheric, vibe.cultural, vibe.motion, conditional, behavioral, temporal
+            needs_bridge: telemetry_stream
+            cannot_express: none
+            preservation_score: 0.86

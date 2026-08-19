@@ -228,14 +228,33 @@ class RealizationCoordinator:
         lang = target.language.lower()
         files: List[OutputFile] = []
         if "html" in lang or "css" in lang or "js" in lang:
-            # _gen_web emits the complete three-file web bundle. The manifest
-            # must describe every emitted file, even when a target lacks one
+            # _gen_web emits the complete web bundle (plus the single-file
+            # standalone variant usable from file://). The manifest must
+            # describe every emitted file, even when a target lacks one
             # of the corresponding semantic capabilities.
             files.extend([
                 OutputFile(path=f"{target.name}/index.html", language="html"),
                 OutputFile(path=f"{target.name}/styles.css", language="css"),
                 OutputFile(path=f"{target.name}/app.js", language="javascript"),
+                OutputFile(path=f"{target.name}/living.js", language="javascript"),
+                OutputFile(
+                    path=f"{target.name}/index.standalone.html", language="html"
+                ),
             ])
+            if "bundler" in [c.lower() for c in target.capabilities]:
+                files.extend([
+                    OutputFile(
+                        path=f"{target.name}/package.json", language="json"
+                    ),
+                    OutputFile(
+                        path=f"{target.name}/vite.config.js",
+                        language="javascript",
+                    ),
+                    OutputFile(
+                        path=f"{target.name}/tests/smoke.spec.js",
+                        language="javascript",
+                    ),
+                ])
         elif "python" in lang:
             if "storage" in target.name:
                 filename = "storage.py"

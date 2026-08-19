@@ -78,16 +78,16 @@ def check_file(path: Path, language: str) -> tuple[str, str]:
             for ref in parser.scripts + parser.links:
                 if not (path.parent / ref).is_file():
                     return "FAIL", f"missing referenced asset: {ref}"
-            return "PASS", "HTML parsed and local script/style references resolved"
+            return "DEGRADED", "Structure parsed; no DOM/behavioral validation performed"
         except Exception as exc:
             return "FAIL", str(exc)
     if language == "css":
         text = path.read_text(encoding="utf-8")
         if not text.strip():
             return "FAIL", "empty stylesheet"
-        return "PASS", "stylesheet is non-empty (CSS compiler unavailable)"
+        return "DEGRADED", "CSS compiler unavailable; performed non-empty fallback only"
     if language in {"text", "latex"}:
-        return ("PASS", "text artifact emitted") if path.stat().st_size else ("FAIL", "empty artifact")
+        return ("DEGRADED", "text artifact emitted (non-empty fallback only)") if path.stat().st_size else ("FAIL", "empty artifact")
     return "SKIP", f"no validator registered for language {language!r}"
 
 
@@ -117,6 +117,7 @@ def run_conformance(output_dir: str | Path, manifest_path: str | Path | None = N
                     results.append(CheckResult(target, str(py_file), "behavior", status, detail))
     summary = {
         "passed": sum(r.status == "PASS" for r in results),
+        "degraded": sum(r.status == "DEGRADED" for r in results),
         "failed": sum(r.status == "FAIL" for r in results),
         "skipped": sum(r.status == "SKIP" for r in results),
         "results": [asdict(r) for r in results],

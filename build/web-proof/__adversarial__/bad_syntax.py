@@ -1,0 +1,2 @@
+def broken(
+    # unclosed parenthesis

@@ -1,0 +1,78 @@
+{
+  "total_cases": 7,
+  "correct_rejections": 7,
+  "false_passes": 0,
+  "health": "HEALTHY",
+  "results": [
+    {
+      "path": "__adversarial__\\bad_syntax.py",
+      "language": "python",
+      "expected_status": "FAIL",
+      "description": "Python syntax error (unclosed parenthesis)",
+      "actual_status": "FAIL",
+      "evidence_level": 0,
+      "correct": true,
+      "detail": "Syntax error: '(' was never closed (bad_syntax.py, line 1)"
+    },
+    {
+      "path": "__adversarial__\\bad_behavior.py",
+      "language": "python",
+      "expected_status": "FAIL",
+      "description": "Python behavioral probe raises exception",
+      "actual_status": "FAIL",
+      "evidence_level": 2,
+      "correct": true,
+      "detail": "Behavioral probe failed: RuntimeError: Intentional failure for adversarial test"
+    },
+    {
+      "path": "__adversarial__\\bad_syntax.js",
+      "language": "javascript",
+      "expected_status": "FAIL",
+      "description": "JavaScript syntax error (unclosed brace)",
+      "actual_status": "FAIL",
+      "evidence_level": 0,
+      "correct": true,
+      "detail": "JavaScript syntax error: C:\\Users\\Uviwe\\Downloads\\Orren\\build\\web-proof\\__adversarial__\\bad_syntax.js:3\n\n\n\nSyntaxError: Unexpected end of input\n    at wrapSafe (node:internal/modules/cjs/loader:1762:18)\n    at checkSyntax (node:internal/main/check_syntax:76:3)\n\nNode.js v25.8.1"
+    },
+    {
+      "path": "__adversarial__\\bad_structure.html",
+      "language": "html",
+      "expected_status": "FAIL",
+      "description": "HTML missing body element",
+      "actual_status": "FAIL",
+      "evidence_level": 0,
+      "correct": true,
+      "detail": "Document lacks required html/body structure"
+    },
+    {
+      "path": "__adversarial__\\empty.css",
+      "language": "css",
+      "expected_status": "FAIL",
+      "description": "Empty CSS file",
+      "actual_status": "FAIL",
+      "evidence_level": 0,
+      "correct": true,
+      "detail": "Empty stylesheet"
+    },
+    {
+      "path": "__adversarial__\\bad_syntax.rs",
+      "language": "rust",
+      "expected_status": "FAIL",
+      "description": "Rust syntax error (unclosed brace)",
+      "actual_status": "FAIL",
+      "evidence_level": 0,
+      "correct": true,
+      "detail": "Rust warning-free compilation failed: error: this file contains an unclosed delimiter\n --> C:\\Users\\Uviwe\\Downloads\\Orren\\build\\web-proof\\__adversarial__\\bad_syntax.rs:2:23\n  |\n1 | fn main( {\n  |        - - unclosed delimiter\n  |        |\n  |        unclosed delimiter\n2 |     // unclosed brace\n  |                      ^\n\nerror: aborting due to 1 previous error"
+    },
+    {
+      "path": "__adversarial__\\bad_syntax.go",
+      "language": "go",
+      "expected_status": "FAIL",
+      "description": "Go syntax error (unclosed paren)",
+      "actual_status": "FAIL",
+      "evidence_level": 1,
+      "correct": true,
+      "detail": "go vet failed: # orrenprobe\n# [orrenprobe]\nvet.exe: .\\bad_syntax.go:2:12: expected ')', found '{' (and 1 more errors)"
+    }
+  ]
+}

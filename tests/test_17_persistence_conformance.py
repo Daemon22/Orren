@@ -95,7 +95,11 @@ def _language_for_generated_name(name: str) -> str:
         ".swift": "swift",
         ".kt": "kotlin",
         ".tex": "latex",
-        ".js": "javascript" if name.endswith("app.js") else "webaudio",
+        ".js": (
+            "javascript"
+            if name.endswith(("app.js", "living.js"))
+            else "webaudio"
+        ),
         ".py": "python",
         ".txt": "text",
     }.get(suffix, suffix.lstrip("."))

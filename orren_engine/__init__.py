@@ -52,6 +52,7 @@ from .preview import generate_preview, write_preview
 from .engine import Engine
 from .realization_ir import IR_VERSION, IRNode, IRTarget, RealizationIR, lower_graph
 from .backends import BackendSpec, BACKENDS, backend_for_language, backend_for_target
+from .backends.manifest import BackendManifest, manifest_for_language, ALL_MANIFESTS
 from .platforms import PlatformStatus, inspect_platform, load_capabilities
 from .validate import run_all as run_validation_suite
 from .errors import (
@@ -85,6 +86,9 @@ __all__ = [
     "BACKENDS",
     "backend_for_language",
     "backend_for_target",
+    "BackendManifest",
+    "manifest_for_language",
+    "ALL_MANIFESTS",
     "PlatformStatus",
     "inspect_platform",
     "load_capabilities",

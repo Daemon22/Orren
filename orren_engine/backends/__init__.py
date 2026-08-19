@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Iterable, Tuple
 
+from .manifest import BackendManifest, manifest_for_language, ALL_MANIFESTS
+
 
 @dataclass(frozen=True)
 class BackendSpec:
@@ -67,4 +69,5 @@ def backend_for_target(language: str, capabilities: Iterable[str] = ()) -> Backe
     return spec
 
 
-__all__ = ["BackendSpec", "BACKENDS", "backend_for_language", "backend_for_target"]
+__all__ = ["BackendSpec", "BACKENDS", "backend_for_language", "backend_for_target",
+           "BackendManifest", "manifest_for_language", "ALL_MANIFESTS"]

@@ -1,0 +1,78 @@
+create premium_web_ceremonial : Application
+
+    context:
+        purpose: a heritage archive reading room that presents family
+                 histories with the gravity of a ceremonial hall
+        audience: descendants researching their lineage
+
+    structure:
+        archive
+            lineage_panel
+                ancestor_card
+
+    spatial:
+        lineage_panel located_in archive
+        ancestor_card located_in lineage_panel
+
+    cognitive:
+        ancestor_card.display   = render_lineage_record(verified_sources)
+        ancestor_card.search    = filter_records(family_name)
+        lineage_panel.expand    = on_user_open_branch
+
+    vibe:
+        archive.atmospheric         = dawn
+        archive.cultural            = ancestral
+        archive.motion              = still
+        ancestor_card.form_character = ceremonial
+        ancestor_card.tone          = measured
+        ancestor_card.color_character = parchment
+
+    temporal:
+        closed → open on user_open_branch
+        record → verified on archivist_review
+
+    relational:
+        ancestor_card feeds lineage_panel
+        lineage_panel feeds verified_archive
+
+    conditional:
+        ancestor_card opens on double_click
+        source citations preserved always (unconditional preservation)
+
+    behavior:
+        ancestor_card behaves_as reverent_disclosure
+        ancestor_card transitions from sealed to revealed on user_open_branch
+        ancestor_card lifecycle: sealed -> revealing -> revealed -> sealed
+
+    calibrate:
+        calibrate parchment for vibe:
+            maps_to surface_color
+            threshold: lightness >= 0.95
+            signal: css_color_value
+
+        calibrate measured for vibe:
+            maps_to motion_intensity
+            threshold: animation_duration >= 600ms
+            signal: transition_timing_function
+
+    equilibrium:
+        gravity_preserves_usability:
+            when vibe.cultural is active AND cognitive.search is active
+            preserve both
+            resolution: ceremony affects spacing and ornament only
+            rationale: reverence must not hide the search field
+
+    degrade:
+        require full       for cognitive  on display_logic
+        require faithful   for vibe       on cultural
+        tolerate proxy     for vibe       on atmospheric
+        require full       for relational on card_to_panel_link
+        require full       for behavioral on lifecycle_completeness
+
+    realize:
+        target: web_interface (HTML/CSS/JS)
+            capabilities: layout, color, motion, event_handling
+            can_express: vibe.atmospheric, vibe.cultural, vibe.motion, conditional, behavioral, temporal
+            needs_bridge: none
+            cannot_express: none
+            preservation_score: 0.9

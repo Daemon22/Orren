@@ -1,0 +1,306 @@
+{
+  "passed": 3,
+  "degraded": 4,
+  "failed": 1,
+  "skipped": 1,
+  "results": [
+    {
+      "target": "web_interface",
+      "path": "C:\\Users\\Uviwe\\Downloads\\Orren\\build\\web-proof\\web_interface\\index.html",
+      "kind": "html",
+      "status": "DEGRADED",
+      "detail": "HTML parsed and local script/style references resolved; DOM behavioral testing requires browser toolchain",
+      "evidence_level": 2,
+      "toolchain_version": "",
+      "duration_ms": 2.5102999955415726
+    },
+    {
+      "target": "web_interface",
+      "path": "C:\\Users\\Uviwe\\Downloads\\Orren\\build\\web-proof\\web_interface\\styles.css",
+      "kind": "css",
+      "status": "DEGRADED",
+      "detail": "Stylesheet is non-empty (4522 bytes, 26 rules). CSS compiler unavailable \u2014 cannot validate selectors, properties, or values. This is a SANITY CHECK ONLY, not a conformance validation.",
+      "evidence_level": 0,
+      "toolchain_version": "",
+      "duration_ms": 0.8752000033855438
+    },
+    {
+      "target": "web_interface",
+      "path": "C:\\Users\\Uviwe\\Downloads\\Orren\\build\\web-proof\\web_interface\\app.js",
+      "kind": "javascript",
+      "status": "PASS",
+      "detail": "module executes cleanly; wireUpEvents() initialized; observed semantic events: orren:temporal",
+      "evidence_level": 3,
+      "toolchain_version": "v25.8.1",
+      "duration_ms": 916.7911000028253
+    },
+    {
+      "target": "native_shell",
+      "path": "C:\\Users\\Uviwe\\Downloads\\Orren\\build\\web-proof\\native_shell\\Main.swift",
+      "kind": "swift",
+      "status": "SKIP",
+      "detail": "swiftc toolchain unavailable \u2014 cannot validate Swift artifacts",
+      "evidence_level": 0,
+      "toolchain_version": "",
+      "duration_ms": 0.0
+    },
+    {
+      "target": "transcription_service",
+      "path": "C:\\Users\\Uviwe\\Downloads\\Orren\\build\\web-proof\\transcription_service\\transcription.py",
+      "kind": "python",
+      "status": "DEGRADED",
+      "detail": "No implementation class found; file executes but no contract",
+      "evidence_level": 2,
+      "toolchain_version": "",
+      "duration_ms": 0.0
+    },
+    {
+      "target": "transcription_service",
+      "path": "build\\web-proof\\transcription_service\\transcription.py",
+      "kind": "python-behavior",
+      "status": "DEGRADED",
+      "detail": "No implementation class found; file executes but no contract",
+      "evidence_level": 2,
+      "toolchain_version": "",
+      "duration_ms": 0.0
+    },
+    {
+      "target": "audio_storage",
+      "path": "C:\\Users\\Uviwe\\Downloads\\Orren\\build\\web-proof\\audio_storage\\storage.py",
+      "kind": "python",
+      "status": "PASS",
+      "detail": "executed retain/retrieve round-trip successfully",
+      "evidence_level": 4,
+      "toolchain_version": "Python 3.14.5",
+      "duration_ms": 0.0
+    },
+    {
+      "target": "audio_storage",
+      "path": "build\\web-proof\\audio_storage\\storage.py",
+      "kind": "python-behavior",
+      "status": "PASS",
+      "detail": "executed retain/retrieve round-trip successfully",
+      "evidence_level": 4,
+      "toolchain_version": "Python 3.14.5",
+      "duration_ms": 0.0
+    },
+    {
+      "target": "input_button_watcher",
+      "path": "build\\web-proof\\input_button_watcher\\input_watcher.py",
+      "kind": "python",
+      "status": "FAIL",
+      "detail": "Declared artifact is missing from output directory",
+      "evidence_level": 0,
+      "toolchain_version": "",
+      "duration_ms": 0.0
+    }
+  ],
+  "coverage_matrix": {
+    "web_interface": {
+      "html": {
+        "target": "web_interface",
+        "path": "C:\\Users\\Uviwe\\Downloads\\Orren\\build\\web-proof\\web_interface\\index.html",
+        "kind": "html",
+        "status": "DEGRADED",
+        "detail": "HTML parsed and local script/style references resolved; DOM behavioral testing requires browser toolchain",
+        "evidence_level": 2,
+        "toolchain_version": "",
+        "duration_ms": 2.5102999955415726
+      },
+      "css": {
+        "target": "web_interface",
+        "path": "C:\\Users\\Uviwe\\Downloads\\Orren\\build\\web-proof\\web_interface\\styles.css",
+        "kind": "css",
+        "status": "DEGRADED",
+        "detail": "Stylesheet is non-empty (4522 bytes, 26 rules). CSS compiler unavailable \u2014 cannot validate selectors, properties, or values. This is a SANITY CHECK ONLY, not a conformance validation.",
+        "evidence_level": 0,
+        "toolchain_version": "",
+        "duration_ms": 0.8752000033855438
+      },
+      "javascript": {
+        "target": "web_interface",
+        "path": "C:\\Users\\Uviwe\\Downloads\\Orren\\build\\web-proof\\web_interface\\app.js",
+        "kind": "javascript",
+        "status": "PASS",
+        "detail": "module executes cleanly; wireUpEvents() initialized; observed semantic events: orren:temporal",
+        "evidence_level": 3,
+        "toolchain_version": "v25.8.1",
+        "duration_ms": 916.7911000028253
+      }
+    },
+    "native_shell": {
+      "swift": {
+        "target": "native_shell",
+        "path": "C:\\Users\\Uviwe\\Downloads\\Orren\\build\\web-proof\\native_shell\\Main.swift",
+        "kind": "swift",
+        "status": "SKIP",
+        "detail": "swiftc toolchain unavailable \u2014 cannot validate Swift artifacts",
+        "evidence_level": 0,
+        "toolchain_version": "",
+        "duration_ms": 0.0
+      }
+    },
+    "transcription_service": {
+      "python": {
+        "target": "transcription_service",
+        "path": "C:\\Users\\Uviwe\\Downloads\\Orren\\build\\web-proof\\transcription_service\\transcription.py",
+        "kind": "python",
+        "status": "DEGRADED",
+        "detail": "No implementation class found; file executes but no contract",
+        "evidence_level": 2,
+        "toolchain_version": "",
+        "duration_ms": 0.0
+      },
+      "python-behavior": {
+        "target": "transcription_service",
+        "path": "build\\web-proof\\transcription_service\\transcription.py",
+        "kind": "python-behavior",
+        "status": "DEGRADED",
+        "detail": "No implementation class found; file executes but no contract",
+        "evidence_level": 2,
+        "toolchain_version": "",
+        "duration_ms": 0.0
+      }
+    },
+    "audio_storage": {
+      "python": {
+        "target": "audio_storage",
+        "path": "C:\\Users\\Uviwe\\Downloads\\Orren\\build\\web-proof\\audio_storage\\storage.py",
+        "kind": "python",
+        "status": "PASS",
+        "detail": "executed retain/retrieve round-trip successfully",
+        "evidence_level": 4,
+        "toolchain_version": "Python 3.14.5",
+        "duration_ms": 0.0
+      },
+      "python-behavior": {
+        "target": "audio_storage",
+        "path": "build\\web-proof\\audio_storage\\storage.py",
+        "kind": "python-behavior",
+        "status": "PASS",
+        "detail": "executed retain/retrieve round-trip successfully",
+        "evidence_level": 4,
+        "toolchain_version": "Python 3.14.5",
+        "duration_ms": 0.0
+      }
+    },
+    "input_button_watcher": {
+      "python": {
+        "target": "input_button_watcher",
+        "path": "build\\web-proof\\input_button_watcher\\input_watcher.py",
+        "kind": "python",
+        "status": "FAIL",
+        "detail": "Declared artifact is missing from output directory",
+        "evidence_level": 0,
+        "toolchain_version": "",
+        "duration_ms": 0.0
+      }
+    }
+  },
+  "languages_tested": [
+    "css",
+    "html",
+    "javascript",
+    "python",
+    "python-behavior",
+    "swift"
+  ],
+  "languages_available": [
+    "c",
+    "c++",
+    "cpp",
+    "css",
+    "go",
+    "html",
+    "javascript",
+    "js",
+    "kotlin",
+    "latex",
+    "python",
+    "rust",
+    "swift",
+    "tex",
+    "text",
+    "typescript",
+    "webaudio"
+  ],
+  "adversarial": {
+    "total_cases": 7,
+    "correct_rejections": 7,
+    "false_passes": 0,
+    "health": "HEALTHY",
+    "results": [
+      {
+        "path": "__adversarial__\\bad_syntax.py",
+        "language": "python",
+        "expected_status": "FAIL",
+        "description": "Python syntax error (unclosed parenthesis)",
+        "actual_status": "FAIL",
+        "evidence_level": 0,
+        "correct": true,
+        "detail": "Syntax error: '(' was never closed (bad_syntax.py, line 1)"
+      },
+      {
+        "path": "__adversarial__\\bad_behavior.py",
+        "language": "python",
+        "expected_status": "FAIL",
+        "description": "Python behavioral probe raises exception",
+        "actual_status": "FAIL",
+        "evidence_level": 2,
+        "correct": true,
+        "detail": "Behavioral probe failed: RuntimeError: Intentional failure for adversarial test"
+      },
+      {
+        "path": "__adversarial__\\bad_syntax.js",
+        "language": "javascript",
+        "expected_status": "FAIL",
+        "description": "JavaScript syntax error (unclosed brace)",
+        "actual_status": "FAIL",
+        "evidence_level": 0,
+        "correct": true,
+        "detail": "JavaScript syntax error: C:\\Users\\Uviwe\\Downloads\\Orren\\build\\web-proof\\__adversarial__\\bad_syntax.js:3\n\n\n\nSyntaxError: Unexpected end of input\n    at wrapSafe (node:internal/modules/cjs/loader:1762:18)\n    at checkSyntax (node:internal/main/check_syntax:76:3)\n\nNode.js v25.8.1"
+      },
+      {
+        "path": "__adversarial__\\bad_structure.html",
+        "language": "html",
+        "expected_status": "FAIL",
+        "description": "HTML missing body element",
+        "actual_status": "FAIL",
+        "evidence_level": 0,
+        "correct": true,
+        "detail": "Document lacks required html/body structure"
+      },
+      {
+        "path": "__adversarial__\\empty.css",
+        "language": "css",
+        "expected_status": "FAIL",
+        "description": "Empty CSS file",
+        "actual_status": "FAIL",
+        "evidence_level": 0,
+        "correct": true,
+        "detail": "Empty stylesheet"
+      },
+      {
+        "path": "__adversarial__\\bad_syntax.rs",
+        "language": "rust",
+        "expected_status": "FAIL",
+        "description": "Rust syntax error (unclosed brace)",
+        "actual_status": "FAIL",
+        "evidence_level": 0,
+        "correct": true,
+        "detail": "Rust warning-free compilation failed: error: this file contains an unclosed delimiter\n --> C:\\Users\\Uviwe\\Downloads\\Orren\\build\\web-proof\\__adversarial__\\bad_syntax.rs:2:23\n  |\n1 | fn main( {\n  |        - - unclosed delimiter\n  |        |\n  |        unclosed delimiter\n2 |     // unclosed brace\n  |                      ^\n\nerror: aborting due to 1 previous error"
+      },
+      {
+        "path": "__adversarial__\\bad_syntax.go",
+        "language": "go",
+        "expected_status": "FAIL",
+        "description": "Go syntax error (unclosed paren)",
+        "actual_status": "FAIL",
+        "evidence_level": 1,
+        "correct": true,
+        "detail": "go vet failed: # orrenprobe\n# [orrenprobe]\nvet.exe: .\\bad_syntax.go:2:12: expected ')', found '{' (and 1 more errors)"
+      }
+    ]
+  },
+  "sovereignty_note": "This report follows the language-sovereignty principle: no backend is privileged, DEGRADED indicates weaker validation (never inflated to PASS), and adversarial tests prove the harness can reject bad artifacts."
+}

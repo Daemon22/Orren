@@ -1,0 +1,49 @@
+{
+  "type": "adversarial_test_suite",
+  "purpose": "Prove conformance harness can REJECT bad artifacts",
+  "expectation": "ALL cases must produce status=FAIL",
+  "cases": [
+    {
+      "path": "__adversarial__\\bad_syntax.py",
+      "language": "python",
+      "expected_status": "FAIL",
+      "description": "Python syntax error (unclosed parenthesis)"
+    },
+    {
+      "path": "__adversarial__\\bad_behavior.py",
+      "language": "python",
+      "expected_status": "FAIL",
+      "description": "Python behavioral probe raises exception"
+    },
+    {
+      "path": "__adversarial__\\bad_syntax.js",
+      "language": "javascript",
+      "expected_status": "FAIL",
+      "description": "JavaScript syntax error (unclosed brace)"
+    },
+    {
+      "path": "__adversarial__\\bad_structure.html",
+      "language": "html",
+      "expected_status": "FAIL",
+      "description": "HTML missing body element"
+    },
+    {
+      "path": "__adversarial__\\empty.css",
+      "language": "css",
+      "expected_status": "FAIL",
+      "description": "Empty CSS file"
+    },
+    {
+      "path": "__adversarial__\\bad_syntax.rs",
+      "language": "rust",
+      "expected_status": "FAIL",
+      "description": "Rust syntax error (unclosed brace)"
+    },
+    {
+      "path": "__adversarial__\\bad_syntax.go",
+      "language": "go",
+      "expected_status": "FAIL",
+      "description": "Go syntax error (unclosed paren)"
+    }
+  ]
+}
