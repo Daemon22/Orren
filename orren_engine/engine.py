@@ -31,6 +31,7 @@ from .data_model import (
     RealizationArtifact,
     SIRGraph,
 )
+from .database import ProjectDatabase
 from .equilibrium_resolver import EquilibriumReport, EquilibriumResolver
 from .parser import CoParser
 from .realization_coordinator import RealizationCoordinator
@@ -49,6 +50,7 @@ class EngineResult:
     artifacts: List[RealizationArtifact] = field(default_factory=list)
     graph: Optional[SIRGraph] = None
     equilibrium_report: Optional[EquilibriumReport] = None
+    revision_id: Optional[int] = None
 
     def summary(self) -> str:
         lines = [
@@ -64,13 +66,14 @@ class EngineResult:
 class Engine:
     """Main orchestrator. Reusable across multiple .orn sources."""
 
-    def __init__(self) -> None:
+    def __init__(self, db_path: Optional[str] = None, project_name: str = "orren-project") -> None:
         self.parser = CoParser()
         self.builder = SIRBuilder()
         self.resolver = EquilibriumResolver()
         self.coordinator = RealizationCoordinator()
         self._graph: Optional[SIRGraph] = None
         self._editor: Optional[SemanticEditor] = None
+        self.database = ProjectDatabase(db_path, project_name) if db_path else None
 
     def run(self, source: str) -> EngineResult:
         """Run the full pipeline on one .orn source string."""
@@ -80,6 +83,10 @@ class Engine:
         artifacts = self.coordinator.coordinate(graph)
         self._graph = graph
         self._editor = None  # invalidate previous editor
+        revision_id = None
+        if self.database is not None:
+            from . import __version__
+            revision_id = self.database.save_run("<memory>", source, graph, artifacts, __version__)
         return EngineResult(
             expressions_count=len(expressions),
             sir_node_count=len(graph.nodes),
@@ -88,6 +95,7 @@ class Engine:
             artifacts=artifacts,
             graph=graph,
             equilibrium_report=report,
+            revision_id=revision_id,
         )
 
     def editor(self) -> SemanticEditor:

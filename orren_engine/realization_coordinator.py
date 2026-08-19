@@ -238,7 +238,15 @@ class RealizationCoordinator:
         elif "kotlin" in lang:
             files.append(OutputFile(path=f"{target.name}/Main.kt", language="kotlin"))
         elif "python" in lang:
-            files.append(OutputFile(path=f"{target.name}/main.py", language="python"))
+            if "storage" in target.name:
+                filename = "storage.py"
+            elif "transcription" in target.name:
+                filename = "transcription.py"
+            elif "input" in target.name or "button" in target.name:
+                filename = "input_watcher.py"
+            else:
+                filename = "service.py"
+            files.append(OutputFile(path=f"{target.name}/{filename}", language="python"))
         else:
             files.append(
                 OutputFile(path=f"{target.name}/output.txt", language="text")

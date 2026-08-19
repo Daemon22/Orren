@@ -32,6 +32,7 @@ from .sir_builder import SIRBuilder
 from .equilibrium_resolver import EquilibriumResolver
 from .realization_coordinator import RealizationCoordinator
 from .codegen import generate as generate_code
+from .conformance import run_conformance, write_report
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -51,6 +52,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         return _cmd_resolve(args)
     if args.command == "realize":
         return _cmd_realize(args)
+    if args.command == "build":
+        return _cmd_build(args)
+    if args.command == "test":
+        return _cmd_test(args)
     if args.command == "preview":
         return _cmd_preview(args)
     if args.command == "validate":
@@ -67,11 +72,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="orren", description="Orren language CLI")
     p.add_argument("--version", action="store_true", help="print version and exit")
     sub = p.add_subparsers(dest="command")
-    for cmd in ("parse", "sir", "resolve", "realize", "validate", "hash"):
+    for cmd in ("parse", "sir", "resolve", "realize", "build", "validate", "hash"):
         sp = sub.add_parser(cmd, help=f"{cmd} a .orn file")
         sp.add_argument("file", help="path to .orn source file")
-        if cmd == "realize":
+        if cmd in ("realize", "build"):
             sp.add_argument("--out", default="orren_out", help="output directory")
+            sp.add_argument("--db", default=None, help="SQLite project database path")
+    sp_test = sub.add_parser("test", help="run conformance tests against an existing realization directory")
+    sp_test.add_argument("out", help="realization directory containing manifest.json")
+    sp_test.add_argument("--report", default=None, help="JSON report path (default: <out>/conformance.json)")
     sp_preview = sub.add_parser("preview", help="generate a self-contained HTML preview")
     sp_preview.add_argument("file", help="path to .orn source file")
     sp_preview.add_argument("--out", default=None, help="output HTML path (default: <name>.preview.html)")
@@ -142,7 +151,7 @@ def _cmd_resolve(args) -> int:
 
 def _cmd_realize(args) -> int:
     source = _read_source(args.file)
-    engine = Engine()
+    engine = Engine(db_path=args.db) if getattr(args, "db", None) else Engine()
     result = engine.run(source)
     print(result.summary())
     os.makedirs(args.out, exist_ok=True)
@@ -172,6 +181,29 @@ def _cmd_realize(args) -> int:
         json.dump(manifest, f, indent=2)
     print(f"  wrote {mpath}")
     return 0
+
+
+def _cmd_build(args) -> int:
+    """Realize, then validate emitted artifacts with available toolchains."""
+    realize_status = _cmd_realize(args)
+    if realize_status != 0:
+        return realize_status
+    report = run_conformance(args.out)
+    report_path = os.path.join(args.out, "conformance.json")
+    write_report(report, report_path)
+    print(f"Build conformance: {report['passed']} passed, {report['failed']} failed, {report['skipped']} skipped")
+    print(f"  report: {report_path}")
+    return 0 if report["failed"] == 0 else 1
+
+
+def _cmd_test(args) -> int:
+    """Test an existing realization; never generates missing output."""
+    report = run_conformance(args.out)
+    report_path = args.report or os.path.join(args.out, "conformance.json")
+    write_report(report, report_path)
+    print(f"Test conformance: {report['passed']} passed, {report['failed']} failed, {report['skipped']} skipped")
+    print(f"  report: {report_path}")
+    return 0 if report["failed"] == 0 else 1
 
 
 def _cmd_preview(args) -> int:

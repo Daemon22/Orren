@@ -53,12 +53,30 @@ pip install -e .
 orren parse app.orn
 orren sir app.orn
 orren resolve app.orn
-orren realize app.orn --out ./out
+orren realize app.orn --out ./out --db ./orren.sqlite  # emit artifacts + persist SIR metadata
+orren build app.orn --out ./out --db ./orren.sqlite    # realize, compile/parse, and run behavior probes
+orren test ./out                                      # test existing output; never regenerates it
 orren preview app.orn              # generates self-contained HTML preview
 orren validate app.orn
 orren validate-suite               # runs the canonical 48-test suite
 orren hash app.orn
 ```
+
+## Durable project database
+
+Persistence is optional. `Engine()` remains an ephemeral reference-engine mode, while
+`Engine(db_path="./orren.sqlite")` creates or opens an independent SQLite project database.
+The store uses a versioned relational schema with JSON payload columns, WAL mode, source
+hashes, SIR hashes, materialized nodes and dimensions, realization targets, artifact metadata,
+and append-only semantic events. It is a project/provenance store; it is not the runtime database
+of a generated application.
+
+The lifecycle is intentionally explicit. `realize` parses, resolves, coordinates, and emits
+source artifacts. `build` invokes `realize` and then runs available validators/toolchains.
+`test` consumes an existing `manifest.json` and output directory without generating missing
+files. A skipped validator means its toolchain is unavailable; it is never reported as a pass.
+The current conformance harness executes Python API probes, Node syntax checks for JavaScript,
+HTML reference checks, and artifact presence checks.
 
 ## Python API
 
@@ -96,8 +114,11 @@ orren hash app.orn   # SHA-256 of the SIR signature
 
 ## Test suite
 
+The suite includes persistence and conformance regression coverage. The test count is not used
+as an acceptance claim; the exit status and emitted conformance report are authoritative.
+
 ```bash
-pytest tests/ -v          # 766 tests across 16 phases
+pytest tests/ -v          # full regression suite, including persistence/conformance
 orren validate-suite      # canonical 48-test validation against bundled examples
 ```
 
