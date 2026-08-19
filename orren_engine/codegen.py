@@ -1120,7 +1120,8 @@ def _gen_rust(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
     parts.append("// --- Processing Function ---")
     parts.append(f"pub fn process(title: &str) -> HashMap<String, String> {{")
     parts.append(f"    let mut results = HashMap::new();")
-    parts.append(f"    results.insert(\"title\".to_string(), \"{title}\".to_string());")
+    parts.append(f"    results.insert(\"application\".to_string(), \"{title}\".to_string());")
+    parts.append("    results.insert(\"input_title\".to_string(), title.to_string());")
     parts.append("")
 
     # Vibe → performance parameters (PROXY markers where vibe can't be expressed)
@@ -1138,12 +1139,15 @@ def _gen_rust(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
                     if "calm" in term:
                         parts.append(f"    // PROXY: vibe.tone={term} → latency=high, throughput=medium")
                         parts.append(f"    let {var}_latency_ms: u64 = 200;")
+                        parts.append(f"    results.insert(\"{node.path}.latency_ms\".to_string(), {var}_latency_ms.to_string());")
                     elif "intense" in term:
                         parts.append(f"    // vibe.tone={term} → latency=low, throughput=high")
                         parts.append(f"    let {var}_latency_ms: u64 = 10;")
+                        parts.append(f"    results.insert(\"{node.path}.latency_ms\".to_string(), {var}_latency_ms.to_string());")
                     else:
                         parts.append(f"    // PROXY: vibe.tone={term} has no Rust equivalent")
                         parts.append(f"    let {var}_latency_ms: u64 = 50;")
+                        parts.append(f"    results.insert(\"{node.path}.latency_ms\".to_string(), {var}_latency_ms.to_string());")
                 else:
                     parts.append(f"    // PROXY: vibe.{aspect}={term} — not directly mappable in Rust")
 
@@ -1158,7 +1162,7 @@ def _gen_rust(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
                 pred = c.get("predicate", "")
                 val = c.get("value", "")
                 parts.append(f"    // {node.path}: {subject} {pred} = {val}")
-                parts.append(f"    let {subject.replace('.','_')}_{pred}: &str = \"{val}\";")
+                parts.append(f"    results.insert(\"{node.path}.{pred}\".to_string(), \"{val}\".to_string());")
 
     # Degradation tolerance
     parts.append("")
@@ -1171,10 +1175,14 @@ def _gen_rust(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
     parts.append("    results")
     parts.append("}")
     parts.append("")
-    parts.append(f"fn main() {{")
+    parts.append("fn main() {")
     parts.append(f"    let results = process(\"{title}\");")
-    parts.append(f"    println!(\"{{:#?}}\", results);")
-    parts.append(f"}}")
+    parts.append("    let mut entries: Vec<_> = results.iter().collect();")
+    parts.append("    entries.sort_by(|(left, _), (right, _)| left.cmp(right));")
+    parts.append("    for (key, value) in entries {")
+    parts.append("        println!(\"{}={}\", key, value);")
+    parts.append("    }")
+    parts.append("}")
     parts.append("")
 
     return {f"{base}/main.rs": "\n".join(parts) + "\n"}

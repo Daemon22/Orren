@@ -75,8 +75,29 @@ The lifecycle is intentionally explicit. `realize` parses, resolves, coordinates
 source artifacts. `build` invokes `realize` and then runs available validators/toolchains.
 `test` consumes an existing `manifest.json` and output directory without generating missing
 files. A skipped validator means its toolchain is unavailable; it is never reported as a pass.
-The current conformance harness executes Python API probes, Node syntax checks for JavaScript,
-HTML reference checks, and artifact presence checks.
+The current sovereign conformance harness executes Python API probes, warning-free Rust
+compilation plus executable runtime checks, Node syntax checks for JavaScript, HTML reference
+checks, and artifact presence checks. Rust artifacts with an executable `main` are compiled
+with `rustc --edition 2021 -D warnings`, run, and required to produce observable output;
+library-only Rust artifacts are reported as `DEGRADED` because no runtime behavior is available.
+
+### Phase C Rust proof
+
+The Rust backend is the first production-quality proof backend. Its generated `process` contract
+returns deterministic semantic state, including the application identity, input title, latency
+proxy where applicable, and cognitive values. The generated executable sorts output keys before
+printing `key=value` records, so repeated runs are byte-identical. The proof tests cover
+warning-free compilation, executable behavior, deterministic output, semantic-state presence,
+malformed Rust rejection, native manifest paths, and source provenance hashing.
+
+```bash
+orren build examples/08_rust_processor.orn --out ./rust-proof
+# conformance.json records Rust PASS at behavioral evidence level when rustc is available
+```
+
+Phase C is considered complete for Rust only when the generated artifact compiles with warnings
+denied, executes successfully, produces deterministic observable output, preserves required SIR
+values, rejects malformed source, and reports the native `main.rs` artifact in the manifest.
 
 ## Python API
 

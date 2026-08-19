@@ -33,6 +33,8 @@ from .equilibrium_resolver import EquilibriumResolver
 from .realization_coordinator import RealizationCoordinator
 from .codegen import generate as generate_code
 from .conformance import run_conformance, write_report
+from .conformance_sovereign import run_conformance as run_sovereign_conformance, write_report as write_sovereign_report
+from .database import graph_hash
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -170,6 +172,14 @@ def _cmd_realize(args) -> int:
     manifest = {
         "version": __version__,
         "source_file": os.path.basename(args.file),
+        "source_sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
+        "sir_sha256": graph_hash(result.graph),
+        "provenance": {
+            "compiler": "orren",
+            "compiler_version": __version__,
+            "source_sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
+            "sir_sha256": graph_hash(result.graph),
+        },
         "expressions": result.expressions_count,
         "sir_nodes": result.sir_node_count,
         "equilibrium_outcomes": result.equilibrium_outcomes,
@@ -188,20 +198,20 @@ def _cmd_build(args) -> int:
     realize_status = _cmd_realize(args)
     if realize_status != 0:
         return realize_status
-    report = run_conformance(args.out)
+    report = run_sovereign_conformance(args.out, run_adversarial=True)
     report_path = os.path.join(args.out, "conformance.json")
-    write_report(report, report_path)
-    print(f"Build conformance: {report['passed']} passed, {report['failed']} failed, {report['skipped']} skipped")
+    write_sovereign_report(report, report_path)
+    print(f"Build conformance: {report['passed']} passed, {report['degraded']} degraded, {report['failed']} failed, {report['skipped']} skipped")
     print(f"  report: {report_path}")
     return 0 if report["failed"] == 0 else 1
 
 
 def _cmd_test(args) -> int:
     """Test an existing realization; never generates missing output."""
-    report = run_conformance(args.out)
+    report = run_sovereign_conformance(args.out, run_adversarial=True)
     report_path = args.report or os.path.join(args.out, "conformance.json")
-    write_report(report, report_path)
-    print(f"Test conformance: {report['passed']} passed, {report['failed']} failed, {report['skipped']} skipped")
+    write_sovereign_report(report, report_path)
+    print(f"Test conformance: {report['passed']} passed, {report['degraded']} degraded, {report['failed']} failed, {report['skipped']} skipped")
     print(f"  report: {report_path}")
     return 0 if report["failed"] == 0 else 1
 

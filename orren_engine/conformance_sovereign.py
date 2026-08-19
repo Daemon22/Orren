@@ -255,44 +255,73 @@ def _validate_python(path: Path) -> CheckResult:
 
 
 def _validate_rust(path: Path) -> CheckResult:
-    """Rust validator: rustc syntax check → optional compilation."""
+    """Rust validator: warning-free compilation plus executable behavior when available."""
     start = _now_ms()
     rustc_available, version = _toolchain_info("rustc")
-    
+
     if not rustc_available:
         return CheckResult(
             target="", path=str(path), kind="rust",
             status=Status.SKIP,
             detail="rustc toolchain unavailable — cannot validate Rust artifacts",
-            evidence_level=0
+            evidence_level=0,
         )
-    
-    # Level 1: Syntax check (--emit=metadata, don't generate code)
-    code, stdout, stderr = _run(
-        ["rustc", "--edition", "2021", "--crate-type=lib", 
-         "-o", "/dev/null", "--emit=metadata", str(path)],
-        path.parent, timeout=60
-    )
-    
-    if code != 0:
+
+    source = path.read_text(encoding="utf-8")
+    has_main = "fn main" in source
+    with tempfile.TemporaryDirectory(prefix="orren-rust-compile-") as build_dir:
+        executable = Path(build_dir) / "orren_app"
+        command = ["rustc", "--edition", "2021", "-D", "warnings", str(path)]
+        if has_main:
+            command.extend(["-o", str(executable)])
+        else:
+            command.extend(["--crate-type=lib", "--emit=metadata", "-o", "/dev/null"])
+        code, stdout, stderr = _run(command, path.parent, timeout=60)
+        if code != 0:
+            return CheckResult(
+                target="", path=str(path), kind="rust",
+                status=Status.FAIL,
+                detail=f"Rust warning-free compilation failed: {(stderr or stdout)[:500]}",
+                evidence_level=EvidenceLevel.SYNTACTIC - 1,
+                toolchain_version=version,
+                duration_ms=_now_ms() - start,
+            )
+        if not has_main:
+            return CheckResult(
+                target="", path=str(path), kind="rust",
+                status=Status.DEGRADED,
+                detail="Rust library compiles warning-free; no executable entrypoint was available for behavioral testing",
+                evidence_level=EvidenceLevel.SYNTACTIC,
+                toolchain_version=version,
+                duration_ms=_now_ms() - start,
+            )
+        run_code, output, run_error = _run([str(executable)], Path(build_dir), timeout=10)
+        if run_code != 0:
+            return CheckResult(
+                target="", path=str(path), kind="rust",
+                status=Status.FAIL,
+                detail=f"Rust executable exited with {run_code}: {(run_error or output)[:500]}",
+                evidence_level=EvidenceLevel.SYNTACTIC,
+                toolchain_version=version,
+                duration_ms=_now_ms() - start,
+            )
+        if not output.strip():
+            return CheckResult(
+                target="", path=str(path), kind="rust",
+                status=Status.FAIL,
+                detail="Rust executable returned no observable runtime output",
+                evidence_level=EvidenceLevel.BEHAVIORAL,
+                toolchain_version=version,
+                duration_ms=_now_ms() - start,
+            )
         return CheckResult(
             target="", path=str(path), kind="rust",
-            status=Status.FAIL,
-            detail=f"Rust compilation failed: {stderr[:500]}",
-            evidence_level=EvidenceLevel.SYNTACTIC - 1,
-            toolchain_version=version
+            status=Status.PASS,
+            detail="Rust source compiled with warnings denied and executable behavior produced observable output",
+            evidence_level=EvidenceLevel.BEHAVIORAL,
+            toolchain_version=version,
+            duration_ms=_now_ms() - start,
         )
-    
-    # Rust doesn't easily support "compile and run" for libraries without main
-    # but we've verified it compiles successfully
-    return CheckResult(
-        target="", path=str(path), kind="rust",
-        status=Status.PASS,
-        detail="Rust source compiles successfully (syntax + type resolution verified)",
-        evidence_level=EvidenceLevel.SYNTACTIC,  # Could be higher with cargo test integration
-        toolchain_version=version,
-        duration_ms=_now_ms() - start
-    )
 
 
 def _validate_go(path: Path) -> CheckResult:
