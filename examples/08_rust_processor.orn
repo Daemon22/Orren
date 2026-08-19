@@ -1,0 +1,132 @@
+create data_pipeline_processor : Application
+
+    context:
+        purpose: a high-performance data pipeline for real-time stream processing
+        domain: systems_programming
+        audience: platform engineers and data infrastructure teams
+        performance_critical: true
+        memory_safety_required: true
+
+    structure:
+        pipeline
+            ingress_buffer
+            parser_stage
+            transform_engine
+            aggregation_module
+            egress_writer
+            metrics_collector
+
+    cognitive:
+        data_pipeline_processor.throughput = maximum_achievable
+        ingress_buffer.batching = windowed_microbatch
+        parser_stage.schema_validation = strict
+        transform_engine.parallelism = auto_tuned
+        aggregation_module.windowing = tumbling_5s
+        egress_writer.durability = fsync_guaranteed
+        metrics_collector.telemetry = prometheus_format
+
+    vibe:
+        data_pipeline_processor.tone = precise
+        data_pipeline_processor.color_character = steel_blue
+        data_pipeline_processor.form_character = modular
+        data_pipeline_processor.aesthetic = "industrial precision"
+
+    conditional:
+        ingress_buffer activates on incoming_stream
+        parser_stage activates on buffer_threshold
+        transform_engine activates on parsed_event
+        aggregation_module activates on transformed_record
+        egress_writer activates on window_complete
+        metrics_collector retained always (unconditional preservation)
+
+    temporal:
+        ingress → parse within 1ms latency budget
+        parse → transform within parallel_stage
+        transform → aggregate within window_boundary
+        aggregate → egress within durability_contract
+
+    relational:
+        ingress_buffer feeds parser_stage
+        parser_stage feeds transform_engine
+        transform_engine feeds aggregation_module
+        aggregation_module feeds egress_writer
+        all_stages feed metrics_collector
+
+    behavior:
+        data_pipeline_processor behaves_as_streaming_system
+        ingress_buffer transitions from empty to ready on threshold_reached
+        transform_engine scales workers based on backpressure
+        egress_writer batches writes for throughput_optimization
+
+    equilibrium:
+        throughput_vs_correctness:
+            when cognitive.throughput is active AND cognitive.validation is active
+            preserve both
+            resolution: validate schema first, maximize throughput within correctness
+            rationale: fast wrong data is worse than slow correct data
+
+        memory_vs_throughput:
+            when cognitive.parallelism is active AND memory_constraint is active
+            preserve both
+            resolution: bound buffer sizes, apply backpressure
+            rationale: out-of-memory kills the process entirely
+
+        durability_vs_latency:
+            when cognitive.durability is active AND cognitive.throughput is active
+            preserve both
+            resolution: batch fsync calls, acknowledge after persist
+            rationale: acknowledged-but-lost data corrupts downstream
+
+        modularity_preserves_performance:
+            when vibe.modular is active AND cognitive.parallelism is active
+            preserve both
+            resolution: stage boundaries are explicit channels not shared state
+            rationale: shared state kills parallelism gains
+
+        telemetry_overhead_vs_observability:
+            when cognitive.telemetry is active AND cognitive.throughput is active
+            preserve both
+            resolution: sample metrics at 1% rate, count always
+            rationale: full instrumentation can dominate small payloads
+
+    degrade:
+        require full       for cognitive  on throughput_guarantees
+        require full       for cognitive  on memory_safety
+        require full       for cognitive  on schema_validation
+        require faithful   for cognitive  on parallelism_tuning
+        tolerate faithful  for vibe       on color_character
+        tolerate proxy     for vibe       on aesthetic
+        require full       for temporal   on latency_budgets
+        require full       for relational on stage_connectors
+        require full       for behavioral on backpressure_response
+
+    realize:
+        target: rust_backend (Rust)
+            capabilities: zero_copy_parsing, async_runtime, memory_safety, simd_vectorization
+            can_express: cognitive, conditional, temporal, relational, behavioral
+            needs_bridge: external_data_sources
+            cannot_express: vibe.aesthetic
+            degradation: aesthetic = proxy
+            preservation_score: 0.95
+
+        target: go_backend (Go)
+            capabilities: goroutine_concurrency, channel_communication, garbage_collection
+            can_express: cognitive, conditional, relational, behavioral
+            needs_bridge: simd_vectorization
+            cannot_express: vibe, zero_copy_guarantees
+            degradation: color_character = faithful, aesthetic = proxy
+            preservation_score: 0.82
+
+        target: embedded_controller (C)
+            capabilities: direct_memory, interrupt_handling, minimal_runtime
+            can_express: cognitive.throughput, conditional, behavioral
+            needs_bridge: garbage_collection, type_safety
+            cannot_express: vibe, async_runtime, memory_safety_guarantees
+            degradation: all_vibe_aspects = proxy
+            preservation_score: 0.68
+
+        target: monitoring_service (Python)
+            capabilities: write, retrieve, metrics_scraping
+            can_express: cognitive.telemetry
+            cannot_express: cognitive.throughput, vibe, spatial, behavioral
+            preservation_score: 1.0

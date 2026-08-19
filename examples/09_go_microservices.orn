@@ -1,0 +1,136 @@
+create api_gateway_cluster : Application
+
+    context:
+        purpose: a distributed API gateway with service discovery and load balancing
+        domain: cloud_infrastructure
+        audience: platform teams and SREs
+        deployment_target: kubernetes
+
+    structure:
+        gateway_cluster
+            ingress_router
+            rate_limiter
+            auth_validator
+            service_discovery
+            load_balancer
+            circuit_breaker
+            request_logger
+            health_checker
+
+    cognitive:
+        api_gateway_cluster.routing = dynamic_path_based
+        rate_limiter.enforcement = token_bucket_per_client
+        auth_validator.jwt_validation = rsa_signature_verify
+        service_discovery.registration = consul_dns_fallback
+        load_balancer.algorithm = least_connections_weighted
+        circuit_breaker.threshold = 5_failures_30s_window
+        request_logger.sampling = error_full_info_sampled
+        health_checker.interval = 10s_passive_30s_active
+
+    vibe:
+        api_gateway_cluster.tone = professional
+        api_gateway_cluster.color_character = navy
+        api_gateway_cluster.form_character = layered
+        api_gateway_cluster.aesthetic = "enterprise infrastructure"
+
+    conditional:
+        ingress_router activates on incoming_http_request
+        rate_limiter activates on route_matched
+        auth_validator activates on protected_endpoint
+        load_balancer activates on authenticated_request
+        circuit_breaker activates on upstream_failure
+        request_logger retained always (unconditional preservation)
+        health_checker retained always (unconditional preservation)
+
+    temporal:
+        route → authenticate within 2ms budget
+        authenticate → balance within 1ms budget
+        balance → upstream within connection_pool
+        circuit_breaker → recovery_after_60s_cooldown
+
+    relational:
+        ingress_router feeds rate_limiter
+        rate_limiter feeds auth_validator
+        auth_validator feeds load_balancer
+        load_balancer feeds upstream_services
+        circuit_breaker monitors upstream_services
+        all_components feed request_logger
+        health_checker monitors all_components
+
+    behavior:
+        api_gateway_cluster behaves_as_reverse_proxy
+        rate_limiter transitions from open to limited on quota_exceeded
+        circuit_breaker transitions from closed → open → half_open → closed
+        service_discovery updates cache on ttl_expiry
+
+    equilibrium:
+        security_vs_latency:
+            when cognitive.validation is active AND cognitive.routing is active
+            preserve both
+            resolution: cache valid JWT signatures, validate expiry inline
+            rationale: security cannot be bypassed for speed
+
+        availability_vs_consistency:
+            when service_discovery is active AND circuit_breaker is active
+            preserve both
+            resolution: serve stale endpoint list during partition, refresh async
+            rationale: partial availability beats total outage
+
+        logging_vs_performance:
+            when request_logger is active AND cognitive.routing is active
+            preserve both
+            resolution: buffer logs, flush asynchronously, sample healthy requests
+            rationale: synchronous I/O in hot path kills throughput
+
+        rate_limiting_vs_fairness:
+            when rate_limiter is active AND load_balancer is active
+            preserve both
+            resolution: per-client limits, global headroom for burst
+            rationale: protect infrastructure without starving legitimate traffic
+
+        layered_architecture_preserves_simplicity:
+            when vibe.layered is active AND cognitive.dynamic is active
+            preserve both
+            resolution: each layer has single responsibility, clear interfaces
+            rationale: complexity hidden behind abstraction boundaries
+
+    degrade:
+        require full       for cognitive  on security_validation
+        require full       for cognitive  on circuit_breaking_logic
+        require faithful   for cognitive  on load_balancing_algorithm
+        tolerate faithful  for vibe       on color_character
+        tolerate proxy     for vibe       on aesthetic
+        require full       for temporal   on latency_budgets
+        require full       for relational on component_chain
+        require full       for behavioral on state_transitions
+
+    realize:
+        target: go_backend (Go)
+            capabilities: goroutine_concurrency, channel_patterns, context_cancellation, standard_library
+            can_express: cognitive, conditional, temporal, relational, behavioral
+            needs_bridge: external_service_registry
+            cannot_express: vibe.aesthetic
+            degradation: aesthetic = proxy
+            preservation_score: 0.94
+
+        target: rust_backend (Rust)
+            capabilities: tokio_async, type_safe_channels, zero_cost_abstractions
+            can_express: cognitive, conditional, temporal, behavioral
+            needs_bridge: go_standard_library_ecosystem
+            cannot_express: vibe
+            degradation: all_vibe_aspects = proxy
+            preservation_score: 0.88
+
+        target: typescript_frontend (TypeScript)
+            capabilities: type_safety, async_await, fetch_api
+            can_express: conditional, spatial, behavioral
+            needs_bridge: gateway_internal_state
+            cannot_express: cognitive.internal, relational.component_chain
+            degradation: internal_state = proxy
+            preservation_score: 0.72
+
+        target: config_watcher (Python)
+            capabilities: file_watch, yaml_parse, env_resolve
+            can_express: cognitive.service_discovery
+            cannot_express: vibe, spatial, behavioral
+            preservation_score: 1.0

@@ -1,0 +1,158 @@
+create health_tracker_mobile : Application
+
+    context:
+        purpose: a native mobile health and fitness tracker with wearable sync
+        domain: mobile_application
+        audience: health-conscious individuals
+        platform_target: android_kotlin
+        min_sdk: 24 (android_7.0)
+        wear_os_support: true
+
+    structure:
+        app
+            dashboard
+                today_summary_ring
+                weekly_chart
+                quick_action_grid
+            activity_tracker
+                step_counter
+                workout_logger
+                heart_rate_monitor
+            nutrition_module
+                food_diary
+                calorie_tracker
+                macro_breakdown
+            sleep_analyzer
+                sleep_stage_graph
+                quality_score
+                smart_alarm
+            profile_section
+                goals_settings
+                achievements_badge
+                device_sync_panel
+
+    cognitive:
+        health_tracker_mobile.tracking = continuous_background
+        activity_tracker.step_detection = sensor_fusion_accelerometer_gyro
+        workout_logger.recognition = automatic_activity_classification
+        heart_rate_monitor.sampling = optical_sensor_5s_interval
+        nutrition_module.database = local_first_cloud_backup
+        sleep_analyzer.analysis = on_device_ml_inference
+        device_sync.protocol = bluetooth_low_energy_health_profile
+
+    vibe:
+        health_tracker_mobile.tone = encouraging
+        health_tracker_mobile.color_character = vital_teal
+        health_tracker_mobile.form_character = rounded_cards
+        health_tracker_mobile.aesthetic = "gentle vitality"
+        dashboard.tone = celebratory
+        sleep_analyzer.tone = calm
+
+    spatial:
+        app located_in screen
+        dashboard located_in app.home
+        activity_tracker located_in app.bottom_nav
+        nutrition_module located_in app.bottom_nav
+        sleep_analyzer located_in app.bottom_nav
+        profile_section located_in app.settings_drawer
+        today_summary_ring centered_in dashboard
+
+    conditional:
+        dashboard activates on_app_launch
+        activity_tracker activates on_step_sensor_event
+        workout_logger activates on_user_start_or_auto_detect
+        heart_rate_monitor activates_on_wearable_connect
+        nutrition_module activates on_meal_time_prompt or user_open
+        sleep_analyzer activates_on_bedtime_mode or morning_review
+        device_sync_panel activates_on_wearable_nearby
+
+    temporal:
+        step_count → aggregate hourly, display real-time
+        heart_rate → sample every 5s, trend over 24h
+        nutrition → log at meal times, summarize daily
+        sleep → analyze on wake, display morning
+        sync → auto every 30min, manual on demand
+
+    relational:
+        activity_tracker feeds dashboard.summary
+        heart_rate_monitor feeds dashboard.ring
+        nutrition_module feeds dashboard.calories
+        sleep_analyzer feeds dashboard.recovery_score
+        wearable_device feeds all_tracking_modules via bluetooth
+        all_modules feed cloud_backup via profile_section
+
+    behavior:
+        health_tracker_mobile behaves_as_lifecycle_aware_application
+        dashboard transitions from loading to populated on_data_ready
+        activity_tracker transitions from idle to tracking on_permission_granted
+        sleep_analyzer transitions from active_to_analysis on_wake_detected
+
+    equilibrium:
+        accuracy_vs_battery:
+            when cognitive.tracking is active AND battery_constraint is active
+            preserve both
+            resolution: adaptive sampling rate, batch sensor reads
+            rationale: dead battery tracks nothing
+
+        privacy_vs_insights:
+            when health_data is active AND cloud_backup is active
+            preserve both
+            resolution: encrypt locally, anonymize before upload, clear retention policy
+            rationale: health data is sensitive, insights require aggregation
+
+        encouragement_vs_honesty:
+            when vibe.encouraging is active AND cognitive.data is active
+            preserve both
+            resolution: celebrate progress, show真实 numbers without judgment
+            rationale: fake positivity erodes trust
+
+        local_vs_cloud:
+            when nutrition_module.database is active AND device_sync is active
+            preserve both
+            resolution: local-first, cloud as backup, merge on reconnect
+            rationale: connectivity is unreliable, data must survive
+
+        rounded_aesthetic_vs_information_density:
+            when vibe.rounded_cards is active AND dashboard.chart is active
+            preserve both
+            resolution: cards for summary, expand for detail, white space intentional
+            rationale: calm interface supports sustained engagement
+
+    degrade:
+        require full       for cognitive  on health_data_privacy
+        require full       for cognitive  on background_tracking
+        require faithful   for spatial    on responsive_layout
+        tolerate faithful  for vibe       on color_character
+        tolerate proxy     for vibe       on aesthetic
+        require full       for behavioral on lifecycle_management
+        require full       for temporal   on data_freshness
+        require full       for relational on wearable_sync
+
+    realize:
+        target: native_shell (Kotlin)
+            capabilities: android_sdk, jetpack_compose, room_database, work_manager, bluetooth_le
+            can_express: cognitive, conditional, spatial, vibe, behavioral, temporal, relational
+            needs_bridge: mlkit_health_api
+            cannot_express: ios_specific_features
+            degradation: aesthetic = faithful (Compose theming)
+            preservation_score: 0.91
+
+        target: typescript_frontend (TypeScript)
+            capabilities: react_native_typescript, async_storage, ble_module
+            can_express: cognitive, conditional, spatial, behavioral
+            needs_bridge: native_platform_apis
+            cannot_express: jetpack_compose_native_performance, android_specific_sensors
+            degradation: platform_integration = proxy
+            preservation_score: 0.74
+
+        target: sync_service (Python)
+            capabilities: rest_api, data_validation, encryption_at_rest
+            can_express: cognitive.cloud_backup, relational.user_data
+            cannot_express: mobile_ui, sensors, vibe
+            preservation_score: 1.0
+
+        target: analytics_pipeline (Python)
+            capabilities: aggregate, anonymize, trend_analysis
+            can_express: cognitive.data_analysis, temporal.aggregation
+            cannot_express: realtime_tracking, ui, vibe
+            preservation_score: 1.0

@@ -1,0 +1,146 @@
+create collaborative_workspace : Application
+
+    context:
+        purpose: a real-time collaborative document editor with presence and conflict resolution
+        domain: web_application
+        audience: remote teams and content creators
+        framework_target: react_typescript
+        realtime_transport: websocket_with_crdt
+
+    structure:
+        workspace
+            toolbar
+            document_canvas
+            sidebar
+                participants_panel
+                comments_panel
+                version_history
+            presence_indicators
+            cursor_layer
+            selection_sync
+
+    cognitive:
+        collaborative_workspace.editing = operational_transformation
+        document_canvas.rendering = virtual_scroll_large_docs
+        toolbar.formatting = rich_text_markdown
+        participants_panel.presence = real_time_cursor_bubbles
+        comments_panel.threads = nested_threaded_discussions
+        version_history.branching = git_like_dag
+        presence_indicators.typing = debounce_300ms_show
+        cursor_sync.resolution = last_write_wins_position
+
+    vibe:
+        collaborative_workspace.tone = inviting
+        collaborative_workspace.color_character = warm_slate
+        collaborative_workspace.form_character = fluid
+        collaborative_workspace.aesthetic = "calm productivity"
+        toolbar.tone = professional
+        sidebar.tone = conversational
+
+    spatial:
+        workspace located_in viewport
+        toolbar located_in workspace.top
+        document_canvas located_in workspace.center
+        sidebar located_in workspace.right
+        presence_indicators overlaid_on document_canvas
+        cursor_layer overlaid_on document_canvas
+
+    conditional:
+        toolbar activates on text_selection_or_cursor_focus
+        document_canvas activates on mount
+        participants_panel activates on collaborator_join
+        comments_panel activates on comment_trigger
+        version_history activates on explicit_open
+        presence_indicators retained while_collaborators_active
+        cursor_layer retained while_editing_active
+
+    temporal:
+        local_edit → broadcast within 50ms
+        remote_edit → apply within 100ms
+        presence_update → debounce 300ms
+        auto_save → debounce 2000ms
+        conflict_detect → resolve_before_render
+
+    relational:
+        toolbar modifies document_canvas.state
+        participants_panel reads workspace.collaborators
+        comments_panel annotates document_canvas.selections
+        version_history snapshots document_canvas.state
+        presence_indicators reflects all_collaborators.cursor_state
+        cursor_sync coordinates between all_clients
+
+    behavior:
+        collaborative_workspace behaves_as_realtime_editor
+        document_canvas transitions from blank to populated on_content_load
+        participants_panel transitions from empty to populated on_first_join
+        cursor_layer follows user_input with_smooth_interpolation
+
+    equilibrium:
+        collaboration_vs_performance:
+            when cognitive.editing is active AND cognitive.rendering is active
+            preserve both
+            resolution: batch remote changes, apply in animation frame
+            rationale: smooth local typing takes priority over remote sync
+
+        richness_vs_simplicity:
+            when toolbar.formatting is active AND vibe.inviting is active
+            preserve both
+            resolution: progressive disclosure, advanced options in menus
+            rationale: power users need features, newcomers need clarity
+
+        presence_vs_privacy:
+            when participants_panel is active AND conditional.text_selection is active
+            preserve both
+            resolution: show cursor position, never show selected text content
+            rationale: awareness without surveillance
+
+        offline_vs_sync:
+            when version_history is active AND cognitive.broadcast is active
+            preserve both
+            resolution: queue locally, reconcile on reconnect with OT
+            rationale: connectivity is optional, data integrity is not
+
+        fluid_vs_structured:
+            when vibe.fluid is active AND sidebar.conversational is active
+            preserve both
+            resolution: canvas is freeform, sidebar has clear sections
+            rationale: creativity needs freedom, navigation needs structure
+
+    degrade:
+        require full       for cognitive  on conflict_resolution
+        require full       for cognitive  on realtime_sync
+        require faithful   for spatial    on layout_responsiveness
+        tolerate faithful  for vibe       on color_character
+        tolerate proxy     for vibe       on aesthetic
+        require full       for behavioral on undo_redo_integrity
+        require full       for temporal   on sync_latency
+        require full       for relational on state_consistency
+
+    realize:
+        target: typescript_frontend (TypeScript)
+            capabilities: type_safe_state, react_hooks, crdt_integration, websocket_client
+            can_express: cognitive, conditional, spatial, vibe, behavioral, temporal, relational
+            needs_bridge: backend_presence_server
+            cannot_express: backend_persistence
+            degradation: aesthetic = faithful (CSS approximations)
+            preservation_score: 0.89
+
+        target: web_interface (HTML/CSS/JS)
+            capabilities: dom_manipulation, event_handling, css_animations
+            can_express: spatial, vibe.color_character, vibe.form_character, conditional, behavioral
+            needs_bridge: crdt_library, type_safety
+            cannot_express: cognitive.conflict_resolution, type_guarantees
+            degradation: conflict_resolution = proxy, type_safety = proxy
+            preservation_score: 0.71
+
+        target: presence_service (Python)
+            capabilities: websocket_server, room_management, presence_broadcast
+            can_express: cognitive.realtime_sync, relational.collaborator_state
+            cannot_express: frontend_rendering, vibe, spatial
+            preservation_score: 1.0
+
+        target: document_storage (Python)
+            capabilities: write, retain, retrieve, version_branching
+            can_express: cognitive.version_history, temporal.auto_save
+            cannot_express: vibe, spatial, behavioral
+            preservation_score: 1.0

@@ -1,0 +1,167 @@
+create technical_specification : Application
+
+    context:
+        purpose: generate a formal technical specification document with mathematical typesetting
+        domain: document_generation
+        audience: engineers and technical stakeholders
+        output_format: pdf_via_latex
+        document_class: report_with_chapters
+        citation_style: ieee_numeric
+
+    structure:
+        document
+            front_matter
+                title_page
+                abstract_section
+                table_of_contents
+                nomenclature
+            body_chapters
+                introduction
+                    background
+                    motivation
+                    scope_statement
+                system_architecture
+                    component_overview
+                    data_flow_diagrams
+                    interface_specifications
+                mathematical_model
+                    definitions
+                    theorems
+                    proofs
+                    complexity_analysis
+                implementation_details
+                    algorithm_pseudocode
+                    data_structures
+                    api_reference
+                validation_results
+                    test_methodology
+                    performance_benchmarks
+                    correctness_proofs
+            back_matter
+                references_bibliography
+                appendices
+                    appendix_a_derivation
+                    appendix_b_trace_tables
+                    glossary
+
+    cognitive:
+        technical_specification.tone = formal_academic
+        introduction.background = literature_survey_cited
+        system_architecture.description = layered_abstraction
+        mathematical_model.rigor = theorem_proof_format
+        implementation_details.precision = executable_pseudocode
+        validation_results.evidence = reproducible_experiments
+        references_bibliography.completeness = comprehensive_coverage
+
+    vibe:
+        technical_specification.tone = authoritative
+        technical_specification.color_character = classic_black
+        technical_specification.form_character = structured_grid
+        technical_specification.aesthetic = "academic precision"
+        body_chapters.tone = objective
+        mathematical_model.tone = elegant
+
+    spatial:
+        document located_in page_sequence
+        front_matter precedes body_chapters
+        body_chapters contains hierarchical_sections
+        back_matter follows body_chapters
+        figures placed_at_top_or_bottom_of_pages
+        tables inline_with_text_reference
+        equations numbered_per_chapter
+
+    conditional:
+        title_page activates on_document_beginning
+        table_of_contents activates_on_content_complete
+        references_bibliography retained always (unconditional)
+        appendices activates_on_supplementary_material_present
+
+    temporal:
+        write_abstract → after_body_complete
+        update_toc → after_final_revision
+        number_equations → during_compilation_pass
+        resolve_citations → during_bibliography_build
+
+    relational:
+        introduction motivates system_architecture
+        system_architecture informs implementation_details
+        mathematical_model underpins validation_results
+        validation_results confirms introduction_claims
+        all_sections reference relevant_bibliography_entries
+
+    behavior:
+        technical_specification behaves_as_static_document
+        document transitions from draft to review to final
+        equation_references auto_update on_insertion_delete
+        cross_references resolve during_compilation
+
+    equilibrium:
+        rigor_vs_accessibility:
+            when mathematical_model.rigor is active AND introduction.motivation is active
+            preserve both
+            resolution: formal theorems in math chapter, intuitive explanation in intro
+            rationale: different readers need different depth
+
+        completeness_vs_conciseness:
+            when references_bibliography is active AND scope_statement is active
+            preserve both
+            resolution: cite comprehensively, stay within declared scope
+            rationale: thorough without meandering
+
+        visual_vs_textual:
+            when data_flow_diagrams is active AND interface_specifications is active
+            preserve both
+            resolution: diagrams for overview, tables for detail, text for rationale
+            rationale: each medium has distinct expressive power
+
+        formality_vs_engagement:
+            when tone.authoritative is active AND motivation is active
+            preserve both
+            resolution: formal in claims, engaging in motivation, never casual
+            rationale: specification must be trustworthy and readable
+
+        structured_vs_natural:
+            when vibe.structured_grid is active AND body_chapters.flow is active
+            preserve both
+            resolution: grid for navigation, prose within sections for reading
+            rationale: structure aids reference, flow aids comprehension
+
+    degrade:
+        require full       for cognitive  on mathematical_rigor
+        require full       for cognitive  on citation_accuracy
+        require faithful   for spatial    on typographic_layout
+        tolerate faithful  for vibe       on color_character (monochrome_primary)
+        tolerate proxy     for vibe       on aesthetic (LaTeX_has_intrinsic_aesthetic)
+        require full       for behavioral on cross_reference_integrity
+        require full       for temporal   on compilation_order
+        require full       for relational on internal_consistency
+
+    realize:
+        target: contract_document (LaTeX)
+            capabilities: mathematical_typesetting, automatic_numbering, bibliography_management, cross_referencing, index_generation
+            can_express: cognitive, spatial, vibe.form_character, conditional, temporal, relational, behavioral
+            needs_bridge: diagram_external_tool (tikz_or_include)
+            cannot_express: interactive_behavior, runtime_state
+            degradation: aesthetic = intrinsic_to_latex
+            preservation_score: 0.97
+
+        target: web_interface (HTML/CSS/JS)
+            capabilities: responsive_layout, mathjax_rendering, anchor_navigation
+            can_express: spatial, conditional, behavioral.navigation
+            needs_bridge: latex_math_rendering, print_quality
+            cannot_express: mathematical_rigor_guarantees, bibliographic_database
+            degradation: math_rendering = faithful (MathJax), citations = simplified
+            preservation_score: 0.68
+
+        target: markdown_export (Python)
+            capabilities: text_generation, heading_hierarchy, link_syntax
+            can_express: cognitive.content, structural_outline
+            cannot_express: mathematical_typesetting, automatic_numbering, bibliography
+            degradation: math = code_block_proxy, numbering = manual
+            preservation_score: 0.52
+
+        target: validation_suite (Python)
+            capabilities: test_execution, result_collection, report_generation
+            can_express: cognitive.validation_results, temporal.benchmark_data
+            cannot_express: document_formatting, typesetting
+            preservation_score: 1.0

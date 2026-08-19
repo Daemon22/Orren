@@ -1,0 +1,143 @@
+create sensor_fusion_controller : Application
+
+    context:
+        purpose: a real-time sensor fusion system for autonomous vehicle perception
+        domain: embedded_systems
+        audience: automotive software engineers
+        hardware_target: arm_cortex_m7
+        memory_constraint: 512kb_ram
+        timing_constraint: hard_realtime_1ms
+
+    structure:
+        controller
+            imu_interface
+            lidar_interface
+            radar_interface
+            gps_interface
+            fusion_engine
+            state_estimator
+            safety_monitor
+            can_bus_output
+            debug_interface
+
+    cognitive:
+        sensor_fusion_controller.fusion_rate = 1000hz
+        imu_interface.sampling = interrupt_driven_2000hz
+        lidar_interface.point_cloud = spinning_20hz
+        radar_interface.doppler = fmcw_modulation
+        gps_interface.position = rtk_corrected_10hz
+        fusion_engine.algorithm = extended_kalman_filter
+        state_estimator.prediction = constant_velocity_model
+        safety_monitor.plausibility = range_rate_consistency
+        can_bus_output.protocol = j1939_extended
+
+    vibe:
+        sensor_fusion_controller.tone = precise
+        sensor_fusion_controller.color_character = amber_warning
+        sensor_fusion_controller.form_character = deterministic
+        sensor_fusion_controller.aesthetic = "safety-critical minimalism"
+
+    conditional:
+        imu_interface activates on dma_transfer_complete
+        lidar_interface activates on rotation_trigger
+        radar_interface activates on chirp_complete
+        gps_interface activates on pps_edge
+        fusion_engine activates on all_sensors_ready
+        safety_monitor activates on state_update
+        can_bus_output activates on valid_estimation
+        debug_interface retained always (unconditional preservation)
+
+    temporal:
+        imu_sample → fuse within 500us window
+        lidar_scan → align with imu_timestamp
+        radar_doppler → correlate_with_position
+        all_sensors → fuse_before_next_cycle
+        state_output → can_bus_within_200us
+
+    relational:
+        imu_interface feeds fusion_engine
+        lidar_interface feeds fusion_engine
+        radar_interface feeds fusion_engine
+        gps_interface feeds state_estimator
+        fusion_engine feeds state_estimator
+        state_estimator feeds safety_monitor
+        safety_monitor gates can_bus_output
+        all_components feed debug_interface
+
+    behavior:
+        sensor_fusion_controller behaves_as_hard realtime_system
+        fusion_engine transitions from waiting to fusing on synchronization_event
+        safety_monitor transitions from nominal to degraded on plausibility_violation
+        can_bus_output transitions from silent to broadcasting on valid_state
+
+    equilibrium:
+        precision_vs_latency:
+            when cognitive.fusion_rate is active AND timing_constraint is active
+            preserve both
+            resolution: fixed-point arithmetic, skip floating point
+            rationale: determinism beats precision in safety domain
+
+        completeness_vs_timeliness:
+            when all_sensors_ready is active AND temporal.cycle_boundary is active
+            preserve both
+            resolution: fuse available sensors, flag missing as degraded
+            rationale: partial estimate better than no estimate
+
+        safety_vs_availability:
+            when safety_monitor is active AND can_bus_output is active
+            preserve both
+            resolution: safe state output if estimation invalid
+            rationale: wrong output kills, no output is survivable
+
+        debug_overhead_vs_performance:
+            when debug_interface is active AND cognitive.fusion_rate is active
+            preserve both
+            resolution: ring buffer, poll not interrupt, zero_alloc
+            rationale: debug must never interfere with real-time
+
+        determinism_preserves_correctness:
+            when vibe.deterministic is active AND cognitive.algorithm is active
+            preserve both
+            resolution: bounded loops, no dynamic allocation, fixed step size
+            rationale: unpredictable execution time is a bug in hard RT
+
+    degrade:
+        require full       for cognitive  on fusion_timing
+        require full       for cognitive  on safety_monitoring
+        require full       for behavioral on realtime_guarantees
+        tolerate faithful  for cognitive  on algorithm_precision
+        tolerate proxy     for vibe       on aesthetic
+        tolerate proxy     for vibe       on color_character
+        require full       for temporal   on latency_budgets
+        require full       for relational on data_flow
+        require faithful   for spatial    on hardware_mapping
+
+    realize:
+        target: embedded_controller (C)
+            capabilities: direct_register_access, interrupt_handlers, fixed_point_math, static_allocation
+            can_express: cognitive, conditional, temporal, relational, behavioral, spatial
+            needs_bridge: floating_point_hardware
+            cannot_express: vibe.aesthetic, garbage_collection, dynamic_dispatch
+            degradation: aesthetic = proxy, color_character = proxy
+            preservation_score: 0.92
+
+        target: rust_backend (Rust)
+            capabilities: no_std, embedded_hal_traits, compile_time_memory_layout
+            can_express: cognitive, conditional, behavioral, spatial
+            needs_bridge: bare_metal_startup_code
+            cannot_express: vibe, runtime_polymorphism
+            degradation: all_vibe_aspects = proxy
+            preservation_score: 0.85
+
+        target: simulation_testbed (Python)
+            capabilities: numpy_arrays, matplotlib_visualization, scenario_replay
+            can_express: cognitive.fusion_algorithm, temporal
+            cannot_express: realtime_guarantees, hardware_registers, vibe
+            degradation: timing = simulation_only
+            preservation_score: 0.78
+
+        target: interface_document (LaTeX)
+            capabilities: mathematical_typesetting, algorithm_pseudocode, timing_diagrams
+            can_express: cognitive.algorithm, temporal.budgets, relational.flow
+            cannot_express: executable_behavior, runtime_state
+            preservation_score: 1.0

@@ -1,0 +1,205 @@
+create sovereign_core : LanguageFoundation
+
+    context:
+        purpose: declare Orren's language sovereignty — no backend is privileged,
+                 no runtime is canonical, truth lives in the SIR graph alone
+        domain: meta_specification
+        audience: Orren implementors across all target runtimes
+        governing_principle: semantic_fidelity_over_implementation_convenience
+
+    structure:
+        sovereignty_declaration
+            core_assertions
+            language_equality_matrix
+            validation_contracts
+            degradation_honesty_protocol
+        backend_registry
+            systems_languages
+            infrastructure_languages
+            frontend_languages
+            domain_languages
+            document_languages
+        conformance_framework
+            evidence_levels
+            adversarial_requirements
+            fail_closed_mandate
+            cross_language_parity_tests
+
+    cognitive:
+        sovereign_core.authority = derived_from_semantic_graph_alone
+        core_assertions.independence = no_canonical_runtime_exists
+        language_equality_matrix.parity = all_backends_must_meet_same_evidence_standard
+        validation_contracts.rigor = behavioral_execution_not_syntactic_presence
+        degradation_honesty_protocol.transparency = proxy_must_never_report_as_full
+        conformance_framework.completeness = must_prove_can_fail_as_well_as_pass
+
+    vibe:
+        sovereign_core.tone = principled
+        sovereign_core.color_character = neutral_grey
+        sovereign_core.form_character = declarative
+        sovereign_core.aesthetic = "architectural integrity"
+
+    conditional:
+        sovereignty_declaration activates on_every_realization
+        backend_registry retained always (unconditional)
+        conformance_framework activates on_every_build
+
+    temporal:
+        assert_sovereignty → before_any_code_generation
+        validate_parity → during_conformance_run
+        report_degradation → honestly_without_inflation
+
+    relational:
+        sovereignty_declaration governs backend_registry
+        backend_registry feeds conformance_framework
+        conformance_framework validates all_backends_equally
+        no_backend_has_special_path_to_authority
+
+    behavior:
+        sovereign_core behaves_as_constitutional_constraint
+        backend_registry transitions from empty to populated_on_language_addition
+        conformance_framework transitions from permissive_to_rigid_on_sovereignty_claim
+
+    equilibrium:
+        convenience_vs_integrity:
+            when implementation_ease is active AND sovereignty is active
+            preserve both
+            resolution: convenience in tooling, never in validation standards
+            rationale: easy tools must not produce dishonest results
+
+        breadth_vs_depth:
+            when language_equality_matrix.breadth is active AND validation_contracts.depth is active
+            preserve both
+            resolution: many languages at equal depth, not few languages at unequal depth
+            rationale: shallow multi-language is worse than honest single-language
+
+        honesty_vs_headline:
+            when degradation_honesty is active AND reporting_numbers is active
+            preserve honesty unconditionally
+            resolution: degrade counts clearly, never inflate passes
+            rationale: a PASS that lies is worse than an honest FAIL
+
+    degrade:
+        require full       for cognitive  on sovereignty_assertion
+        require full       for cognitive  on degradation_honesty
+        require full       for behavioral on fail_closed_enforcement
+        tolerate faithful  for vibe       on aesthetic (meta_specifications_are_austere)
+        require full       for temporal   on_validation_ordering
+        require full       for relational on_no_privileged_backend
+        # CRITICAL: No backend may claim FULL if it uses PROXY for required capability
+        require full       for ALL        on declared_capabilities_match_actual
+
+    realize:
+        # === SYSTEMS LANGUAGES ===
+        # These are first-class citizens, not afterthoughts.
+        # Each must pass behavioral execution, not just syntax checks.
+
+        target: rust_runtime (Rust)
+            capabilities: ownership_system, trait_based_polymorphism, zero_cost_abstractions,
+                          pattern_matching, async_await_tokio, compile_time_guarantees
+            can_express: cognitive, conditional, temporal, relational, behavioral, spatial
+            needs_bridge: garbage_collection_runtime (Rust owns its memory model)
+            cannot_express: dynamic_typing_runtime, interpreter_flexibility
+            preservation_score: 1.0
+            # Sovereignty clause: Rust is NOT "like Python but faster" —
+            # it is a parallel expression of the same SIR graph.
+
+        target: c_runtime (C)
+            capabilities: direct_memory_management, portability, minimal_runtime,
+                          hardware_proximity, deterministic_execution
+            can_express: cognitive, conditional, temporal, behavioral, spatial.hardware
+            needs_bridge: type_system_safety, memory_safety_guarantees
+            cannot_express: trait_polymorphism, pattern_matching, automatic_memory
+            preservation_score: 1.0
+            # Sovereignty clause: C's expression is equally valid,
+            # constrained differently but not lesser.
+
+        target: go_runtime (Go)
+            capabilities: goroutine_concurrency, channel_communication, interface_satisfaction,
+                          garbage_collection, compilation_speed, standard_library_richness
+            can_express: cognitive, conditional, temporal, relational, behavioral
+            needs_bridge: generic_specialization (pre-1.18 patterns), zero_cost_abstractions
+            cannot_express: ownership_at_compile_time, algebraic_data_types
+            preservation_score: 1.0
+            # Sovereignty clause: Go's concurrency model is a FIRST-CLASS
+            # expression of temporal dimension, not a translation.
+
+        # === INFRASTRUCTURE LANGUAGES ===
+
+        target: python_runtime (Python)
+            capabilities: dynamic_typing, extensive_standard_library, rapid_prototyping,
+                          data_science_ecosystem, readability, interpreter_flexibility
+            can_express: cognitive, conditional, relational, behavioral
+            needs_bridge: compile_time_guarantees, memory_layout_control, deployment_isolation
+            cannot_express: ownership_systems, zero_cost_abstractions, systems_programming
+            preservation_score: 1.0
+            # SOVEREIGNTY CLAUSE (CRITICAL):
+            # Python is ONE backend among MANY.
+            # It is NOT the "reference implementation."
+            # It is NOT the "gold standard" against which others are measured.
+            # Its behavioral tests are EQUAL IN WEIGHT to Rust's, Go's, C's.
+            # If Python passes and Rust fails, that is a RUST deficiency.
+            # If Rust passes and Python fails, that is a PYTHON deficiency.
+            # Neither is canonical. The SIR graph is canonical.
+
+        target: typescript_runtime (TypeScript)
+            capabilities: type_system_with_inference, async_await, interface_structural_typing,
+                          javascript_interop, tooling_ecosystem, gradual_adoption
+            can_express: cognitive, conditional, spatial.ui, behavioral.interaction, temporal.async
+            needs_bridge: systems_programming, hardware_access, bare_metal
+            cannot_express: ownership_patterns, memory_management, concurrency_primitives_low_level
+            preservation_score: 1.0
+
+        # === FRONTEND / NATIVE LANGUAGES ===
+
+        target: swift_runtime (Swift)
+            capabilities: optionals_protocol_oriented, value_types_reference_types_separation,
+                          automatic_memory_management, apple_platform_integration, ui_kit_binding
+            can_express: cognitive, conditional, spatial.mobile, behavioral.lifecycle, temporal
+            needs_bridge: server_side_ecosystem, embedded_targeting
+            cannot_express: garbage_collection_tunable, ownership_borrow_checker
+            preservation_score: 1.0
+
+        target: kotlin_runtime (Kotlin)
+            capabilities: null_safety, coroutines, extension_functions, multiplatform_mobile,
+                          java_interop_android_sdk, declarative_ui_jetpack_compose
+            can_express: cognitive, conditional, spatial.android, behavioral.lifecycle, temporal.coroutines
+            needs_bridge: ios_native_apis (via Kotlin Native), systems_programming
+            cannot_express: ownership_borrow_checking, macro_system_metaprogramming
+            preservation_score: 1.0
+
+        # === DOMAIN-SPECIFIC LANGUAGES ===
+
+        target: webaudio_runtime (WebAudio API)
+            capabilities: oscillator_nodes, filter_graphs, scheduling_precision,
+                          audio_worklet_processors, spatial_audio, dynamics_processing
+            can_express: cognitive.audio_generation, temporal.sample_accurate, relational.signal_flow
+            needs_bridge: persistence_storage, ui_controls, non_audio_logic
+            cannot_express: general_purpose_computation, data_structures, file_io
+            preservation_score: 1.0
+
+        target: latex_document (LaTeX)
+            capabilities: mathematical_typesetting, automatic_numbering, bibliography_management,
+                          cross_referencing, algorithm_typesetting, academic_formatting
+            can_express: cognitive.formal, spatial.page_layout, relational.citation_structure
+            needs_bridge: interactivity, animation, real_time_behavior
+            cannot_express: executable_code, runtime_state, user_interaction
+            preservation_score: 1.0
+
+        # === CONFORMANCE VALIDATION TARGET ===
+        # This target validates the VALIDATOR itself — meta-conformance.
+
+        target: conformance_validator (Conformance Specification)
+            capabilities: multi_language_testing, adversarial_case_generation,
+                          evidence_level_classification, degradation_detection,
+                          parity_matrix_reporting, fail_closed_enforcement
+            can_express: cognitive.validation_rules, behavioral.test_oracle, relational.coverage_matrix
+            needs_bridge: actual_compiler_invocations_for_each_language
+            cannot_express: aesthetic_judgment, subjective_quality
+            preservation_score: 1.0
+            # This target MUST verify:
+            # 1. Every language with a realization target has a compiler-invocation test path
+            # 2. DEGRADED status exists and is used (not faked as PASS)
+            # 3. Adversarial cases exist proving harness can FAIL each language
+            # 4. Coverage matrix shows targets × languages, not inflated flat counts
+            # 5. No language has "easier" validation than others
