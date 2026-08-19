@@ -227,12 +227,26 @@ class RealizationCoordinator:
         lang = target.language.lower()
         files: List[OutputFile] = []
         if "html" in lang or "css" in lang or "js" in lang:
-            if "layout" in target.capabilities:
-                files.append(OutputFile(path=f"{target.name}/index.html", language="html"))
-            if "color" in target.capabilities or "motion" in target.capabilities:
-                files.append(OutputFile(path=f"{target.name}/styles.css", language="css"))
-            if "event_handling" in target.capabilities:
-                files.append(OutputFile(path=f"{target.name}/app.js", language="javascript"))
+            # _gen_web emits the complete three-file web bundle. The manifest
+            # must describe every emitted file, even when a target lacks one
+            # of the corresponding semantic capabilities.
+            files.extend([
+                OutputFile(path=f"{target.name}/index.html", language="html"),
+                OutputFile(path=f"{target.name}/styles.css", language="css"),
+                OutputFile(path=f"{target.name}/app.js", language="javascript"),
+            ])
+        elif "rust" in lang:
+            files.append(OutputFile(path=f"{target.name}/main.rs", language="rust"))
+        elif lang == "go" or " go" in lang:
+            files.append(OutputFile(path=f"{target.name}/main.go", language="go"))
+        elif lang in {"c", "c++"} or lang.startswith("c/"):
+            files.append(OutputFile(path=f"{target.name}/main.c", language="c"))
+        elif "typescript" in lang:
+            files.append(OutputFile(path=f"{target.name}/app.ts", language="typescript"))
+        elif "webaudio" in lang:
+            files.append(OutputFile(path=f"{target.name}/audio_engine.js", language="webaudio"))
+        elif "latex" in lang or lang == "tex":
+            files.append(OutputFile(path=f"{target.name}/document.tex", language="latex"))
         elif "swift" in lang:
             files.append(OutputFile(path=f"{target.name}/Main.swift", language="swift"))
         elif "kotlin" in lang:
@@ -249,7 +263,7 @@ class RealizationCoordinator:
             files.append(OutputFile(path=f"{target.name}/{filename}", language="python"))
         else:
             files.append(
-                OutputFile(path=f"{target.name}/output.txt", language="text")
+                OutputFile(path=f"{target.name}/MANIFEST.txt", language="text")
             )
         return files
 

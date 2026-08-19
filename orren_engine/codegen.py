@@ -54,7 +54,7 @@ def generate(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
         return _gen_c(graph, target)
     if lang == "latex" or "tex" in lang or "latex" in name:
         return _gen_latex(graph, target)
-    if lang == "webaudio" or "webaudio" in name:
+    if "webaudio" in lang or "webaudio" in name:
         return _gen_webaudio(graph, target)
     if lang == "rust":
         return _gen_rust(graph, target)
@@ -510,7 +510,7 @@ def _gen_webaudio(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
         vibes = node.get_dimension(Dimension.VIBE)
         if not vibes:
             continue
-        fn_name = f"play_{_css_id(node.path)}"
+        fn_name = f"play_{_js_identifier(node.path)}"
         parts.append(f"function {fn_name}() {{")
         parts.append(f"  // entity: {node.path}")
         has_audio_vibe = False
@@ -1444,6 +1444,13 @@ def _map_color(term: str) -> str:
 
 def _css_id(path: str) -> str:
     return path.replace(".", "-").replace("_", "-")
+
+
+def _js_identifier(path: str) -> str:
+    """Convert a semantic path into a valid JavaScript identifier fragment."""
+    value = path.replace(".", "_").replace("-", "_")
+    value = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in value)
+    return value or "node"
 
 
 def _swift_class_name(title: str) -> str:
