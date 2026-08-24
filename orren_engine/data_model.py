@@ -498,6 +498,77 @@ class SIRNode:
         return "|".join(parts)
 
 
+# ---------------------------------------------------------------------------
+# ZARYEL form blueprint (2)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ZaryelRegion:
+    """A named region declared inside a ``zaryel`` form blueprint.
+
+    A region is a rectangular (or flexible) area of the canvas surface.
+    Every region must declare at least a ``position`` so the generator
+    knows where it lives in the flow.
+    """
+
+    name: str
+    position: str  # top | bottom | left | right | center
+    fixed: bool = False
+    height: Optional[str] = None
+    width: Optional[str] = None
+    scroll: Optional[str] = None  # vertical | horizontal | both
+    collapsible: bool = False
+    breakpoint: Optional[str] = None
+    contains: List[str] = field(default_factory=list)
+
+
+@dataclass
+class ZaryelNode:
+    """The full form-and-layout blueprint (ZARYEL) for an expression.
+
+    ZARYEL answers *"What shape is this thing?"* — it declares canvas,
+    regions, layers, layout, flow, inputs, outputs and breakpoints before
+    any code is generated.  When present on a :class:`SIRGraph` it becomes
+    the architectural blueprint for DOM generation.
+    """
+
+    canvas: str = ""
+    viewport: str = "responsive"
+    layout: str = "stack"
+    flow: str = "top_down"
+    focus: Optional[str] = None
+    entry: Optional[str] = None
+    regions: List[ZaryelRegion] = field(default_factory=list)
+    layers: Dict[str, List[str]] = field(default_factory=dict)
+    inputs: List[str] = field(default_factory=list)
+    outputs: List[str] = field(default_factory=list)
+    breakpoints: Dict[str, int] = field(default_factory=dict)
+    # Validation / degradation metadata collected during the Meta realm.
+    validation_errors: List[str] = field(default_factory=list)
+    degraded: List[str] = field(default_factory=list)
+
+    def region_names(self) -> List[str]:
+        return [r.name for r in self.regions]
+
+    def region_by_name(self, name: str) -> Optional[ZaryelRegion]:
+        for r in self.regions:
+            if r.name == name:
+                return r
+        return None
+
+    def all_mentioned_names(self) -> List[str]:
+        """Every name referenced across regions, layers, focus, and entry."""
+        names: List[str] = list(self.region_names())
+        for layer_regions in self.layers.values():
+            names.extend(layer_regions)
+        if self.focus:
+            names.append(self.focus)
+        if self.entry:
+            names.append(self.entry)
+        return names
+
+
 @dataclass
 class SIRGraph:
     """The full multidimensional semantic object graph."""
@@ -507,6 +578,7 @@ class SIRGraph:
     equilibrium_rules: List[EquilibriumRule] = field(default_factory=list)
     realization_targets: List[RealizationTarget] = field(default_factory=list)
     expressions: List[Expression] = field(default_factory=list)
+    zaryel: Optional[ZaryelNode] = None
 
     def find(self, path: str) -> Optional[SIRNode]:
         """Locate a node by exact dot-path."""

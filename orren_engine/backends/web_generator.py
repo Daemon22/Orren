@@ -26,6 +26,7 @@ from ..data_model import (
     RealizationTarget,
     SIRGraph,
     SIRNode,
+    ZaryelNode,
 )
 from .web_tokens import (
     VibeTokenMap,
@@ -46,6 +47,13 @@ from .web_behavior import (
     generate_event_handlers,
     generate_state_machine_js,
     _js_safe_id,
+)
+from .web_layout import (
+    conversation_css,
+    conversation_js,
+    derive_content,
+    is_conversation_app,
+    render_conversation_main,
 )
 
 # ---------------------------------------------------------------------------
@@ -188,6 +196,451 @@ def _graph_purpose(graph: SIRGraph) -> str:
 
 
 # ---------------------------------------------------------------------------
+# ZARYEL form-and-layout blueprint helpers
+# ---------------------------------------------------------------------------
+
+
+# Maps ZARYEL region positions to semantic HTML elements.
+_POSITION_TO_TAG: Dict[str, str] = {
+    "top": "header",
+    "bottom": "footer",
+    "left": "aside",
+    "right": "aside",
+    "center": "main",
+}
+
+# Maps ZARYEL region positions to ARIA roles.
+_POSITION_TO_ROLE: Dict[str, str] = {
+    "top": "banner",
+    "bottom": "contentinfo",
+    "left": "complementary",
+    "right": "complementary",
+    "center": "main",
+}
+
+# Maps ZARYEL region names (semantic) to HTML elements when the region
+# name itself implies a specific HTML tag regardless of position.
+# This supports Movement C: expanded region vocabulary.
+_REGION_NAME_TO_TAG: Dict[str, str] = {
+    "toolbar": "nav",
+    "tab_bar": "nav",
+    "status_bar": "footer",
+    "fab": "button",
+    "sheet": "dialog",
+    "card": "article",
+    "list": "ul",
+    "drawer": "nav",
+    "popover": "dialog",
+    "toast": "aside",
+}
+
+# Maps ZARYEL region names to ARIA roles (for semantic region types).
+_REGION_NAME_TO_ROLE: Dict[str, str] = {
+    "toolbar": "toolbar",
+    "tab_bar": "tablist",
+    "status_bar": "contentinfo",
+    "fab": "button",
+    "sheet": "dialog",
+    "card": "article",
+    "list": "list",
+    "drawer": "navigation",
+    "popover": "dialog",
+    "toast": "alert",
+}
+
+# Layer → z-index mapping.
+# base=1 (below everything), float=10, overlay=100, modal=1000 (topmost).
+_LAYER_ZINDEX: Dict[str, int] = {
+    "base": 1,
+    "float": 10,
+    "overlay": 100,
+    "modal": 1000,
+}
+
+# Input type → DOM event(s) for ZARYEL-driven event listeners.
+_INPUT_EVENTS: Dict[str, List[str]] = {
+    "touch": ["touchstart", "click"],
+    "keyboard": ["keydown", "keyup"],
+    "mouse": ["mousemove", "mousedown"],
+    "voice": ["click"],         # voice activation via button click
+    "sensor": ["deviceorientation"],
+    "gesture": ["touchstart", "pointerdown", "gesturechange"],
+    "pen": ["pointerdown", "pointerup", "pointermove"],
+    "camera": ["load"],         # camera ready event
+    "biometric": ["securitydoor"],  # hypothetical biometric API event
+    "button": ["click"],        # hardware button → click
+}
+
+
+def _has_valid_zaryel(graph: SIRGraph) -> bool:
+    """Return True when the graph has a ZaryelNode with no validation errors."""
+    zn = graph.zaryel
+    if zn is None:
+        return False
+    return len(zn.validation_errors) == 0
+
+
+def _zaryel_region_html(region) -> List[str]:
+    """Generate semantic HTML for a single ZARYEL region.
+
+    The element is chosen first by region name (for semantic region types
+    like ``tab_bar`` → ``<nav>``, ``fab`` → ``<button>``) and falls back
+    to position-based mapping (e.g. ``top`` → ``<header>``).
+    """
+    tag = _REGION_NAME_TO_TAG.get(region.name, "")
+    if not tag:
+        tag = _POSITION_TO_TAG.get(region.position, "section")
+    role = _REGION_NAME_TO_ROLE.get(region.name, _POSITION_TO_ROLE.get(region.position, "region"))
+    classes = [f"zaryel-region", f"region-{region.name}", f"position-{region.position}"]
+    if region.fixed:
+        classes.append("region-fixed")
+    if region.collapsible:
+        classes.append("region-collapsible")
+    if region.scroll:
+        classes.append(f"scroll-{region.scroll}")
+    if region.height:
+        classes.append(f"height-{region.height.replace('px', '').replace('rem', '').replace('em', '')}")
+
+    html_id = f"region-{region.name}"
+    class_str = " ".join(classes)
+    data_sid = f"zaryel.{region.name}"
+
+    lines: List[str] = []
+    lines.append(
+        f'    <{tag} id="{html_id}" class="{class_str}" '
+        f'role="{role}" data-region="{region.name}" '
+        f'data-semantic-id="{data_sid}">'
+    )
+    if region.contains:
+        for item in region.contains:
+            lines.append(
+                f'      <div class="zaryel-child" '
+                f'data-region-item="{item}" '
+                f'data-semantic-id="{data_sid}.{item}"></div>'
+            )
+    else:
+        lines.append(f'      <!-- region {region.name} is empty -->')
+    lines.append(f"    </{tag}>")
+    return lines
+
+
+def _zaryel_html_body(graph: SIRGraph, zn: ZaryelNode) -> List[str]:
+    """Generate ZARYEL-driven body content with semantic HTML regions.
+
+    The layout is delegated to CSS — this function emits the region
+    elements in source order (top, left, center, right, bottom).  The
+    CSS generator positions them via grid areas.
+    """
+    parts: List[str] = []
+    parts.append('  <section id="zaryel-app" class="zaryel-layout" data-zaryel="true">')
+    parts.append(f'    <!-- ZARYEL canvas: {zn.canvas} | layout: {zn.layout} -->')
+
+    # Emit regions in a deterministic source order: top, left, center,
+    # right, bottom — matching reading order for accessibility.
+    position_order = ["top", "left", "center", "right", "bottom"]
+    seen: set = set()
+    for pos in position_order:
+        for r in zn.regions:
+            if r.position == pos and r.name not in seen:
+                parts.extend(_zaryel_region_html(r))
+                seen.add(r.name)
+    # Any remaining regions not matched by position_order.
+    for r in zn.regions:
+        if r.name not in seen:
+            parts.extend(_zaryel_region_html(r))
+            seen.add(r.name)
+
+    # Layer elements (overlay, modal) — rendered on top.
+    layer_order = ["overlay", "modal"]
+    for layer_name in layer_order:
+        if layer_name in zn.layers:
+            parts.append(f'    <div class="zaryel-layer zaryel-layer-{layer_name}" '
+                         f'data-layer="{layer_name}" hidden>')
+            for region_name in zn.layers[layer_name]:
+                # Find the region by name and render a lightweight reference.
+                found = zn.region_by_name(region_name)
+                if found:
+                    parts.extend(_zaryel_region_html(found))
+            parts.append("    </div>")
+
+    parts.append("  </section>")
+    return parts
+
+
+def _zaryel_layout_css(zn: ZaryelNode) -> List[str]:
+    """Generate CSS that maps ZARYEL layout to real CSS layout primitives."""
+    lines: List[str] = []
+    lines.append("/* === ZARYEL form-and-layout blueprint === */")
+
+    # Layout container: stack → flex column, split → flex row, grid → grid.
+    layout_map = {"stack": "flex", "split": "flex", "grid": "grid", "float": "relative",
+                  "tabs": "flex", "carousel": "flex", "masonry": "grid"}
+    container_display = layout_map.get(zn.layout, "flex")
+
+    lines.append(".zaryel-layout {")
+    if zn.layout == "stack":
+        lines.append("  display: flex;")
+        lines.append("  flex-direction: column;")
+        lines.append("  height: 100vh;")
+    elif zn.layout == "split":
+        lines.append("  display: flex;")
+        lines.append("  flex-direction: row;")
+        lines.append("  height: 100vh;")
+    elif zn.layout == "grid":
+        lines.append("  display: grid;")
+        lines.append("  grid-template-areas:")
+        lines.append("    \"header header\"")
+        lines.append("    \"sidebar main\"")
+        lines.append("    \"footer footer\";")
+        lines.append("  grid-template-rows: auto 1fr auto;")
+        lines.append("  grid-template-columns: 280px 1fr;")
+        lines.append("  height: 100vh;")
+    elif zn.layout == "float":
+        lines.append("  position: relative;")
+        lines.append("  height: 100vh;")
+    elif zn.layout == "tabs":
+        lines.append("  display: flex;")
+        lines.append("  flex-direction: column;")
+        lines.append("  height: 100vh;")
+        lines.append("  /* tabs layout: tab_bar at top, content area below */")
+    elif zn.layout == "carousel":
+        lines.append("  display: flex;")
+        lines.append("  flex-direction: row;")
+        lines.append("  height: 100vh;")
+        lines.append("  overflow-x: hidden;")
+        lines.append("  /* carousel layout: horizontal snap scroll */")
+    elif zn.layout == "masonry":
+        lines.append("  display: grid;")
+        lines.append("  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));")
+        lines.append("  height: 100vh;")
+        lines.append("  /* masonry layout: CSS columns as fallback */")
+    else:
+        lines.append("  display: flex;")
+        lines.append("  flex-direction: column;")
+        lines.append("  height: 100vh;")
+    lines.append("}")
+
+    # Region positioning based on position and layout.
+    for r in zn.regions:
+        selector = f"#region-{r.name}, .zaryel-region.region-{r.name}"
+        lines.append(f"{selector} {{")
+
+        if zn.layout in ("stack", "split"):
+            axis = "row" if zn.layout == "stack" else "column"
+            if r.position == "top" if axis == "row" else r.position == "left":
+                if r.fixed:
+                    lines.append(f"  position: sticky;")
+                    lines.append(f"  top: 0;")
+                    lines.append(f"  z-index: 5;")
+                lines.append("  align-self: flex-start;")
+            elif r.position == "bottom" if axis == "row" else r.position == "right":
+                if r.fixed:
+                    lines.append(f"  position: sticky;")
+                    lines.append(f"  bottom: 0;")
+                    lines.append(f"  z-index: 5;")
+                lines.append("  align-self: flex-end;")
+            elif r.position == "center":
+                lines.append("  flex: 1 1 auto;")
+            # left/right in stack layout
+            if zn.layout == "stack" and r.position in ("left", "right"):
+                lines.append(f"  align-self: {r.position};")
+            # top/bottom in split layout
+            if zn.layout == "split" and r.position in ("top", "bottom"):
+                lines.append(f"  align-self: {r.position};")
+
+        if zn.layout == "grid":
+            area_map = {
+                "top": "header", "bottom": "footer",
+                "left": "sidebar", "right": "sidebar",
+                "center": "main",
+            }
+            area = area_map.get(r.position, r.position)
+            lines.append(f"  grid-area: {area};")
+            if r.fixed:
+                if r.position == "top":
+                    lines.append("  position: sticky;")
+                    lines.append("  top: 0;")
+                    lines.append("  z-index: 5;")
+                elif r.position == "bottom":
+                    lines.append("  position: sticky;")
+                    lines.append("  bottom: 0;")
+                    lines.append("  z-index: 5;")
+
+        # Collapsible regions get a collapsed state class.
+        if r.collapsible:
+            lines.append("  transition: all 0.3s ease;")
+            # Use class-only selector for the collapsed state (no SCSS &).
+            collapsed_sel = f".zaryel-region.region-{r.name}.collapsed"
+            lines.append(f"{collapsed_sel} {{")
+            if r.width:
+                lines.append("    width: 0;")
+            if r.height:
+                lines.append("    height: 0;")
+            lines.append("  }")
+
+        if r.height:
+            lines.append(f"  height: {r.height};")
+        if r.width:
+            lines.append(f"  width: {r.width};")
+
+        if r.scroll:
+            lines.append(f"  overflow-y: {'auto' if 'vertical' in r.scroll else 'hidden'};")
+            lines.append(f"  overflow-x: {'auto' if 'horizontal' in r.scroll else 'hidden'};")
+
+        lines.append("}")
+        lines.append("")
+
+    # Touch target minimums for ZARYEL child elements.
+    # Interactive children (buttons, inputs, toggles) need 44px min, 48px on
+    # coarse pointer.
+    lines.append("/* ZARYEL touch target minimums */")
+    lines.append(".zaryel-child[data-region-item] {")
+    lines.append("  min-width: 44px;")
+    lines.append("  min-height: 44px;")
+    lines.append("  display: inline-flex;")
+    lines.append("  align-items: center;")
+    lines.append("  justify-content: center;")
+    lines.append("}")
+    lines.append("@media (pointer: coarse) {")
+    lines.append("  .zaryel-child[data-region-item] {")
+    lines.append("    min-width: 48px;")
+    lines.append("    min-height: 48px;")
+    lines.append("  }")
+    lines.append("}")
+    lines.append("")
+
+    # Padding compensation for fixed regions.
+    for r in zn.regions:
+        if r.fixed:
+            lines.append(f"/* Padding compensation for fixed region '{r.name}' */")
+            if r.position == "top":
+                lines.append(f".zaryel-layout {{ padding-top: {r.height or '4rem'}; }}")
+            elif r.position == "bottom":
+                lines.append(f".zaryel-layout {{ padding-bottom: {r.height or '4rem'}; }}")
+            elif r.position == "left":
+                lines.append(f".zaryel-layout {{ padding-left: {r.width or '280px'}; }}")
+            elif r.position == "right":
+                lines.append(f".zaryel-layout {{ padding-right: {r.width or '280px'}; }}")
+    if any(r.fixed for r in zn.regions):
+        lines.append("")
+
+    # Layer z-index stacking.
+    for layer_name, layer_regions in zn.layers.items():
+        z = _LAYER_ZINDEX.get(layer_name, 0)
+        lines.append(f".zaryel-layer-{layer_name} {{ z-index: {z}; }}")
+    if zn.layers:
+        lines.append("")
+
+    # Breakpoint media queries.
+    # Sort breakpoints by width so we can differentiate mobile vs tablet.
+    sorted_bps = sorted(zn.breakpoints.items(), key=lambda x: x[1])
+    for i, (bp_name, bp_width) in enumerate(sorted_bps):
+        lines.append(f"@media (max-width: {bp_width}px) {{")
+        lines.append(f"  /* ZARYEL breakpoint: {bp_name} ({bp_width}px) */")
+        if zn.layout == "tabs":
+            lines.append("  .zaryel-layout { flex-direction: column; }")
+        if zn.layout in ("carousel", "masonry"):
+            # On narrow screens, switch to stacked/vertical layout.
+            lines.append("  .zaryel-layout { flex-direction: column; }")
+
+        # Existing grid breakpoint handling.
+        if zn.layout == "grid":
+            # Mobile (narrowest breakpoint): collapse to single column,
+            # hide sidebar.
+            if i == 0:  # smallest breakpoint → mobile
+                lines.append("  .zaryel-layout {")
+                lines.append('    grid-template-areas:')
+                lines.append('      "header"')
+                lines.append('      "main"')
+                lines.append('      "footer";')
+                lines.append("    grid-template-columns: 1fr;")
+                lines.append("    grid-template-rows: auto 1fr auto;")
+                lines.append("  }")
+                lines.append("  .zaryel-region.region-sidebar { display: none; }")
+            # Tablet (middle breakpoint): keep sidebar as overlay, narrow
+            else:
+                lines.append("  .zaryel-layout {")
+                lines.append('    grid-template-areas:')
+                lines.append('      "header"')
+                lines.append('      "sidebar"')
+                lines.append('      "main"')
+                lines.append('      "footer";')
+                lines.append("    grid-template-columns: 1fr;")
+                lines.append("    grid-template-rows: auto auto 1fr auto;")
+                lines.append("  }")
+        lines.append("}")
+        lines.append("")
+
+    # Focus region highlighting.
+    if zn.focus:
+        focus_region = zn.region_by_name(zn.focus)
+        if focus_region:
+            lines.append(f"/* ZARYEL focus: {zn.focus} */")
+            lines.append(f"#region-{zn.focus} {{ outline: 2px solid var(--color-accent, #3b82f6); }}")
+            lines.append("")
+
+    # Entry region — auto-show with smooth transition.
+    if zn.entry:
+        lines.append(f"/* ZARYEL entry: {zn.entry} */")
+        lines.append(f"#region-{zn.entry} {{ animation: zaryelEntryFade 0.3s ease-in; }}")
+
+    lines.append("@keyframes zaryelEntryFade {")
+    lines.append("  from { opacity: 0; transform: translateY(8px); }")
+    lines.append("  to { opacity: 1; transform: translateY(0); }")
+    lines.append("}")
+
+    return lines
+
+
+def _zaryel_input_js(zn: ZaryelNode) -> List[str]:
+    """Generate JavaScript event listeners for ZARYEL-declared input types."""
+    parts: List[str] = []
+    parts.append("// --- ZARYEL input event listeners ---")
+
+    all_events: set = set()
+    for inp in zn.inputs:
+        events = _INPUT_EVENTS.get(inp, [])
+        all_events.update(events)
+
+    if all_events:
+        parts.append("const zaryelInputEvents = new Set([")
+        for ev in sorted(all_events):
+            parts.append(f"  '{ev}',")
+        parts.append("]);")
+        parts.append("")
+        parts.append("// Wire up input listeners on the ZARYEL layout container.")
+        parts.append("const zaryelLayout = document.querySelector('.zaryel-layout');")
+        parts.append("if (zaryelLayout) {")
+        for inp in zn.inputs:
+            events = _INPUT_EVENTS.get(inp, [])
+            for ev in events:
+                parts.append(f"  zaryelLayout.addEventListener('{ev}', () => {{")
+                parts.append(f"    zaryelLayout.dataset.inputActive = '{inp}';")
+                parts.append("    window.dispatchEvent(new CustomEvent('zaryel:input', {")
+                parts.append(f"      detail: {{ type: '{inp}', event: '{ev}' }}")
+                parts.append("    }));")
+                parts.append("  });")
+        parts.append("}")
+        parts.append("")
+
+    # Entry region auto-show.
+    if zn.entry:
+        parts.append("// ZARYEL entry: show the entry region on load.")
+        parts.append(f"const zaryelEntry = document.getElementById('region-{zn.entry}');")
+        parts.append("if (zaryelEntry) { zaryelEntry.hidden = false; }")
+        parts.append("")
+
+    # Focus region — ensure it is scrollable into view.
+    if zn.focus:
+        parts.append("// ZARYEL focus: bring the focus region into view.")
+        parts.append(f"const zaryelFocus = document.getElementById('region-{zn.focus}');")
+        parts.append("if (zaryelFocus) { zaryelFocus.scrollIntoView({ behavior: 'smooth' }); }")
+        parts.append("")
+
+    return parts
+
+
+# ---------------------------------------------------------------------------
 # CSS generation
 # ---------------------------------------------------------------------------
 
@@ -320,7 +773,10 @@ def generate_css(graph: SIRGraph, target: RealizationTarget) -> str:
     lines.append("  margin: 0 auto;")
     lines.append("  display: grid;")
     lines.append("  gap: var(--spacing-unit, 1rem);")
+    # Grid items default to min-width:auto; long content then forces the
+    # track wider than the viewport (320px blowout). Pin children to the track.
     lines.append("}")
+    lines.append(".orren-container > * { min-width: 0; }")
     lines.append("")
     lines.append(".orren-error-boundary {")
     lines.append("  border: 1px solid var(--color-border, #334155);")
@@ -338,12 +794,21 @@ def generate_css(graph: SIRGraph, target: RealizationTarget) -> str:
     lines.append("}")
     lines.append("")
 
-    # Comfortable touch targets on coarse pointers (WCAG 2.5.8).
+    # Comfortable touch targets on every pointer class (WCAG 2.5.8) —
+    # desktop windows with touchscreens still report pointer:fine.
+    lines.append("button, input, select, textarea, a.orren-entity, .orren-theme-toggle {")
+    lines.append("  min-height: 44px;")
+    lines.append("  min-width: 44px;")
+    lines.append("}")
+    lines.append("")
+    # Coarse-pointer touch targets (320px minimum, 48px tap areas per WCAG 2.5.8).
     lines.append("@media (pointer: coarse) {")
-    lines.append("  button, a.orren-entity, .orren-theme-toggle {")
-    lines.append("    min-height: 44px;")
-    lines.append("    min-width: 44px;")
+    lines.append("  button, input, select, textarea, a.orren-entity, .orren-theme-toggle {")
+    lines.append("    min-height: 48px;")
+    lines.append("    min-width: 48px;")
+    lines.append("    padding: 0.75rem 1rem;")
     lines.append("  }")
+    lines.append("  html { font-size: 1.125rem; }")
     lines.append("}")
     lines.append("")
 
@@ -371,6 +836,8 @@ def generate_css(graph: SIRGraph, target: RealizationTarget) -> str:
     lines.append("  border: 1px solid var(--color-border, #334155);")
     lines.append("  border-radius: var(--border-radius, var(--radius-standard, 0.5rem));")
     lines.append("  padding: calc(var(--spacing-unit, 1rem) * 1.5);")
+    lines.append("  max-width: 100%;")
+    lines.append("  overflow-wrap: break-word;")
     lines.append("  transition: transform var(--motion-duration, 0.2s ease),")
     lines.append("              box-shadow var(--motion-duration, 0.2s ease);")
     lines.append("}")
@@ -428,12 +895,33 @@ def generate_css(graph: SIRGraph, target: RealizationTarget) -> str:
     lines.append("}")
     lines.append("")
 
+    # ZARYEL form-and-layout blueprint CSS (regions, layout, breakpoints,
+    # layers, input event markers).  Only emitted when a valid ZaryelNode
+    # is present on the graph; otherwise the generator falls back to the
+    # existing vibe-dimension CSS.
+    if _has_valid_zaryel(graph):
+        lines.extend(_zaryel_layout_css(graph.zaryel))
+        lines.append("")
+
     # Per-node CSS rules.
     all_tokens = extract_all_tokens(graph)
     node_css = _generate_node_css(graph, all_tokens)
     if node_css:
         lines.append("/* === Node-specific vibe tokens === */")
         lines.extend(node_css)
+
+    # Conversation application layer (spec §3–§8) when the graph is one.
+    if is_conversation_app(graph):
+        # Dark inversions from D1 are emitted as explicit theme variables so
+        # the atmospheric mode is as intentional as the daylight palette.
+        from .web_tokens import DARK_TOKEN_INVERSIONS
+        lines.append("/* === Dark-mode token inversions (atmospheric theme) === */")
+        lines.append("html.theme-dark {")
+        for name, value in DARK_TOKEN_INVERSIONS:
+            lines.append(f"  {name}: {value};")
+        lines.append("}")
+        lines.append("")
+        lines.append(conversation_css())
 
     # Proxy / DEGRADED markers from nodes.
     lines.extend(proxy_markers)
@@ -637,6 +1125,13 @@ def generate_html(graph: SIRGraph, target: RealizationTarget) -> str:
     parts.append(f'  <meta name="theme-color" content="{accent}">')
     parts.append(f"  <title>{_html_escape(title)}</title>")
     parts.append('  <meta name="description" content="Orren-generated semantic web target">')
+    # Inline SVG favicon — no extra request, no console 404 noise.
+    parts.append(
+        '  <link rel="icon" href="data:image/svg+xml,'
+        '%3Csvg viewBox=%270 0 16 16%27%3E'
+        f'%3Ccircle cx=%278%27 cy=%278%27 r=%276%27 fill=%27{accent}%27/%3E'
+        '%3C/svg%3E">'
+    )
     parts.append('  <link rel="stylesheet" href="styles.css">')
     parts.append("</head>")
     parts.append("<body>")
@@ -658,10 +1153,17 @@ def generate_html(graph: SIRGraph, target: RealizationTarget) -> str:
     parts.append("    </div>")
     parts.append("")
 
-    # Root node rendering.
-    if graph.root is not None:
-        node_lines = _html_node(graph, graph.root, indent=2, relational_links=relational_links)
-        parts.extend(node_lines)
+    # ZARYEL-driven layout: when a valid ZaryelNode is present, generate
+    # semantic HTML regions instead of the generic node tree.
+    conversation_mode = is_conversation_app(graph)
+    if _has_valid_zaryel(graph):
+        parts.extend(_zaryel_html_body(graph, graph.zaryel))
+    elif graph.root is not None:
+        if conversation_mode:
+            parts.extend(render_conversation_main(derive_content(graph)))
+        else:
+            node_lines = _html_node(graph, graph.root, indent=2, relational_links=relational_links)
+            parts.extend(node_lines)
 
     parts.append("  </div>")
     parts.append("  </section>")
@@ -674,13 +1176,18 @@ def generate_html(graph: SIRGraph, target: RealizationTarget) -> str:
     parts.append("  </footer>")
 
     # App initialization script (ES2022 module).
+    conv_import = ", initConversationRuntime" if conversation_mode else ""
     parts.append('  <script type="module">')
-    parts.append('    import { wireUpEvents, startTemporalSequences, initThemeToggle } from "./app.js";')
+    parts.append(
+        f'    import {{ wireUpEvents, startTemporalSequences, initThemeToggle{conv_import} }} from "./app.js";'
+    )
     parts.append('    window.OrrenApp = { fsmInstances: new Map(), config: {} };')
     parts.append('    try {')
     parts.append('      initThemeToggle();')
     parts.append('      wireUpEvents();')
     parts.append('      startTemporalSequences?.();')
+    if conversation_mode:
+        parts.append('      initConversationRuntime();')
     parts.append('      const living = await import("./living.js").then(m => m.autoWireLivingLayer()).catch(() => null);')
     parts.append('      if (living) console.info("[Orren] living layer:", living.renderer);')
     parts.append('      console.info("[Orren] Application initialized.");')
@@ -918,6 +1425,11 @@ def generate_js(graph: SIRGraph, target: RealizationTarget) -> str:
     parts.append("}")
     parts.append("")
 
+    # --- ZARYEL input event listeners ---
+    if _has_valid_zaryel(graph):
+        parts.extend(_zaryel_input_js(graph.zaryel))
+        parts.append("")
+
     # --- Bridge markers ---
     parts.append("// --- Bridge markers (native capabilities not available in browser) ---")
     for tgt in graph.realization_targets:
@@ -926,6 +1438,12 @@ def generate_js(graph: SIRGraph, target: RealizationTarget) -> str:
     for dep in target.needs_bridge:
         parts.append(f"// BRIDGE: {dep} - requires native bridge, not available in browser.")
     parts.append("")
+
+    # --- Conversation runtime ---
+    if is_conversation_app(graph):
+        content = derive_content(graph)
+        parts.append(conversation_js(content.states))
+        parts.append("")
 
     return "\n".join(parts) + "\n"
 
@@ -947,14 +1465,15 @@ def _make_standalone(html: str, css: str, js: str) -> str:
         "<style>\n" + css + "</style>",
     )
     # Strip module exports: the init block below calls these names directly.
-    body = re.sub(r"^export\s+(?=function|class)", "", js, flags=re.MULTILINE)
+    body = re.sub(r"^export\s+(?=function|class|const)", "", js, flags=re.MULTILINE)
     body = re.sub(r"^export default \w+;$", "", body, flags=re.MULTILINE)
     body = re.sub(r"^export \{[^}]*\};$", "", body, flags=re.MULTILINE)
     import_line = (
-        '    import { wireUpEvents, startTemporalSequences, initThemeToggle } '
-        'from "./app.js";'
+        r"    import \{ wireUpEvents, startTemporalSequences, initThemeToggle"
+        r"(, initConversationRuntime)? \} from \"./app\.js\";"
     )
-    out = out.replace(import_line, "    " + body.replace("\n", "\n    ").rstrip())
+    replacement = "    " + body.replace("\n", "\n    ").rstrip()
+    out = re.sub(import_line, lambda _m: replacement, out, count=1)
     return out
 
 

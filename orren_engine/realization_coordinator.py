@@ -37,6 +37,7 @@ from .data_model import (
     Severity,
     ToleranceLevel,
 )
+from .zaryel_validator import ZaryelReport
 
 
 # ---------------------------------------------------------------------------
@@ -102,17 +103,20 @@ CAPABILITY_DIMENSION_COVERAGE: Dict[str, Dict[str, Tuple[Severity, ToleranceLeve
 class RealizationCoordinator:
     """Produce RealizationArtifacts from a SIR graph + declared targets."""
 
-    def coordinate(self, graph: SIRGraph) -> List[RealizationArtifact]:
+    def coordinate(
+        self, graph: SIRGraph, zaryel_report: Optional[ZaryelReport] = None
+    ) -> List[RealizationArtifact]:
         artifacts: List[RealizationArtifact] = []
         for target in graph.realization_targets:
-            art = self._coordinate_target(target, graph)
+            art = self._coordinate_target(target, graph, zaryel_report)
             artifacts.append(art)
         return artifacts
 
     # -----------------------------------------------------------------
 
     def _coordinate_target(
-        self, target: RealizationTarget, graph: SIRGraph
+        self, target: RealizationTarget, graph: SIRGraph,
+        zaryel_report: Optional[ZaryelReport] = None,
     ) -> RealizationArtifact:
         # Determine which dimensions this target can express via its
         # declared capabilities.
@@ -156,6 +160,32 @@ class RealizationCoordinator:
 
         # Build output_files: one file per capability group.
         output_files = self._plan_output_files(target)
+
+        # Fold ZARYEL Meta-realm issues into the degradation report so
+        # downstream consumers (tests, CLI, gate matrix) see them.
+        if zaryel_report is not None and graph.zaryel is not None:
+            from .backends.manifest import manifest_for_language
+            manifest = manifest_for_language(target.language)
+            backend_supports_zaryel = (
+                manifest is not None and getattr(manifest, "zaryel_support", False)
+            )
+            for issue in zaryel_report.issues:
+                sev = Severity.HIGH if issue.severity == "error" else Severity.LOW
+                if not backend_supports_zaryel:
+                    sev = Severity.MEDIUM
+                degradation_report.append({
+                    "node": "zaryel",
+                    "dimension": "zaryel",
+                    "aspect": f"rule_{issue.rule}",
+                    "severity": sev.value,
+                    "tolerance": (
+                        ToleranceLevel.OPTIONAL.value
+                        if issue.severity == "warning"
+                        else ToleranceLevel.DOCUMENTED.value
+                    ),
+                    "source": "meta_realm",
+                    "message": issue.message,
+                })
 
         # Compute preservation score.
         score = self._preservation_score(target, degradation_report)

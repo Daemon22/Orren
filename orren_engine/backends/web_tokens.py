@@ -52,6 +52,13 @@ _VIBE_TOKEN_TABLE: Dict[str, Dict[str, List[Tuple[str, str]]]] = {
     # tone → motion tokens
     "tone": {
         "calm": [("--motion-duration", "0.3s ease"), ("--motion-scale", "subtle")],
+        # Welcoming: warm gold accents with a humanist serif display voice.
+        "welcoming": [
+            ("--color-accent-gold", "#C9942E"),
+            ("--color-accent-gold-luminous", "#F1C75B"),
+            ("--font-display", "human-character-serif"),
+            ("--color-accent", "#C9942E"),
+        ],
         "precise": [("--motion-duration", "0.15s ease-out"), ("--motion-scale", "snappy")],
         "measured": [("--motion-duration", "0.25s ease"), ("--motion-scale", "steady")],
         "bold": [("--motion-duration", "0.1s ease-in-out"), ("--motion-scale", "bold")],
@@ -71,8 +78,34 @@ _VIBE_TOKEN_TABLE: Dict[str, Dict[str, List[Tuple[str, str]]]] = {
         "amber": [("--color-accent", "#e67e22"), ("--color-accent-secondary", "#d35400")],
         "warm": [("--color-surface", "#faf8f1"), ("--color-accent", "#d4a76a")],
         "parchment": [("--color-surface", "#faf8f1"), ("--color-accent", "#c19a6b")],
-        "calm": [("--color-surface", "#7f8c8d"), ("--color-accent", "#95a5a6")],
+        # "calm" is a daylight palette: warm paper ground, white canvas,
+        # deep green-tinted ink. The dark equivalents are emitted as the
+        # DARK_TOKEN_INVERSIONS layer (see below), never as the default.
+        "calm": [
+            ("--color-surface-ground", "#FAF8F1"),
+            ("--color-surface-canvas", "#FFFFFF"),
+            ("--color-ink-primary", "#17231F"),
+            ("--motion-duration", "0.3s"),
+            ("--border-radius", "12px"),
+            ("--spacing-density", "1.5rem"),
+            ("--color-bg", "#FAF8F1"),
+            ("--color-surface", "#FFFFFF"),
+            ("--color-fg", "#17231F"),
+            ("--color-accent", "#2F805B"),
+        ],
         "organic": [("--color-surface", "#27ae60"), ("--color-accent", "#2ecc71")],
+        # Message-bubble surface: warm cream on a calm ground.
+        "cream": [
+            ("--bubble-surface", "#FFFDF6"),
+            ("--bubble-border", "#EFE6D2"),
+            ("--color-surface", "#FFFDF6"),
+        ],
+        # Compose-bar chrome: composed neutral that reads in both themes.
+        "slate": [
+            ("--compose-surface", "#F1EDE4"),
+            ("--compose-ink", "#33413C"),
+            ("--color-accent-secondary", "#5B6B73"),
+        ],
     },
     # form_character → shape tokens
     "form_character": {
@@ -99,46 +132,67 @@ _VIBE_TOKEN_TABLE: Dict[str, Dict[str, List[Tuple[str, str]]]] = {
         "steady_glow": [("--glow-intensity", "0.6"), ("--glow-color", "#2ecc71")],
         "pulse": [("--glow-intensity", "0.8"), ("--glow-color", "#3498db")],
         "subtle": [("--glow-intensity", "0.3"), ("--glow-color", "#7f8c8d")],
+        # Secure: life-green status signalling with a firm status border.
+        "secure": [
+            ("--color-life", "#2F805B"),
+            ("--border-status", "2px solid var(--color-life)"),
+            ("--glow-color", "#2F805B"),
+        ],
     },
     # atmospheric → ambience / texture tokens
     "atmospheric": {
         "mist": [
             ("--atmosphere-texture", "radial-gradient(ellipse at center, rgba(255,255,255,0.08), transparent 70%)"),
+            ("--atmosphere-backdrop", "blur(8px) saturate(120%)"),
             ("--atmosphere-opacity", "0.7"),
             ("--color-atmosphere", "#b8c4cc"),
         ],
         "fire": [
             ("--atmosphere-texture", "linear-gradient(180deg, rgba(255,120,40,0.10), transparent 60%)"),
+            ("--color-accent-warm", "#E85D04"),
+            ("--motion-easing", "cubic-bezier(0.25, 0.1, 0.25, 1)"),
             ("--atmosphere-opacity", "0.9"),
             ("--color-atmosphere", "#e25822"),
         ],
         "water": [
             ("--atmosphere-texture", "linear-gradient(160deg, rgba(52,152,219,0.12), transparent 55%)"),
+            ("--color-surface", "#E8F1F0"),
+            ("--motion-duration", "0.6s"),
             ("--atmosphere-opacity", "0.8"),
             ("--color-atmosphere", "#3498db"),
         ],
         "stone": [
             ("--atmosphere-texture", "none"),
+            ("--border-radius", "4px"),
+            ("--shadow-depth", "none"),
             ("--atmosphere-opacity", "0.5"),
             ("--color-atmosphere", "#8d8d8d"),
         ],
         "growth": [
             ("--atmosphere-texture", "radial-gradient(circle at 30% 20%, rgba(46,204,113,0.10), transparent 50%)"),
+            ("--color-life", "#2F805B"),
+            ("--spacing-rhythm", "1.618rem"),
             ("--atmosphere-opacity", "0.75"),
             ("--color-atmosphere", "#27ae60"),
         ],
         "decay": [
             ("--atmosphere-texture", "repeating-linear-gradient(45deg, rgba(90,80,60,0.06), transparent 12px)"),
+            ("--color-muted", "#8B8680"),
+            ("--texture", "grain"),
             ("--atmosphere-opacity", "0.6"),
             ("--color-atmosphere", "#7a6a55"),
         ],
         "dawn": [
             ("--atmosphere-texture", "linear-gradient(180deg, rgba(255,183,77,0.14), transparent 65%)"),
+            ("--color-surface", "#FAF8F1"),
+            ("--color-accent", "#C9942E"),
             ("--atmosphere-opacity", "0.85"),
             ("--color-atmosphere", "#ffb74d"),
         ],
         "dusk": [
             ("--atmosphere-texture", "linear-gradient(180deg, rgba(94,53,177,0.16), transparent 65%)"),
+            ("--color-surface", "#1a1a2e"),
+            ("--color-ink", "#e0e0e0"),
             ("--atmosphere-opacity", "0.85"),
             ("--color-atmosphere", "#5e35b1"),
         ],
@@ -146,21 +200,33 @@ _VIBE_TOKEN_TABLE: Dict[str, Dict[str, List[Tuple[str, str]]]] = {
     # cultural → layout rhythm / ornament tokens
     "cultural": {
         "ceremonial": [
+            ("--border-radius", "2px"),
+            ("--shadow-depth", "0 4px 24px rgba(0,0,0,0.12)"),
+            ("--spacing-rhythm", "1.618rem"),
             ("--spacing-scale", "generous"),
             ("--layout-strategy", "document"),
             ("--ornament-style", "ruled"),
         ],
         "ancestral": [
+            ("--font-display", "serif"),
+            ("--texture", "parchment"),
+            ("--color-warm", "#8B4513"),
             ("--spacing-scale", "generous"),
             ("--layout-strategy", "atmospheric"),
             ("--ornament-style", "woven"),
         ],
         "communal": [
+            ("--spacing-density", "1.5rem"),
+            ("--border-radius", "12px"),
+            ("--shadow-soft", "0 2px 8px rgba(0,0,0,0.08)"),
             ("--spacing-scale", "normal"),
             ("--layout-strategy", "dashboard"),
             ("--ornament-style", "open"),
         ],
         "solitary": [
+            ("--spacing-density", "2rem"),
+            ("--border-radius", "2px"),
+            ("--color-muted", "#6B7280"),
             ("--spacing-scale", "tight"),
             ("--layout-strategy", "schematic"),
             ("--ornament-style", "bare"),
@@ -169,22 +235,31 @@ _VIBE_TOKEN_TABLE: Dict[str, Dict[str, List[Tuple[str, str]]]] = {
     # motion → kinetic tokens
     "motion": {
         "still": [("--motion-duration", "0s"), ("--motion-easing", "linear"), ("--motion-scale", "none")],
-        "drift": [("--motion-duration", "1.2s ease-in-out"), ("--motion-easing", "ease"), ("--motion-scale", "subtle")],
-        "pulse": [("--motion-duration", "0.6s cubic-bezier(0.4, 0, 0.6, 1)"), ("--motion-easing", "ease-in-out"), ("--motion-scale", "medium")],
-        "surge": [("--motion-duration", "0.3s cubic-bezier(0.7, 0, 0.3, 1)"), ("--motion-easing", "ease-out"), ("--motion-scale", "bold")],
-        "cascade": [("--motion-duration", "0.9s cubic-bezier(0.25, 0.1, 0.25, 1)"), ("--motion-easing", "ease"), ("--motion-scale", "layered")],
+        "drift": [("--motion-duration", "1.2s"), ("--motion-easing", "cubic-bezier(0.4, 0, 0.2, 1)"), ("--motion-scale", "subtle")],
+        "pulse": [("--motion-duration", "0.8s"), ("--motion-easing", "cubic-bezier(0.4, 0, 0.6, 1)"), ("--motion-scale", "medium")],
+        "surge": [("--motion-duration", "0.2s"), ("--motion-easing", "cubic-bezier(0.4, 0, 1, 1)"), ("--motion-scale", "bold")],
+        "cascade": [("--motion-stagger", "0.1s"), ("--motion-duration", "0.4s"), ("--motion-easing", "ease"), ("--motion-scale", "layered")],
     },
 }
 
+# Dark-mode token inversion ("atmospheric" theme layer).
+# Emitted by the generator as ``html.theme-dark`` variable overrides so the
+# daylight "calm" palette has an equally intentional dark counterpart.
+DARK_TOKEN_INVERSIONS: List[Tuple[str, str]] = [
+    ("--color-surface-ground-dark", "#1A1D23"),
+    ("--color-surface-canvas-dark", "#252A33"),
+    ("--color-ink-primary-dark", "#E8E4DC"),
+]
+
 # Fallback token values per vibe aspect (used when no term matches)
-_FALLBACK_TOKENS: Dict[str, List[Tuple[str, str]]] = {
-    "tone": [("--motion-duration", "0.2s ease"), ("--motion-scale", "default")],
+_FALLBACK_TOKENS: Dict[str, List[Tuple[str, str]]] = {    "tone": [("--motion-duration", "0.2s ease"), ("--motion-scale", "default")],
     "color_character": [("--color-accent", "#95a5a6"), ("--color-surface", "#ecf0f1")],
     "form_character": [("--border-radius", "8px"), ("--border-radius-scale", "standard")],
     "aesthetic": [("--layout-strategy", "dashboard"), ("--spacing-scale", "normal")],
     "activation_signal": [("--glow-intensity", "0.0"), ("--glow-color", "transparent")],
     "atmospheric": [
         ("--atmosphere-texture", "none"),
+        ("--atmosphere-backdrop", "none"),
         ("--atmosphere-opacity", "0.0"),
         ("--color-atmosphere", "transparent"),
     ],
@@ -192,8 +267,21 @@ _FALLBACK_TOKENS: Dict[str, List[Tuple[str, str]]] = {
         ("--spacing-scale", "normal"),
         ("--layout-strategy", "dashboard"),
         ("--ornament-style", "none"),
+        ("--spacing-density", "1rem"),
+        ("--border-radius", "8px"),
+        ("--shadow-depth", "none"),
+        ("--shadow-soft", "none"),
+        ("--font-display", "sans-serif"),
+        ("--texture", "none"),
+        ("--color-warm", "#8B4513"),
+        ("--color-muted", "#6B7280"),
     ],
-    "motion": [("--motion-duration", "0.2s ease"), ("--motion-easing", "ease"), ("--motion-scale", "default")],
+    "motion": [
+        ("--motion-duration", "0.2s ease"),
+        ("--motion-easing", "ease"),
+        ("--motion-scale", "default"),
+        ("--motion-stagger", "0s"),
+    ],
 }
 
 
@@ -411,6 +499,7 @@ def register_vibe_mapping(aspect: str, term: str, tokens: List[Tuple[str, str]])
 
 __all__ = [
     "VibeTokenMap",
+    "DARK_TOKEN_INVERSIONS",
     "extract_vibe_tokens",
     "extract_all_tokens",
     "extract_locale",

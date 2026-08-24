@@ -394,9 +394,9 @@ class TestRustGoCExamplesGenerateValidCode:
                 assert len(content) > 0, f"Empty file: {filename}"
                 # Basic Rust indicators
                 has_rust_syntax = any(
-                    indicator in content 
+                    indicator in content
                     for indicator in ["fn ", "struct ", "impl ", "let ", "pub ", "mod "]
-                ) or filename.endswith(".rs")
+                ) or filename.endswith((".rs", ".toml"))
                 # If it's supposed to be Rust, it should have Rust-like content
                 if target.language.lower() == "rust":
                     assert has_rust_syntax, (

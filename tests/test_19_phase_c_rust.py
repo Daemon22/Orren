@@ -60,7 +60,7 @@ def test_rust_manifest_declares_native_source():
     graph = SIRBuilder().build(CoParser().parse(SOURCE.read_text(encoding="utf-8")))
     artifacts = RealizationCoordinator().coordinate(graph)
     rust_artifact = next(artifact for artifact in artifacts if artifact.target_language.lower() == "rust")
-    assert [(item.path, item.language) for item in rust_artifact.output_files] == [("rust_backend/main.rs", "rust")]
+    assert [(item.path, item.language) for item in rust_artifact.output_files] == [("rust_backend/main.rs", "rust"), ("rust_backend/Cargo.toml", "toml")]
 
 
 def test_realize_manifest_contains_matching_provenance(tmp_path):

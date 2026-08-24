@@ -42,7 +42,7 @@ def test_backend_registry_matches_native_contracts():
     assert backend_for_language("WebAudio API").key == "webaudio"
     assert backend_for_language("TypeScript").key == "typescript"
     assert backend_for_target("rust", {"memory_safety"}).key == "rust"
-    assert BACKENDS["rust"].native_files == (("main.rs", "rust"),)
+    assert BACKENDS["rust"].native_files == (("main.rs", "rust"), ("Cargo.toml", "toml"))
     assert BACKENDS["kotlin"].platforms == ("linux", "windows", "android")
 
 

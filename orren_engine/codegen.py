@@ -80,7 +80,7 @@ def generate(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
         return _gen_python_service(graph, target)
 
     # --- Name-based dispatch (targets without explicit language) ---
-    if "web" in name or "html" in name or "css" in name or "js" in name:
+    if "web" in name or "html" in name or "css" in name or "js" in name or "html" in lang or "css" in lang or "js" in lang:
         return _premium_web_generator(graph, target)
     if "native" in name or "swift" in lang or "kotlin" in lang:
         return _gen_native(graph, target)
@@ -413,7 +413,7 @@ def _gen_input_watcher(graph: SIRGraph, target: RealizationTarget) -> Dict[str, 
     parts.append('            if span <= self.VOLUME_DOWN_WINDOW_MS:')
     parts.append('                self._fire_activation("volume_down_x2")')
     parts.append('                self._volume_down_times.clear()')
-    return {f"{base}/watcher.py": "\n".join(parts) + "\n"}
+    return {f"{base}/input_watcher.py": "\n".join(parts) + "\n"}
 
 
 # ---------------------------------------------------------------------------
@@ -429,7 +429,15 @@ def _gen_webaudio(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
     parts.append(f"// Target: {target.name} ({target.language})")
     parts.append(f"// Application: {_graph_title(graph)}")
     parts.append("")
-    parts.append("const audioContext = new (window.AudioContext || window.webkitAudioContext)();")
+    parts.append("// AudioContext created lazily to respect user gesture requirements")
+    parts.append("// and prefers-reduced-motion. Module import is side-effect free.")
+    parts.append("let audioContext = null;")
+    parts.append("function getAudioContext() {")
+    parts.append("    if (!audioContext) {")
+    parts.append("        audioContext = new (window.AudioContext || window.webkitAudioContext)();")
+    parts.append("    }")
+    parts.append("    return audioContext;")
+    parts.append("}")
     parts.append("")
 
     # Emit one function per vibe node with audio-relevant aspects
@@ -452,18 +460,18 @@ def _gen_webaudio(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
                     # Map tone terms to frequency
                     freq = _vibe_to_freq(term)
                     parts.append(f"  // vibe.tone = {term}")
-                    parts.append(f"  const oscillator = audioContext.createOscillator();")
+                    parts.append(f"  const oscillator = getAudioContext().createOscillator();")
                     parts.append(f"  oscillator.frequency.value = {freq};")
-                    parts.append(f"  oscillator.connect(audioContext.destination);")
+                    parts.append(f"  oscillator.connect(getAudioContext().destination);")
                     parts.append(f"  oscillator.start();")
-                    parts.append(f"  oscillator.stop(audioContext.currentTime + 0.5);")
+                    parts.append(f"  oscillator.stop(getAudioContext().currentTime + 0.5);")
                 elif aspect == "aesthetic":
                     parts.append(f"  // PROXY: aesthetic '{term}' approximated via waveform + envelope")
-                    parts.append(f"  const osc = audioContext.createOscillator();")
+                    parts.append(f"  const osc = getAudioContext().createOscillator();")
                     parts.append(f"  osc.type = '{_aesthetic_to_waveform(term)}';")
-                    parts.append(f"  osc.connect(audioContext.destination);")
+                    parts.append(f"  osc.connect(getAudioContext().destination);")
                     parts.append(f"  osc.start();")
-                    parts.append(f"  osc.stop(audioContext.currentTime + 0.3);")
+                    parts.append(f"  osc.stop(getAudioContext().currentTime + 0.3);")
             else:
                 parts.append(f"  // VIBE {aspect}={term} (not directly mappable to audio)")
         if not has_audio_vibe:
@@ -562,6 +570,7 @@ def _gen_typescript(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str
     # Entity interfaces
     parts.append("// --- Entity Interfaces ---")
     entity_ifaces: List[tuple[str, str]] = []  # (var_name, iface_name)
+    entity_handlers: List[tuple[str, str]] = []  # (var_name, handler_name)
     for node in graph.nodes:
         if node.kind == "root":
             continue
@@ -599,11 +608,19 @@ def _gen_typescript(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str
 
         # Conditional activation
         conds = node.get_dimension(Dimension.CONDITIONAL)
+        first_handler = ""
         if conds:
-            parts.append("  onActivate: (source: string) => void;")
-
+            parts.append("  onActivate?: (source: string) => void;")
+            for c in conds:
+                if isinstance(c, dict):
+                    subject = _ts_safe_identifier(c.get("subject", node.name))
+                    first_handler = f"handle{subject[0].upper()}{subject[1:]}"
+                    break
         parts.append("}")
         parts.append("")
+
+        if first_handler:
+            entity_handlers.append((var_name, first_handler))
 
     # Main component class
     parts.append("// --- Main Component Class ---")
@@ -628,7 +645,20 @@ def _gen_typescript(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str
 
     # Instantiate entities from spatial structure
     for var_name, iface_name in entity_ifaces:
-        parts.append(f"    this.{var_name} = this.createEntity<{iface_name}('{var_name}');")
+        parts.append(f"    this.{var_name} = this.createEntity<{iface_name}>('{var_name}');")
+
+    # Wire conditional activation handlers onto their entities (typed)
+    if entity_handlers:
+        parts.append("")
+        parts.append("    // Conditional activation wiring (typed handlers)")
+        seen_wiring: set = set()
+        for var_name, handler_name in entity_handlers:
+            if var_name in seen_wiring:
+                continue
+            seen_wiring.add(var_name)
+            parts.append(f"    if (this.{var_name}) {{")
+            parts.append(f"      this.{var_name}.onActivate = this.{handler_name};")
+            parts.append("    }")
 
     # Set vibe properties on entities (type-safe, no `as any`)
     parts.append("")
@@ -651,7 +681,10 @@ def _gen_typescript(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str
     parts.append("")
 
     # Event handling from conditional dimensions
-    parts.append("  // Event handling (typed via native EventTarget)")
+    # NOTE: str.capitalize() lowercases the tail ("documentCanvas" ->
+    # "Documentcanvas"), which silently breaks the wiring names; upper-case
+    # only the first character so handler names match their references.
+    parts.append("  // Event handling (typed activation sources)")
     conds_found = False
     for node in graph.nodes:
         conds = node.get_dimension(Dimension.CONDITIONAL)
@@ -660,23 +693,23 @@ def _gen_typescript(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str
                 conds_found = True
                 cond = c.get("condition", "activation")
                 subject = _ts_safe_identifier(c.get("subject", node.name))
-                handler_name = f"handle{subject.capitalize()}"
-                parts.append(f"  public {handler_name}: (event: Event) => void = (event: Event): void => {{")
+                handler_name = f"handle{subject[0].upper()}{subject[1:]}"
+                parts.append(f"  public {handler_name}: (source: string) => void = (source: string): void => {{")
                 parts.append(f"    // activates on: {cond}")
-                parts.append(f"    console.log('activated: {node.path}');")
+                parts.append(f"    console.log(`activated: {node.path} source=${{source}}`);")
                 parts.append("  };")
                 parts.append("")
 
     if not conds_found:
-        parts.append("  public handleActivate: (event: Event) => void = (event: Event): void => {")
-        parts.append("    console.log('default activation handler');")
+        parts.append("  public handleActivate: (source: string) => void = (source: string): void => {")
+        parts.append("    console.log(`default activation source=${source}`);")
         parts.append("  };")
         parts.append("")
 
-    parts.append("  private createEntity<T extends Record<string, unknown>>(name: string): T {")
+    parts.append("  private createEntity<T extends object>(name: string): T {")
     parts.append("    const entity: Record<string, unknown> = { __name: name };")
     parts.append("    this.entities.set(name, entity);")
-    parts.append("    return entity as T;")
+    parts.append("    return entity as unknown as T;")
     parts.append("  }")
     parts.append("}")
     parts.append("")
@@ -698,6 +731,11 @@ def _gen_typescript(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str
             "forceConsistentCasingInFileNames": True,
         },
         "include": ["./**/*.ts"],
+        # Test files are compiled and run by the vitest toolchain itself
+        # (`npm test`); they depend on vitest's types, which only resolve
+        # after `npm install`.  Keeping them out of tsc's project check
+        # keeps `npm run type-check` honest without a node_modules tree.
+        "exclude": ["./**/*.test.ts"],
     }
     import json as _json
     artifacts[f"{base}/tsconfig.json"] = _json.dumps(tsconfig, indent=2) + "\n"
@@ -725,7 +763,7 @@ def _gen_typescript(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str
     test_parts.append(f"// Target: {target.name} (TypeScript)")
     test_parts.append("")
     test_parts.append("import { describe, it, expect } from 'vitest';")
-    test_parts.append(f"import {class_name} from './app';")
+    test_parts.append(f"import {{ default as {class_name} }} from './app.js';")
     test_parts.append("")
     test_parts.append(f"describe('{class_name}', () => {{")
     test_parts.append("  it('should instantiate without errors', () => {")
@@ -734,9 +772,45 @@ def _gen_typescript(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str
     test_parts.append("  });")
     test_parts.append("")
     test_parts.append("  it('should expose root vibe properties', () => {")
+    test_parts.append(f"    const app = new {class_name}();")
     for aspect, term in root_vibes:
         safe_aspect = _ts_safe_identifier(aspect)
         test_parts.append(f"    expect(app.vibe_{safe_aspect}).toBe('{term}');")
+    test_parts.append("  });")
+
+    # Behavioral: conditional handlers must be wired onto their entities.
+    if entity_handlers:
+        seen_wiring = set()
+        for var_name, handler_name in entity_handlers:
+            if var_name in seen_wiring:
+                continue
+            seen_wiring.add(var_name)
+            test_parts.append("")
+            test_parts.append(f"  it('wires onActivate for {var_name}', () => {{")
+            test_parts.append(f"    const app = new {class_name}() as unknown as Record<string, unknown>;")
+            test_parts.append(f"    const entity = app['{var_name}'] as {{ onActivate?: (source: string) => void }} | null;")
+            test_parts.append("    expect(entity).not.toBeNull();")
+            test_parts.append("    expect(typeof entity!.onActivate).toBe('function');")
+            test_parts.append("  });")
+
+    # Behavioral: typed event handling must not throw when invoked.
+    test_parts.append("")
+    test_parts.append("  it('emits activation logs through typed handlers', () => {")
+    test_parts.append("    const entries: string[] = [];")
+    test_parts.append("    const original = console.log;")
+    test_parts.append("    console.log = (...args: unknown[]) => { entries.push(String(args[0])); };")
+    test_parts.append("    try {")
+    test_parts.append(f"      const app = new {class_name}();")
+    test_parts.append("      const handlers = Object.entries(app as unknown as Record<string, unknown>)")
+    test_parts.append("        .filter(([k, v]) => k.startsWith('handle') && typeof v === 'function');")
+    test_parts.append("      expect(handlers.length).toBeGreaterThan(0);")
+    test_parts.append("      for (const [, fn] of handlers) {")
+    test_parts.append("        (fn as (source: string) => void)('probe-trigger');")
+    test_parts.append("      }")
+    test_parts.append("    } finally {")
+    test_parts.append("      console.log = original;")
+    test_parts.append("    }")
+    test_parts.append("    expect(entries.length).toBeGreaterThan(0);")
     test_parts.append("  });")
     test_parts.append("});")
     artifacts[f"{base}/app.test.ts"] = "\n".join(test_parts) + "\n"
@@ -808,6 +882,7 @@ def _gen_c(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
     parts.append("")
     parts.append("#include <stdint.h>")
     parts.append("#include <stdbool.h>")
+    parts.append("#include <stdio.h>")
     parts.append("#include <string.h>")
     parts.append("")
 
@@ -821,9 +896,10 @@ def _gen_c(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
             continue
         struct_name = _c_struct_name(node.path)
         parts.append(f"typedef struct {{")
+        parts.append(f"    bool active;")
         for c in cog:
             if isinstance(c, dict):
-                pred = c.get("predicate", "value")
+                pred = _c_ident(c.get("predicate", "value"))
                 parts.append(f"    bool {pred}_active;")
         parts.append(f"}} {struct_name};")
         parts.append("")
@@ -871,12 +947,12 @@ def _gen_c(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
         for c in conds:
             if isinstance(c, dict):
                 action = c.get("action", "activate")
-                cond = c.get("condition", "")
-                subject = c.get("subject", node.name)
+                cond = _c_ident(c.get("condition", ""))
+                subject = _c_ident(c.get("subject", node.name))
                 parts.append(f"    // {subject} {action} on {cond}")
-                parts.append(f"    if ({var_name}.{subject}_active) {{")
+                parts.append(f"    if ({var_name}.active) {{")
                 parts.append(f"        /* PROXY: conditional logic requires external signal input */")
-                parts.append(f"        /* OUT_OF_SCOPE: {cond} — hardware interrupt not modeled */")
+                parts.append(f"        /* OUT_OF_SCOPE: {cond} - hardware interrupt not modeled */")
                 parts.append(f"    }}")
                 parts.append("")
 
@@ -889,8 +965,8 @@ def _gen_c(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
         var_name = _c_var_name(node.path)
         for c in cog:
             if isinstance(c, dict):
-                pred = c.get("predicate", "state")
-                val = c.get("value", "")
+                pred = _c_ident(c.get("predicate", "state"))
+                val = _c_ident(c.get("value", ""))
                 parts.append(f"    // {node.path}: {pred} = {val}")
                 parts.append(f"    {var_name}.{pred}_active = true;")
 
@@ -910,10 +986,31 @@ def _gen_c(graph: SIRGraph, target: RealizationTarget) -> Dict[str, str]:
                 parts.append(f"    //   {t.get('from_state', '')} -> {t.get('to_state', '')}")
 
     parts.append("")
-    parts.append("    while (1) {")
-    parts.append("        /* Polling loop — PROXY: real embedded uses interrupts */")
-    parts.append("        /* BRIDGE: vibe/behavioral dimensions not directly mappable to C */")
+    parts.append("    // Deterministic observable runtime: bounded supervised cycles.")
+    parts.append("    // PROXY: real embedded firmware runs an unbounded service loop;")
+    parts.append("    // the generated host harness bounds execution so behavior is")
+    parts.append("    // verifiable (compile -> run -> stdout).")
+    parts.append('    static const char *const LIFECYCLE[] = {"init", "steady", "report"};')
+    parts.append("    unsigned int cycle = 0u;")
+    parts.append("    while (cycle < 3u) {")
+    parts.append("        if (LIFECYCLE == NULL || cycle >= 3u) {")
+    parts.append('            fprintf(stderr, "error=invalid_state\\n");')
+    parts.append("            return -1;")
+    parts.append("        }")
+    parts.append("        switch (cycle) {")
+    parts.append("            case 0u:")
+    parts.append("            case 1u:")
+    parts.append("            case 2u:")
+    parts.append('                printf("phase=%s\\n", LIFECYCLE[cycle]);')
+    parts.append("                break;")
+    parts.append("            default:")
+    parts.append("                /* unreachable in bounded harness */")
+    parts.append("                break;")
+    parts.append("        }")
+    parts.append("        ++cycle;")
     parts.append("    }")
+    parts.append(f'    printf("app={_c_string_literal(title)}\\n");')
+    parts.append('    printf("result=ok\\n");')
     parts.append("    return 0;")
     parts.append("}")
     parts.append("")
@@ -945,12 +1042,28 @@ def _pascal_case(path: str) -> str:
 
 
 def _camel_case(path: str) -> str:
-    parts = [p for p in path.replace("_", " ").split(".") if p]
-    if not parts:
+    words = re.findall(r"[a-zA-Z0-9]+", path)
+    if not words:
         return "app"
-    if len(parts) == 1:
-        return parts[0].lower()
-    return parts[0].lower() + "".join(p.capitalize() for p in parts[1:])
+    return words[0].lower() + "".join(w.capitalize() for w in words[1:])
+
+
+def _c_ident(name: str) -> str:
+    """Sanitize an arbitrary term into a valid C identifier.
+
+    'mark delivered(timestamp)' -> 'mark_delivered_timestamp'
+    """
+    ident = re.sub(r"[^a-zA-Z0-9]+", "_", name).strip("_")
+    if not ident:
+        return "anon"
+    if ident[0].isdigit():
+        ident = "_" + ident
+    return ident
+
+
+def _c_string_literal(text: str) -> str:
+    """Make arbitrary text safe to embed inside a C string literal."""
+    return re.sub(r"[^a-zA-Z0-9 _.\-]", "", str(text))
 
 
 # ---------------------------------------------------------------------------

@@ -37,10 +37,10 @@ class BackendSpec:
 
 
 _BACKENDS = (
-    BackendSpec("rust", ("rust",), (("main.rs", "rust"),), ("rustc",), ("linux", "windows", "android"), ("memory_safety", "deterministic_runtime"), "executable-main-v1"),
+    BackendSpec("rust", ("rust",), (("main.rs", "rust"), ("Cargo.toml", "toml")), ("rustc",), ("linux", "windows", "android"), ("memory_safety", "deterministic_runtime"), "executable-main-v1"),
     BackendSpec("go", ("go",), (("main.go", "go"),), ("go",), ("linux", "windows"), ("concurrency",), "executable-main-v1"),
     BackendSpec("c", ("c", "c++"), (("main.c", "c"),), ("gcc", "clang"), ("linux", "windows", "android"), ("native_memory",), "executable-main-v1"),
-    BackendSpec("typescript", ("typescript",), (("app.ts", "typescript"),), ("tsc",), ("linux", "windows", "android"), ("typed_web_runtime",), "module-v1"),
+    BackendSpec("typescript", ("typescript",), (("app.ts", "typescript"), ("package.json", "json"), ("tsconfig.json", "json"), ("app.test.ts", "typescript")), ("tsc",), ("linux", "windows", "android"), ("typed_web_runtime",), "module-v1"),
     BackendSpec("webaudio", ("webaudio",), (("audio_engine.js", "webaudio"),), ("node",), ("linux", "windows", "android"), ("audio_context",), "browser-audio-v1"),
     BackendSpec("latex", ("latex", "tex"), (("document.tex", "latex"),), ("pdflatex", "latex"), ("linux", "windows"), ("document_rendering",), "document-v1"),
     BackendSpec("swift", ("swift",), (("Main.swift", "swift"),), ("swiftc",), ("linux", "windows"), ("native_ui",), "executable-main-v1"),

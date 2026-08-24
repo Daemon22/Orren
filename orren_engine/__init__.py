@@ -34,6 +34,8 @@ from .data_model import (
     RelationalStatement,
     SIRGraph,
     SIRNode,
+    ZaryelNode,
+    ZaryelRegion,
     SpatialStatement,
     StructureNode,
     TemporalStatement,
@@ -54,7 +56,7 @@ from .realization_ir import IR_VERSION, IRNode, IRTarget, RealizationIR, lower_g
 from .backends import BackendSpec, BACKENDS, backend_for_language, backend_for_target
 from .backends.manifest import BackendManifest, manifest_for_language, ALL_MANIFESTS
 from .platforms import PlatformStatus, inspect_platform, load_capabilities
-from .validate import run_all as run_validation_suite
+from .zaryel_validator import ZaryelIssue, ZaryelReport, validate_zaryel, validate_zaryel_graph
 from .errors import (
     ErrorCategory,
     ErrorCode,
@@ -119,6 +121,12 @@ __all__ = [
     "RealizationArtifact",
     "SIRNode",
     "SIRGraph",
+    "ZaryelNode",
+    "ZaryelRegion",
+    "ZaryelReport",
+    "ZaryelIssue",
+    "validate_zaryel",
+    "validate_zaryel_graph",
     "EditOperation",
     "ErrorCategory",
     "ErrorCode",

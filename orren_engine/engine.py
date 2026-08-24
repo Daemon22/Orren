@@ -37,6 +37,7 @@ from .parser import CoParser
 from .realization_coordinator import RealizationCoordinator
 from .semantic_editor import SemanticEditor
 from .sir_builder import SIRBuilder
+from .zaryel_validator import ZaryelReport, validate_zaryel_graph
 
 
 @dataclass
@@ -50,6 +51,7 @@ class EngineResult:
     artifacts: List[RealizationArtifact] = field(default_factory=list)
     graph: Optional[SIRGraph] = None
     equilibrium_report: Optional[EquilibriumReport] = None
+    zaryel_report: Optional[ZaryelReport] = None
     revision_id: Optional[int] = None
 
     def summary(self) -> str:
@@ -80,7 +82,9 @@ class Engine:
         expressions = self.parser.parse(source)
         graph = self.builder.build(expressions)
         report = self.resolver.resolve(graph)
-        artifacts = self.coordinator.coordinate(graph)
+        # Meta-realm: validate ZARYEL blueprint before realization.
+        zaryel_report = validate_zaryel_graph(graph)
+        artifacts = self.coordinator.coordinate(graph, zaryel_report)
         self._graph = graph
         self._editor = None  # invalidate previous editor
         revision_id = None
@@ -95,6 +99,7 @@ class Engine:
             artifacts=artifacts,
             graph=graph,
             equilibrium_report=report,
+            zaryel_report=zaryel_report,
             revision_id=revision_id,
         )
 
@@ -115,7 +120,8 @@ class Engine:
         equilibrium — only the coordinator runs."""
         if self._graph is None:
             raise RuntimeError("Engine.run() must be called before re_coordinate()")
-        return self.coordinator.coordinate(self._graph)
+        zaryel_report = validate_zaryel_graph(self._graph)
+        return self.coordinator.coordinate(self._graph, zaryel_report)
 
 
 __all__ = ["Engine", "EngineResult"]

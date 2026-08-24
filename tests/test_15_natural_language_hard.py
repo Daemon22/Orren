@@ -246,18 +246,26 @@ class TestCodeGenerationFullPipeline(unittest.TestCase):
                         os.unlink(tmp_path)
 
     def test_web_targets_produce_manifest(self):
-        """Targets with lang=HTML/CSS/JS must produce at least a manifest file.
-        (HTML previews are generated via generate_preview, not generate_code.)"""
+        """Targets with lang=HTML/CSS/JS must produce real web artifacts.
+
+        Web dispatch routes on the language label (e.g. ``HTML/CSS/JS``)
+        so that targets whose *name* does not contain ``web``/``html``
+        still produce the full bundle: ``index.html``, ``styles.css``,
+        ``app.js``, ``living.js``, and ``index.standalone.html``.
+        """
         targets = self._get_target_files()
         for name, tgt, graph in targets:
             if tgt.language.lower() in ("html/css/js", "html"):
                 files = generate_code(graph, tgt)
                 self.assertGreater(len(files), 0,
                                    f"No codegen output for web target {tgt.name} in {name}")
-                # Must include a manifest
-                has_manifest = any("MANIFEST" in f for f in files)
-                self.assertTrue(has_manifest,
-                                f"Web target {tgt.name} in {name} has no MANIFEST file")
+                # Must include the core web bundle files
+                self.assertIn(f"{tgt.name}/index.html", files,
+                              f"Web target {tgt.name} in {name} missing index.html")
+                self.assertIn(f"{tgt.name}/styles.css", files,
+                              f"Web target {tgt.name} in {name} missing styles.css")
+                self.assertIn(f"{tgt.name}/app.js", files,
+                              f"Web target {tgt.name} in {name} missing app.js")
 
 
 # =============================================================================

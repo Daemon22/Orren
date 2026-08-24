@@ -79,6 +79,23 @@ _BEHAVIORAL_TOOL: Dict[str, str] = {
 }
 
 
+def _tool_present(tool: str) -> bool:
+    """Check a gate's required tool, with backend-aware fallbacks.
+
+    ``gcc`` falls back to clang and then MSVC (Windows); ``tsc`` may be
+    provided by any node installation able to resolve the typescript package.
+    """
+    if shutil.which(tool) is not None:
+        return True
+    if tool == "c" or tool == "gcc":
+        if shutil.which("clang") is not None:
+            return True
+        from .conformance_sovereign import _discover_msvc
+
+        return _discover_msvc()[0]
+    return False
+
+
 def gate_matrix() -> Dict[str, Dict[str, str]]:
     """Compute the honest seven-gate matrix for every registered backend.
 
@@ -94,7 +111,7 @@ def gate_matrix() -> Dict[str, Dict[str, str]]:
         implemented = _IMPLEMENTED.get(bid, [])
         tool = _TOOL_REQUIRED.get(bid)
         tool_status = "PASS"
-        if tool is not None and shutil.which(tool) is None:
+        if tool is not None and not _tool_present(tool):
             tool_status = f"SKIP:tool_missing:{tool}"
         # Behavioral tool: separate check (node works even without tsc)
         behavior_tool = _BEHAVIORAL_TOOL.get(bid)

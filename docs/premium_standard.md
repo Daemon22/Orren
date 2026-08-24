@@ -67,14 +67,35 @@ A premium Orren artifact is not merely pretty — it *preserves the intent*:
 Anything a target cannot express must appear as an explicit PROXY or DEGRADED
 marker in the output — silence is a defect.
 
-## 5. Honest conformance
+## 5. Bundle strategy
+
+- **Vanilla web** (no `bundler` capability declared): three files
+  (`index.html`, `styles.css`, `app.js`) plus `living.js` and
+  `index.standalone.html`. No build step required — runs from any static
+  server or `file://`.
+- **Vite web** (target declares `bundler` capability): additional
+  `package.json`, `vite.config.js`, and `tests/smoke.spec.js` are emitted
+  for dev/build/preview/test workflows. The plain three-file build is always
+  present alongside; the bundler layer is additive, never a requirement.
+
+## 6. Cross-browser policy
+
+- **Supported browsers:** the latest two major versions of Chrome, Firefox,
+  Edge, and Safari (desktop and mobile).
+- **Baseline APIs:** only features implemented across all four engines without
+  flags (ES2020+ modules, CSS custom properties, `prefers-color-scheme`,
+  `prefers-reduced-motion`, `matchMedia`, `CustomEvent`).
+- **Progressive enhancement:** the living layer degrades
+  WebGL → Canvas 2D → CSS gradient → static, never blocking the main thread.
+
+## 7. Honest conformance
 
 - Gates that cannot run in an environment report **SKIP**, never PASS.
 - Browser claims are limited to engines actually executed (currently
   Chromium and Chrome headless). Firefox/Safari/screen readers are documented
   as NOT EXECUTED in the validation report until run.
 
-## 6. Verification matrix
+## 7. Verification matrix
 
 | Layer | Tool |
 |---|---|

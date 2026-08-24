@@ -52,6 +52,11 @@ class BackendManifest:
     unsupported_cases: List[str] = field(default_factory=list)
     validation_command: List[str] = field(default_factory=list)
     preservation_score: float = 1.0
+    zaryel_support: bool = False
+    supported_canvases: List[str] = field(default_factory=list)
+    supported_layouts: List[str] = field(default_factory=list)
+    supported_inputs: List[str] = field(default_factory=list)
+    supported_outputs: List[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +141,11 @@ _MANIFESTS: Dict[str, BackendManifest] = {
         ],
         validation_command=["rustc", "--edition", "2021", "--crate-type", "lib", "{file}"],
         preservation_score=1.0,
+        zaryel_support=True,
+        supported_canvases=["web_page", "server_api"],
+        supported_layouts=["stack", "grid", "tabs", "masonry"],
+        supported_inputs=["keyboard", "mouse", "gesture"],
+        supported_outputs=["display", "audio"],
     ),
     "go": BackendManifest(
         backend_id="go",
@@ -159,6 +169,11 @@ _MANIFESTS: Dict[str, BackendManifest] = {
         ],
         validation_command=["go", "build", "-o", "/dev/null", "{file}"],
         preservation_score=0.95,
+        zaryel_support=True,
+        supported_canvases=["web_page", "server_api"],
+        supported_layouts=["stack", "grid", "tabs"],
+        supported_inputs=["keyboard", "mouse", "gesture"],
+        supported_outputs=["display", "projection"],
     ),
     "c": BackendManifest(
         backend_id="c",
@@ -187,6 +202,11 @@ _MANIFESTS: Dict[str, BackendManifest] = {
         ],
         validation_command=["gcc", "-std=c11", "-fsyntax-only", "-Wall", "-Wextra", "{file}"],
         preservation_score=0.85,
+        zaryel_support=True,
+        supported_canvases=["embedded_display"],
+        supported_layouts=["stack", "split"],
+        supported_inputs=["touch", "sensor", "button"],
+        supported_outputs=["display", "haptic", "led", "projection"],
     ),
     "python": BackendManifest(
         backend_id="python",
@@ -211,6 +231,11 @@ _MANIFESTS: Dict[str, BackendManifest] = {
         ],
         validation_command=["python3", "-c", "import py_compile; py_compile.compile('{file}', doraise=True)"],
         preservation_score=0.97,
+        zaryel_support=True,
+        supported_canvases=["web_page", "desktop_app", "document"],
+        supported_layouts=["stack", "grid", "split", "float", "tabs", "carousel", "masonry"],
+        supported_inputs=["keyboard", "mouse", "touch", "gesture", "pen", "camera", "biometric", "button"],
+        supported_outputs=["display", "audio", "print", "projection"],
     ),
     "typescript": BackendManifest(
         backend_id="typescript",
@@ -235,6 +260,11 @@ _MANIFESTS: Dict[str, BackendManifest] = {
         ],
         validation_command=["tsc", "--noEmit", "--strict", "{file}"],
         preservation_score=0.88,
+        zaryel_support=True,
+        supported_canvases=["web_page", "mobile_app"],
+        supported_layouts=["stack", "grid", "split", "float", "tabs", "carousel", "masonry"],
+        supported_inputs=["touch", "keyboard", "mouse", "voice", "gesture", "pen", "camera"],
+        supported_outputs=["display", "audio", "haptic", "projection"],
     ),
     "javascript": BackendManifest(
         backend_id="javascript",
@@ -260,6 +290,11 @@ _MANIFESTS: Dict[str, BackendManifest] = {
         ],
         validation_command=["node", "--check", "{file}"],
         preservation_score=0.75,
+        zaryel_support=True,
+        supported_canvases=["web_page", "mobile_app", "document"],
+        supported_layouts=["stack", "grid", "split", "float", "tabs", "carousel", "masonry"],
+        supported_inputs=["touch", "keyboard", "mouse", "voice", "gesture", "pen", "camera"],
+        supported_outputs=["display", "audio", "haptic", "projection"],
     ),
     "html": BackendManifest(
         backend_id="html",
@@ -271,9 +306,15 @@ _MANIFESTS: Dict[str, BackendManifest] = {
             "behavioral_execution",
             "state_management",
             "dynamic_content",
+            "layout_computation",
         ],
         validation_command=[],
         preservation_score=0.60,
+        zaryel_support=True,
+        supported_canvases=["document"],
+        supported_layouts=["stack", "grid", "split", "float", "tabs", "carousel", "masonry"],
+        supported_inputs=["touch", "keyboard", "mouse", "voice", "gesture", "pen", "camera", "biometric"],
+        supported_outputs=["display", "print", "projection"],
     ),
     "css": BackendManifest(
         backend_id="css",
@@ -285,9 +326,15 @@ _MANIFESTS: Dict[str, BackendManifest] = {
             "behavioral_execution",
             "dynamic_styling",
             "animation_logic",
+            "form_architecture_only",
         ],
         validation_command=[],
         preservation_score=0.55,
+        zaryel_support=True,
+        supported_canvases=["web_page", "document"],
+        supported_layouts=["stack", "grid", "split", "float", "tabs", "carousel", "masonry"],
+        supported_inputs=[],
+        supported_outputs=["display"],
     ),
     "swift": BackendManifest(
         backend_id="swift",
@@ -311,6 +358,11 @@ _MANIFESTS: Dict[str, BackendManifest] = {
         ],
         validation_command=["swiftc", "-typecheck", "{file}"],
         preservation_score=0.82,
+        zaryel_support=True,
+        supported_canvases=["mobile_app", "desktop_app"],
+        supported_layouts=["stack", "split", "grid", "tabs"],
+        supported_inputs=["touch", "keyboard", "voice", "gesture", "pen", "camera", "biometric"],
+        supported_outputs=["display", "haptic", "audio"],
     ),
     "kotlin": BackendManifest(
         backend_id="kotlin",
@@ -334,6 +386,11 @@ _MANIFESTS: Dict[str, BackendManifest] = {
         ],
         validation_command=["kotlinc", "-script", "{file}"],
         preservation_score=0.80,
+        zaryel_support=True,
+        supported_canvases=["mobile_app"],
+        supported_layouts=["stack", "split", "grid", "tabs"],
+        supported_inputs=["touch", "keyboard", "gesture", "pen", "camera", "biometric"],
+        supported_outputs=["display", "haptic", "audio"],
     ),
     "latex": BackendManifest(
         backend_id="latex",
@@ -345,9 +402,16 @@ _MANIFESTS: Dict[str, BackendManifest] = {
             "behavioral_execution",
             "state_management",
             "dynamic_content",
+            "layout_computation",
+            "input_output_events",
         ],
         validation_command=["pdflatex", "--interaction=nonstopmode", "{file}"],
         preservation_score=0.70,
+        zaryel_support=True,
+        supported_canvases=["document"],
+        supported_layouts=["stack"],
+        supported_inputs=["keyboard"],
+        supported_outputs=["print", "projection"],
     ),
     "webaudio": BackendManifest(
         backend_id="webaudio",
@@ -368,9 +432,15 @@ _MANIFESTS: Dict[str, BackendManifest] = {
             "low_level_hardware_access",
             "manual_memory_management",
             "zero_cost_abstractions",
+            "form_architecture_layout",
         ],
         validation_command=["node", "--check", "{file}"],
         preservation_score=0.65,
+        zaryel_support=False,
+        supported_canvases=[],
+        supported_layouts=[],
+        supported_inputs=[],
+        supported_outputs=["audio"],
     ),
     "text": BackendManifest(
         backend_id="text",
@@ -383,9 +453,15 @@ _MANIFESTS: Dict[str, BackendManifest] = {
             "state_management",
             "type_safety",
             "dynamic_content",
+            "form_architecture_layout",
         ],
         validation_command=[],
         preservation_score=0.10,
+        zaryel_support=False,
+        supported_canvases=[],
+        supported_layouts=[],
+        supported_inputs=[],
+        supported_outputs=[],
     ),
 }
 

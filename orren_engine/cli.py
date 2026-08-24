@@ -35,7 +35,11 @@ from .equilibrium_resolver import EquilibriumResolver
 from .realization_coordinator import RealizationCoordinator
 from .codegen import generate as generate_code
 from .conformance import run_conformance, write_report
-from .conformance_sovereign import run_conformance as run_sovereign_conformance, write_report as write_sovereign_report
+from .conformance_sovereign import (
+    run_conformance as run_sovereign_conformance,
+    write_report as write_sovereign_report,
+    run_seven_gate_conformance,
+)
 from .database import graph_hash
 from .realization_ir import lower_graph
 from .backends import BACKENDS, backend_for_language, backend_for_target
@@ -271,9 +275,12 @@ def _cmd_build(args) -> int:
     if realize_status != 0:
         return realize_status
     report = run_sovereign_conformance(args.out, run_adversarial=True)
+    report["seven_gate"] = run_seven_gate_conformance(args.out)
     report_path = os.path.join(args.out, "conformance.json")
     write_sovereign_report(report, report_path)
+    sg = report["seven_gate"]
     print(f"Build conformance: {report['passed']} passed, {report['degraded']} degraded, {report['failed']} failed, {report['skipped']} skipped")
+    print(f"Seven gates: {sg['passed']} passed, {sg['degraded']} degraded, {sg['failed']} failed, {sg['skipped']} skipped")
     print(f"  report: {report_path}")
     return 0 if report["failed"] == 0 else 1
 
@@ -281,9 +288,12 @@ def _cmd_build(args) -> int:
 def _cmd_test(args) -> int:
     """Test an existing realization; never generates missing output."""
     report = run_sovereign_conformance(args.out, run_adversarial=True)
+    report["seven_gate"] = run_seven_gate_conformance(args.out)
     report_path = args.report or os.path.join(args.out, "conformance.json")
     write_sovereign_report(report, report_path)
+    sg = report["seven_gate"]
     print(f"Test conformance: {report['passed']} passed, {report['degraded']} degraded, {report['failed']} failed, {report['skipped']} skipped")
+    print(f"Seven gates: {sg['passed']} passed, {sg['degraded']} degraded, {sg['failed']} failed, {sg['skipped']} skipped")
     print(f"  report: {report_path}")
     return 0 if report["failed"] == 0 else 1
 

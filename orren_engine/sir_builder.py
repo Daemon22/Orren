@@ -47,6 +47,8 @@ from .data_model import (
     TemporalStatement,
     ToleranceLevel,
     VibeStatement,
+    ZaryelNode,
+    ZaryelRegion,
 )
 
 
@@ -128,6 +130,9 @@ class SIRBuilder:
             tgt = self._dict_to_target(tgt_dict)
             if tgt is not None:
                 graph.realization_targets.append(tgt)
+
+        # ZARYEL blueprint — collected at graph level (first wins).
+        self._attach_zaryel(expr, graph)
 
     # -----------------------------------------------------------------
     # Structure tree → entity nodes
@@ -349,6 +354,54 @@ class SIRBuilder:
             except ValueError:
                 pass
         return tgt
+
+    # -----------------------------------------------------------------
+    # ZARYEL blueprint construction
+    # -----------------------------------------------------------------
+
+    def _attach_zaryel(self, expr: Expression, graph: SIRGraph) -> None:
+        """Build a ZaryelNode from the parsed zaryel dict and attach
+        it to ``graph.zaryel`` (only if not already set).
+
+        The parsed dict was produced by ``_parse_zaryel`` in the parser
+        and stored in ``expr.raw_sections["zaryel"]`` as a single-element
+        list.
+        """
+        zd_list = expr.raw_sections.get("zaryel")
+        if not zd_list:
+            return
+        if graph.zaryel is not None:
+            return  # First zaryel block wins (one per graph).
+        zd: Dict = zd_list[0]
+        regions: List[ZaryelRegion] = []
+        for r in zd.get("regions", []):
+            regions.append(
+                ZaryelRegion(
+                    name=r.get("name", ""),
+                    position=r.get("position", ""),
+                    fixed=r.get("fixed", False),
+                    height=r.get("height"),
+                    width=r.get("width"),
+                    scroll=r.get("scroll"),
+                    collapsible=r.get("collapsible", False),
+                    breakpoint=r.get("breakpoint"),
+                    contains=list(r.get("contains", [])),
+                )
+            )
+        node = ZaryelNode(
+            canvas=zd.get("canvas", ""),
+            viewport=zd.get("viewport", "responsive"),
+            layout=zd.get("layout", "stack"),
+            flow=zd.get("flow", "top_down"),
+            focus=zd.get("focus"),
+            entry=zd.get("entry"),
+            regions=regions,
+            layers={k: list(v) for k, v in zd.get("layers", {}).items()},
+            inputs=list(zd.get("inputs", [])),
+            outputs=list(zd.get("outputs", [])),
+            breakpoints=dict(zd.get("breakpoints", {})),
+        )
+        graph.zaryel = node
 
 
 __all__ = ["SIRBuilder"]

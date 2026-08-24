@@ -316,32 +316,32 @@ class TestInputButtonWatcherCodegen:
         graph, targets = graph_and_targets
         tgt = next(t for t in targets if t.name == "input_button_watcher")
         files = generate_code(graph, tgt)
-        assert "input_button_watcher/watcher.py" in files
+        assert "input_button_watcher/input_watcher.py" in files
 
     def test_python_is_parseable(self, graph_and_targets):
         graph, targets = graph_and_targets
         tgt = next(t for t in targets if t.name == "input_button_watcher")
-        code = generate_code(graph, tgt)["input_button_watcher/watcher.py"]
-        compile(code, "<watcher.py>", "exec")
+        code = generate_code(graph, tgt)["input_button_watcher/input_watcher.py"]
+        compile(code, "<input_watcher.py>", "exec")
 
     def test_has_double_click_detection(self, graph_and_targets):
         graph, targets = graph_and_targets
         tgt = next(t for t in targets if t.name == "input_button_watcher")
-        code = generate_code(graph, tgt)["input_button_watcher/watcher.py"]
+        code = generate_code(graph, tgt)["input_button_watcher/input_watcher.py"]
         assert "double_click" in code
         assert "DOUBLE_CLICK_WINDOW" in code
 
     def test_has_volume_down_detection(self, graph_and_targets):
         graph, targets = graph_and_targets
         tgt = next(t for t in targets if t.name == "input_button_watcher")
-        code = generate_code(graph, tgt)["input_button_watcher/watcher.py"]
+        code = generate_code(graph, tgt)["input_button_watcher/input_watcher.py"]
         assert "volume_down" in code
         assert "VOLUME_DOWN_SEQUENCE" in code
 
     def test_fires_activation_callback(self, graph_and_targets):
         graph, targets = graph_and_targets
         tgt = next(t for t in targets if t.name == "input_button_watcher")
-        code = generate_code(graph, tgt)["input_button_watcher/watcher.py"]
+        code = generate_code(graph, tgt)["input_button_watcher/input_watcher.py"]
         assert "_fire_activation" in code
         assert "on_activation" in code
 

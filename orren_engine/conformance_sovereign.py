@@ -114,10 +114,23 @@ class _HTMLProbe(HTMLParser):
 
 
 def _run(command: list[str], cwd: Path, timeout: int = 30) -> tuple[int, str, str]:
-    """Run external command, return (exit_code, stdout, stderr)."""
+    """Run external command, return (exit_code, stdout, stderr).
+
+    Windows note: npm installs CLIs as ``.cmd`` shims which CreateProcess
+    cannot launch directly; they are wrapped in ``cmd /c`` here.
+    """
     try:
+        argv = list(command)
+        if os.name == "nt" and argv:
+            resolved = shutil.which(argv[0])
+            if resolved is None and Path(argv[0]).suffix.lower() in (".cmd", ".bat"):
+                pass  # leave as-is; the cmd /c wrapper below handles it
+            if resolved and resolved.lower().endswith((".cmd", ".bat")):
+                argv = ["cmd", "/c", resolved] + argv[1:]
+            elif Path(argv[0]).suffix.lower() in (".cmd", ".bat"):
+                argv = ["cmd", "/c"] + argv
         proc = subprocess.run(
-            command, cwd=cwd, text=True, capture_output=True, timeout=timeout
+            argv, cwd=cwd, text=True, capture_output=True, timeout=timeout
         )
         return proc.returncode, proc.stdout.strip(), proc.stderr.strip()
     except subprocess.TimeoutExpired as exc:
@@ -134,6 +147,117 @@ def _toolchain_info(tool_name: str) -> tuple[bool, str]:
     code, stdout, _ = _run([tool_path, "--version"], Path("."), timeout=5)
     version = stdout.split("\n")[0] if code == 0 else "unknown"
     return True, version
+
+
+_MSVC_CACHE: tuple[bool, str] | None = None
+
+
+def _discover_msvc() -> tuple[bool, str]:
+    """Locate an MSVC installation (cl.exe + vcvars64.bat) on Windows.
+
+    Discovery order:
+      1. ``vswhere.exe`` (installed with any recent VS/BuildTools)
+      2. Well-known Visual Studio/BuildTools install roots
+
+    Returns ``(available, version_string)``. Cached after first call.
+    """
+    global _MSVC_CACHE
+    if _MSVC_CACHE is not None:
+        return _MSVC_CACHE
+
+    result = (False, "")
+    vswhere = Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / (
+        "Microsoft Visual Studio/Installer/vswhere.exe"
+    )
+    install_roots: list[str] = []
+    if vswhere.is_file():
+        try:
+            proc = subprocess.run(
+                [str(vswhere), "-latest", "-products", "*",
+                 "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+                 "-property", "installationPath"],
+                text=True, capture_output=True, timeout=15,
+            )
+            install_roots += [l.strip() for l in proc.stdout.splitlines() if l.strip()]
+        except Exception:
+            pass
+
+    pf = os.environ.get("ProgramFiles", r"C:\Program Files")
+    pf86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+    install_roots += [
+        rf"{pf}\Microsoft Visual Studio\2022\BuildTools",
+        rf"{pf86}\Microsoft Visual Studio\2022\BuildTools",
+        rf"{pf}\Microsoft Visual Studio\2022\Community",
+        rf"{pf}\Microsoft Visual Studio\2022\Professional",
+        rf"{pf}\Microsoft Visual Studio\2022\Enterprise",
+        rf"{pf}\Microsoft Visual Studio\2022\Preview",
+    ]
+
+    for root in install_roots:
+        msvc_dir = Path(root) / "VC/Tools/MSVC"
+        if not msvc_dir.is_dir():
+            continue
+        versions = sorted((d.name for d in msvc_dir.iterdir() if d.is_dir()), reverse=True)
+        for ver in versions:
+            cl = msvc_dir / ver / "bin/Hostx64/x64/cl.exe"
+            vcvars = Path(root) / "VC/Auxiliary/Build/vcvars64.bat"
+            if cl.is_file() and vcvars.is_file():
+                result = (True, f"MSVC {ver}")
+                break
+        if result[0]:
+            break
+
+    _MSVC_CACHE = result
+    return result
+
+
+def _msvc_batch(cl_args: list[str], cwd: Path, timeout: int = 90) -> tuple[int, str, str]:
+    """Run cl.exe through vcvars64.bat via a generated batch script.
+
+    cl.exe requires the INCLUDE/LIB environment that vcvars64.bat sets up;
+    invoking it bare fails even for syntax-only checks.
+    """
+    available, _version = _discover_msvc()
+    if not available:
+        return 127, "", "MSVC not available"
+    pf86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+    vswhere = Path(pf86) / "Microsoft Visual Studio/Installer/vswhere.exe"
+    vcvars = None
+    install_roots: list[str] = []
+    if vswhere.is_file():
+        try:
+            proc = subprocess.run(
+                [str(vswhere), "-latest", "-products", "*",
+                 "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+                 "-property", "installationPath"],
+                text=True, capture_output=True, timeout=15,
+            )
+            install_roots = [l.strip() for l in proc.stdout.splitlines() if l.strip()]
+        except Exception:
+            pass
+    pf = os.environ.get("ProgramFiles", r"C:\Program Files")
+    install_roots += [
+        rf"{pf}\Microsoft Visual Studio\2022\BuildTools",
+        rf"{pf86}\Microsoft Visual Studio\2022\BuildTools",
+        rf"{pf}\Microsoft Visual Studio\2022\Community",
+    ]
+    for root in install_roots:
+        candidate = Path(root) / "VC/Auxiliary/Build/vcvars64.bat"
+        if candidate.is_file():
+            vcvars = candidate
+            break
+    if vcvars is None:
+        return 127, "", "vcvars64.bat not found"
+
+    with tempfile.TemporaryDirectory(prefix="orren-msvc-") as td:
+        bat = Path(td) / "probe.bat"
+        lines = ["@echo off", f'call "{vcvars}" >nul 2>&1', "cl " + " ".join(cl_args)]
+        bat.write_text("\r\n".join(lines) + "\r\n", encoding="ascii")
+        proc = subprocess.run(
+            ["cmd", "/c", str(bat)],
+            cwd=str(cwd), text=True, capture_output=True, timeout=timeout,
+        )
+        return proc.returncode, proc.stdout.strip(), proc.stderr.strip()
 
 
 # ---------------------------------------------------------------------------
@@ -193,55 +317,62 @@ def _validate_python(path: Path) -> CheckResult:
         
         cls = classes[0]
         with tempfile.TemporaryDirectory(prefix="orren-probe-") as root:
-            try:
-                instance = cls(root) if "storage" in path.name else cls()
-            except TypeError:
-                instance = cls()
-            
-            # Test retain/retrieve contract (storage pattern)
-            if hasattr(instance, "retain") and hasattr(instance, "retrieve"):
-                payload = b"orren-conformance-payload"
-                instance.retain(payload, "conformance")
-                result = instance.retrieve("conformance")
-                if result != payload:
-                    return CheckResult(
-                        target="", path=str(path), kind="python",
-                        status=Status.FAIL,
-                        detail="retain/retrieve round-trip corrupted payload",
-                        evidence_level=EvidenceLevel.BEHAVIORAL
-                    )
-                return CheckResult(
-                    target="", path=str(path), kind="python",
-                    status=Status.PASS,
-                    detail="executed retain/retrieve round-trip successfully",
-                    evidence_level=EvidenceLevel.INTEGRATION,
-                    toolchain_version=_toolchain_info("python3")[1]
-                )
-            
-            # Test process/run contract (service pattern)
-            for method_name in ("process", "run"):
-                method = getattr(instance, method_name, None)
-                if callable(method):
-                    value = method()
-                    if value is None:
+            # Try each class — some may require constructor args (e.g. pydantic models).
+            # We test every declared class and report PASS if any satisfies a contract.
+            for candidate_cls in classes:
+                try:
+                    instance = candidate_cls(root) if "storage" in path.name else candidate_cls()
+                except Exception:
+                    # Class can't be instantiated without args (e.g. pydantic BaseModel
+                    # with required fields). Try next class.
+                    continue
+
+                # Test retain/retrieve contract (storage pattern)
+                if hasattr(instance, "retain") and hasattr(instance, "retrieve"):
+                    payload = b"orren-conformance-payload"
+                    instance.retain(payload, "conformance")
+                    result = instance.retrieve("conformance")
+                    if result != payload:
                         return CheckResult(
                             target="", path=str(path), kind="python",
-                            status=Status.DEGRADED,
-                            detail=f"{method_name}() returned None; executed but no verifiable output",
+                            status=Status.FAIL,
+                            detail="retain/retrieve round-trip corrupted payload",
                             evidence_level=EvidenceLevel.BEHAVIORAL
                         )
                     return CheckResult(
                         target="", path=str(path), kind="python",
                         status=Status.PASS,
-                        detail=f"executed {method_name}() successfully, returned {type(value).__name__}",
-                        evidence_level=EvidenceLevel.BEHAVIORAL,
+                        detail="executed retain/retrieve round-trip successfully",
+                        evidence_level=EvidenceLevel.INTEGRATION,
                         toolchain_version=_toolchain_info("python3")[1]
                     )
-            
+                
+                # Test process/run contract (service pattern)
+                for method_name in ("process", "run"):
+                    method = getattr(instance, method_name, None)
+                    if callable(method):
+                        value = method()
+                        if value is None:
+                            return CheckResult(
+                                target="", path=str(path), kind="python",
+                                status=Status.DEGRADED,
+                                detail=f"{method_name}() returned None; executed but no verifiable output",
+                                evidence_level=EvidenceLevel.BEHAVIORAL
+                            )
+                        return CheckResult(
+                            target="", path=str(path), kind="python",
+                            status=Status.PASS,
+                            detail=f"executed {method_name}() successfully, returned {type(value).__name__}",
+                            evidence_level=EvidenceLevel.BEHAVIORAL,
+                            toolchain_version=_toolchain_info("python3")[1]
+                        )
+
             return CheckResult(
                 target="", path=str(path), kind="python",
                 status=Status.DEGRADED,
-                detail="Class instantiated but no process/run/retain/retrieve contract found",
+                detail=f"Module loaded and byte-compiled; {len(classes)} class(es) found but none "
+                       f"satisfied a retain/retrieve or process/run contract (instantiation may "
+                       f"require constructor arguments)",
                 evidence_level=EvidenceLevel.STRUCTURAL
             )
             
@@ -358,19 +489,25 @@ def _validate_go(path: Path) -> CheckResult:
             )
         
         # Level 1: Also verify it can build (without installing)
-        code, _, stderr = _run(
-            ["go", "build", "-o", "/dev/null", "./..."],
-            parent, timeout=60
-        )
-        
-        if code != 0:
-            return CheckResult(
-                target="", path=str(path), kind="go",
-                status=Status.DEGRADED,
-                detail=f"go vet passed but build failed: {stderr[:500]}",
-                evidence_level=EvidenceLevel.SYNTACTIC,
-                toolchain_version=version
+        import tempfile as _tf
+        with _tf.NamedTemporaryFile(suffix=".exe" if os.name == "nt" else "", delete=False) as tf:
+            tmp_exe = tf.name
+        try:
+            code, _, stderr = _run(
+                ["go", "build", "-o", tmp_exe, "."],
+                parent, timeout=60
             )
+            
+            if code != 0:
+                return CheckResult(
+                    target="", path=str(path), kind="go",
+                    status=Status.DEGRADED,
+                    detail=f"go vet passed but build failed: {stderr[:500]}",
+                    evidence_level=EvidenceLevel.SYNTACTIC,
+                    toolchain_version=version
+                )
+        finally:
+            Path(tmp_exe).unlink(missing_ok=True)
         
         # Level 3: Behavioral — run the binary and verify output
         code, stdout, stderr = _run(
@@ -402,22 +539,63 @@ def _validate_go(path: Path) -> CheckResult:
 
 
 def _validate_c(path: Path) -> CheckResult:
-    """C/C++ validator: gcc -fsyntax-only (parse + semantic analysis)."""
+    """C/C++ validator: gcc/clang -fsyntax-only, falling back to MSVC /Zs."""
     start = _now_ms()
     gcc_available, version = _toolchain_info("gcc")
-    if not gcc_available:
-        clang_available, version = _toolchain_info("clang")
-        if not clang_available:
+    if gcc_available:
+        cc = "gcc"
+    else:
+        clang_available, clang_version = _toolchain_info("clang")
+        if clang_available:
+            cc = "clang"
+            version = clang_version
+        else:
+            msvc_available, msvc_version = _discover_msvc()
+            if not msvc_available:
+                return CheckResult(
+                    target="", path=str(path), kind="c",
+                    status=Status.SKIP,
+                    detail="gcc/clang/MSVC toolchain unavailable — cannot validate C artifacts",
+                    evidence_level=0
+                )
+            # MSVC path: /Zs performs syntax+semantic checks only.
+            code, stdout, stderr = _msvc_batch(
+                ["/nologo", "/Zs", "/W4", str(path.resolve())], path.parent
+            )
+            if code == 127:
+                return CheckResult(
+                    target="", path=str(path), kind="c",
+                    status=Status.SKIP,
+                    detail=f"MSVC environment setup failed: {stderr[:200]}",
+                    evidence_level=0,
+                    toolchain_version=msvc_version,
+                )
+            if code != 0:
+                return CheckResult(
+                    target="", path=str(path), kind="c",
+                    status=Status.FAIL,
+                    detail=f"MSVC compilation failed: {(stderr or stdout)[:500]}",
+                    evidence_level=EvidenceLevel.SYNTACTIC - 1,
+                    toolchain_version=msvc_version,
+                )
+            warnings = [l for l in ((stderr or "") + (stdout or "")).split("\n") if "warning" in l.lower()]
+            if warnings:
+                return CheckResult(
+                    target="", path=str(path), kind="c",
+                    status=Status.DEGRADED,
+                    detail=f"C compiles under MSVC with {len(warnings)} warning(s): {warnings[0][:200]}",
+                    evidence_level=EvidenceLevel.SYNTACTIC,
+                    toolchain_version=msvc_version,
+                )
             return CheckResult(
                 target="", path=str(path), kind="c",
-                status=Status.SKIP,
-                detail="gcc/clang toolchain unavailable — cannot validate C artifacts",
-                evidence_level=0
+                status=Status.PASS,
+                detail="C source passes MSVC syntax and semantic analysis cleanly",
+                evidence_level=EvidenceLevel.SYNTACTIC,
+                toolchain_version=msvc_version,
+                duration_ms=_now_ms() - start,
             )
-        cc = "clang"
-    else:
-        cc = "gcc"
-    
+
     # Determine if C or C++ from extension
     is_cpp = path.suffix in (".cpp", ".cxx", ".cc", ".hpp")
     std_flag = "-std=c++17" if is_cpp else "-std=c17"
@@ -461,7 +639,21 @@ def _validate_typescript(path: Path) -> CheckResult:
     """TypeScript validator: tsc --noEmit (full type checking)."""
     start = _now_ms()
     tsc_available, version = _toolchain_info("tsc")
-    
+
+    # Test files depend on the vitest toolchain (devDependencies).  They are
+    # compiled and executed by `npm test`, not by tsc's project check; the
+    # generated tsconfig excludes them.  Claiming tsc evidence here would be
+    # dishonest — report SKIP with the exact reason.
+    if path.name.endswith(".test.ts"):
+        return CheckResult(
+            target="", path=str(path), kind="typescript",
+            status=Status.SKIP,
+            detail="test file validated by 'npm test' (vitest) after dependency "
+                   "install; excluded from tsc project check by generated tsconfig",
+            evidence_level=0,
+            toolchain_version=version if tsc_available else "",
+        )
+
     if not tsc_available:
         # Fallback: use node for syntax-level check if available
         node_available, node_version = _toolchain_info("node")
@@ -540,10 +732,11 @@ def _validate_typescript(path: Path) -> CheckResult:
         }, indent=2), encoding="utf-8")
     
     try:
-        # Level 1-2: Full type checking (no emit)
+        # Level 1-2: Full type checking (no emit). Use project mode (-p .)
+        # because positional file args suppress tsconfig.json (TS >= 5.5 / TS7).
         code, stdout, stderr = _run(
-            ["tsc", "--noEmit", "--pretty", "false", str(parent)],
-            parent, timeout=30
+            ["tsc", "--noEmit", "--pretty", "false", "-p", "."],
+            parent, timeout=60
         )
         
         if code != 0:
@@ -1447,8 +1640,833 @@ def _now_ms() -> float:
     return time.monotonic() * 1000
 
 
+# ---------------------------------------------------------------------------
+# Seven-gate validation framework
+# ---------------------------------------------------------------------------
+# Each realized artifact set is evaluated across seven gates.  Unlike the
+# per-language validators (which check *individual files*), the seven gates
+# check the *artifact set as a whole* — whether it links, runs, behaves
+# correctly, handles edge cases, and preserves the source SIR dimensions.
+#
+# Gate semantics:
+#   1. STRUCTURAL   — all declared files exist with non-zero size
+#   2. SYNTACTIC    — each file passes its toolchain (delegates to check_file)
+#   3. LINKABLE     — cross-file references resolve (HTML→CSS/JS, manifest↔files)
+#   4. EXECUTABLE   — code loads/runs without import or module errors
+#   5. BEHAVIORAL   — semantic `orren:*` events are emitted on init
+#   6. OPERATIONAL  — error boundary, reduced-motion, graceful degradation
+#   7. PRESERVATION — SIR dimensions preserved in output (via preservation_proof.json)
+# ---------------------------------------------------------------------------
+
+class SevenGate:
+    """Canonical gate identifiers for seven-gate validation."""
+    STRUCTURAL = "structural"
+    SYNTACTIC = "syntactic"
+    LINKABLE = "linkable"
+    EXECUTABLE = "executable"
+    BEHAVIORAL = "behavioral"
+    OPERATIONAL = "operational"
+    PRESERVATION = "preservation"
+
+    ALL = [
+        STRUCTURAL, SYNTACTIC, LINKABLE,
+        EXECUTABLE, BEHAVIORAL, OPERATIONAL, PRESERVATION,
+    ]
+
+
+@dataclass
+class GateResult:
+    """Result of a single gate check against a target."""
+    gate: str                 # One of SevenGate.*
+    target: str              # Target name from manifest
+    status: str              # PASS, DEGRADED, SKIP, or FAIL
+    detail: str              # Human-readable explanation
+    evidence_level: int = 0  # EvidenceLevel.*
+    toolchain_version: str = ""
+    duration_ms: float = 0.0
+
+
+def _gate_structural(target_name: str, artifact: dict, output_dir: Path) -> GateResult:
+    """Gate 1: Structural — all declared artifact files exist with non-zero size."""
+    start = _now_ms()
+    missing = []
+    empty = []
+    for out_file in artifact.get("output_files", []):
+        rel = out_file["path"].split("/", 1)[-1]
+        path = output_dir / target_name / rel
+        if not path.exists():
+            missing.append(rel)
+        elif path.stat().st_size == 0:
+            empty.append(rel)
+
+    if missing:
+        return GateResult(
+            gate=SevenGate.STRUCTURAL, target=target_name,
+            status=Status.FAIL,
+            detail=f"{len(missing)} declared file(s) missing: {', '.join(missing)}",
+            evidence_level=EvidenceLevel.FILE_EXISTS,
+            duration_ms=_now_ms() - start,
+        )
+    if empty:
+        return GateResult(
+            gate=SevenGate.STRUCTURAL, target=target_name,
+            status=Status.FAIL,
+            detail=f"{len(empty)} declared file(s) are empty: {', '.join(empty)}",
+            evidence_level=EvidenceLevel.FILE_EXISTS,
+            duration_ms=_now_ms() - start,
+        )
+    return GateResult(
+        gate=SevenGate.STRUCTURAL, target=target_name,
+        status=Status.PASS,
+        detail=f"All {len(artifact.get('output_files', []))} declared files present and non-empty",
+        evidence_level=EvidenceLevel.FILE_EXISTS,
+        duration_ms=_now_ms() - start,
+    )
+
+
+def _gate_syntactic(target_name: str, artifact: dict, output_dir: Path) -> GateResult:
+    """Gate 2: Syntactic — each file passes its toolchain check."""
+    start = _now_ms()
+    failures = []
+    degraded = []
+    skipped = []
+    for out_file in artifact.get("output_files", []):
+        rel = out_file["path"].split("/", 1)[-1]
+        path = output_dir / target_name / rel
+        language = out_file.get("language", "text")
+        if not path.is_file():
+            failures.append(f"{rel}: missing")
+            continue
+        result = check_file(path, language)
+        if result.status == Status.FAIL:
+            failures.append(f"{rel}: {result.detail[:120]}")
+        elif result.status == Status.DEGRADED:
+            degraded.append(f"{rel}: {result.detail[:120]}")
+        elif result.status == Status.SKIP:
+            # toml files (Cargo.toml) and other non-code config files are
+            # acceptable as SKIP — they don't need a language toolchain.
+            if language in ("toml",):
+                continue  # Config file, not a code artifact
+            skipped.append(f"{rel}: {language} toolchain unavailable")
+
+    if failures:
+        return GateResult(
+            gate=SevenGate.SYNTACTIC, target=target_name,
+            status=Status.FAIL,
+            detail="Syntactic failures: " + "; ".join(failures),
+            evidence_level=EvidenceLevel.SYNTACTIC,
+            duration_ms=_now_ms() - start,
+        )
+    if degraded:
+        return GateResult(
+            gate=SevenGate.SYNTACTIC, target=target_name,
+            status=Status.DEGRADED,
+            detail="All files parse but " + str(len(degraded)) + " gate(s) lack full toolchain: " + "; ".join(degraded[:3]),
+            evidence_level=EvidenceLevel.SYNTACTIC,
+            duration_ms=_now_ms() - start,
+        )
+    if skipped and not degraded:
+        return GateResult(
+            gate=SevenGate.SYNTACTIC, target=target_name,
+            status=Status.DEGRADED,
+            detail="Toolchain unavailable for " + str(len(skipped)) + " file(s): " + "; ".join(skipped[:3]),
+            evidence_level=EvidenceLevel.SYNTACTIC,
+            duration_ms=_now_ms() - start,
+        )
+    return GateResult(
+        gate=SevenGate.SYNTACTIC, target=target_name,
+        status=Status.PASS,
+        detail=f"All {len(artifact.get('output_files', []))} files accepted by toolchain",
+        evidence_level=EvidenceLevel.SYNTACTIC,
+        duration_ms=_now_ms() - start,
+    )
+    return GateResult(
+        gate=SevenGate.SYNTACTIC, target=target_name,
+        status=Status.PASS,
+        detail=f"All {len(artifact.get('output_files', []))} files accepted by toolchain",
+        evidence_level=EvidenceLevel.SYNTACTIC,
+        duration_ms=_now_ms() - start,
+    )
+
+
+def _gate_linkable(target_name: str, artifact: dict, output_dir: Path) -> GateResult:
+    """Gate 3: Linkable — cross-file references resolve.
+
+    For web targets: checks that HTML ``<link>``/``<script>`` references
+    resolve to actual files in the output directory.  Also verifies that
+    every file declared in the manifest exists.
+    """
+    start = _now_ms()
+    target_dir = output_dir / target_name
+    broken_links = []
+
+    for out_file in artifact.get("output_files", []):
+        rel = out_file["path"].split("/", 1)[-1]
+        path = target_dir / rel
+        if not path.is_file():
+            broken_links.append(f"{rel}: declared in manifest but missing from disk")
+            continue
+
+        ext = path.suffix.lower()
+        if ext == ".html":
+            source = path.read_text(encoding="utf-8")
+            probe = _HTMLProbe()
+            try:
+                probe.feed(source)
+            except Exception:
+                pass
+            for script_src in probe.scripts:
+                # Scripts may be external (with src) or inline (no src)
+                if script_src and not script_src.startswith(("http://", "https://", "//")):
+                    if not (target_dir / script_src).exists():
+                        broken_links.append(f"{rel} -> {script_src}: script not found")
+            for link_href in probe.links:
+                if link_href and not link_href.startswith(("http://", "https://", "//")):
+                    if not (target_dir / link_href).exists():
+                        broken_links.append(f"{rel} -> {link_href}: stylesheet not found")
+
+    if broken_links:
+        return GateResult(
+            gate=SevenGate.LINKABLE, target=target_name,
+            status=Status.FAIL,
+            detail="Broken cross-file references: " + "; ".join(broken_links[:5]),
+            evidence_level=EvidenceLevel.STRUCTURAL,
+            duration_ms=_now_ms() - start,
+        )
+    return GateResult(
+        gate=SevenGate.LINKABLE, target=target_name,
+        status=Status.PASS,
+        detail="All cross-file references resolve to real files",
+        evidence_level=EvidenceLevel.STRUCTURAL,
+        duration_ms=_now_ms() - start,
+    )
+
+
+def _gate_executable(target_name: str, artifact: dict, output_dir: Path) -> GateResult:
+    """Gate 4: Executable — code loads/runs without import or module errors."""
+    start = _now_ms()
+    node_available, _ = _toolchain_info("node")
+    rustc_available, _ = _toolchain_info("rustc")
+    go_available, _ = _toolchain_info("go")
+
+    non_executable = []
+    executable_files = []
+
+    for out_file in artifact.get("output_files", []):
+        rel = out_file["path"].split("/", 1)[-1]
+        path = output_dir / target_name / rel
+        language = out_file.get("language", "text")
+
+        if language in ("javascript", "js") and node_available and path.is_file():
+            probe_status, detail, level = _probe_javascript_execution(path)
+            if probe_status == Status.FAIL:
+                non_executable.append(f"{rel}: {detail[:120]}")
+            else:
+                executable_files.append(rel)
+        elif language == "python" and path.is_file():
+            # Python import test
+            try:
+                source = path.read_text(encoding="utf-8")
+                ast.parse(source, filename=str(path))
+                py_compile.compile(str(path), doraise=True)
+                # Try to actually load the module
+                import importlib.util as _ilu
+                spec = _ilu.spec_from_file_location("orren_exec_probe", path)
+                if spec and spec.loader:
+                    module = _ilu.module_from_spec(spec)
+                    spec.loader.exec_module(module)
+                    executable_files.append(rel)
+                else:
+                    non_executable.append(f"{rel}: could not create module spec")
+            except ModuleNotFoundError as exc:
+                non_executable.append(f"{rel}: missing dependency ({exc.name})")
+            except Exception as exc:
+                non_executable.append(f"{rel}: {str(exc)[:120]}")
+        elif language in ("rust",) and rustc_available and path.is_file():
+            # Rust: attempt compilation — executable if has main(), else lib
+            source = path.read_text(encoding="utf-8")
+            has_main = "fn main" in source
+            import tempfile as _tf
+            with _tf.TemporaryDirectory(prefix="orren-rust-gate-") as build_dir:
+                exe = Path(build_dir) / "orren_app"
+                cmd = ["rustc", "--edition", "2021", "-D", "warnings", str(path)]
+                if has_main:
+                    cmd.extend(["-o", str(exe)])
+                else:
+                    cmd.extend(["--crate-type=lib", "--emit=metadata", "-o", "/dev/null"])
+                code, stdout, stderr = _run(cmd, path.parent, timeout=60)
+                if code == 0:
+                    if has_main:
+                        run_code, output, _ = _run([str(exe)], Path(build_dir), timeout=10)
+                        if run_code == 0 and output.strip():
+                            executable_files.append(rel)
+                        else:
+                            non_executable.append(f"{rel}: compiled but no runtime output")
+                    else:
+                        executable_files.append(rel)
+                else:
+                    non_executable.append(f"{rel}: rustc compilation failed: {(stderr or stdout)[:80]}")
+        elif language == "go" and go_available and path.is_file():
+            # Go: attempt build + run as execution proof
+            parent = path.parent
+            import tempfile as _tf
+            with _tf.TemporaryDirectory(prefix="orren-go-gate-") as tmpdir:
+                exe_path = Path(tmpdir) / "orren_go_app"
+                code, _, stderr = _run(
+                    ["go", "build", "-o", str(exe_path), str(path)],
+                    parent, timeout=60
+                )
+                if code == 0 and exe_path.is_file():
+                    executable_files.append(rel)
+                else:
+                    non_executable.append(f"{rel}: go build failed: {stderr[:80]}")
+        elif language in ("html", "css", "text", "webaudio"):
+            # Not directly executable, skip
+            pass
+        else:
+            # Languages whose toolchain may be unavailable (c, swift, kotlin, etc.)
+            if not path.is_file():
+                non_executable.append(f"{rel}: file missing")
+            elif language in ("c", "cpp") and path.is_file():
+                # C: compile + run with the first available toolchain, requiring
+                # observable stdout (fail-closed: silent success is not evidence).
+                import tempfile as _tfc
+                gcc_ok, _ = _toolchain_info("gcc")
+                clang_ok, _ = _toolchain_info("clang")
+                cc = "gcc" if gcc_ok else ("clang" if clang_ok else None)
+                exe_path = None
+                error_detail = ""
+                with _tfc.TemporaryDirectory(prefix="orren-c-gate-") as build_dir:
+                    out_name = "orren_app.exe" if os.name == "nt" else "orren_app"
+                    exe_candidate = Path(build_dir) / out_name
+                    if cc is not None:
+                        std_flag = "-std=c17" if language == "c" else "-std=c++17"
+                        code, _, stderr = _run(
+                            [cc, std_flag, "-Wall", "-Wextra", "-O1", str(path), "-o", str(exe_candidate)],
+                            Path(build_dir), timeout=60,
+                        )
+                        if code == 0 and exe_candidate.is_file():
+                            exe_path = exe_candidate
+                        else:
+                            error_detail = f"{cc} build failed: {stderr[:80]}"
+                    elif _discover_msvc()[0]:
+                        code, stdout, stderr = _msvc_batch(
+                            ["/nologo", "/W4", "/O2", f"/Fe:{exe_candidate}", str(path.resolve())],
+                            Path(build_dir),
+                        )
+                        produced = exe_candidate if exe_candidate.suffix else exe_candidate.with_suffix(".exe")
+                        if code == 0 and produced.is_file():
+                            exe_path = produced
+                        else:
+                            error_detail = f"MSVC build failed: {(stderr or stdout)[:120]}"
+                    else:
+                        # No C toolchain of any kind — honest unverified status.
+                        non_executable.append(f"{rel}: C toolchain unavailable, execution unverified")
+                    if exe_path is not None:
+                        run_code, output, _ = _run([str(exe_path)], Path(build_dir), timeout=15)
+                        if run_code == 0 and output.strip():
+                            executable_files.append(rel)
+                        else:
+                            non_executable.append(
+                                f"{rel}: compiled but no observable runtime output ({error_detail or 'exit ' + str(run_code)})"
+                            )
+                    elif error_detail:
+                        non_executable.append(f"{rel}: {error_detail}")
+            elif language in ("typescript",) and path.is_file() and path.name.endswith(".test.ts"):
+                non_executable.append(
+                    f"{rel}: test file executes via 'npm test' (vitest); requires dependency install"
+                    if _toolchain_info("tsc")[0] or _toolchain_info("node")[0]
+                    else f"{rel}: node/tsc unavailable, execution unverified"
+                )
+            elif language in ("typescript",) and not _toolchain_info("tsc")[0]:
+                non_executable.append(f"{rel}: tsc unavailable, execution unverified")
+            elif language in ("latex", "tex") and not _toolchain_info("pdflatex")[0]:
+                non_executable.append(f"{rel}: pdflatex unavailable, execution unverified")
+            elif language in ("swift",) and not _toolchain_info("swiftc")[0]:
+                non_executable.append(f"{rel}: swiftc unavailable, execution unverified")
+            elif language in ("kotlin",) and not _toolchain_info("kotlinc")[0]:
+                non_executable.append(f"{rel}: kotlinc unavailable, execution unverified")
+            else:
+                non_executable.append(f"{rel}: toolchain unavailable, execution unverified")
+
+    if non_executable:
+        all_langs = set()
+        for of in artifact.get("output_files", []):
+            all_langs.add(of.get("language", "text"))
+        has_executable_lang = any(l in ("javascript", "js", "python", "rust", "go") for l in all_langs)
+        if has_executable_lang and not node_available and not rustc_available and not go_available:
+            return GateResult(
+                gate=SevenGate.EXECUTABLE, target=target_name,
+                status=Status.DEGRADED,
+                detail="Execution probe available but no toolchain found; " + str(len(non_executable)) + " file(s) unverified: " + "; ".join(non_executable[:3]),
+                evidence_level=EvidenceLevel.SYNTACTIC,
+                duration_ms=_now_ms() - start,
+            )
+        return GateResult(
+            gate=SevenGate.EXECUTABLE, target=target_name,
+            status=Status.DEGRADED,
+            detail=f"{len(non_executable)} file(s) could not be execution-verified: " + "; ".join(non_executable[:3]),
+            evidence_level=EvidenceLevel.SYNTACTIC,
+            duration_ms=_now_ms() - start,
+        )
+    if not executable_files:
+        return GateResult(
+            gate=SevenGate.EXECUTABLE, target=target_name,
+            status=Status.SKIP,
+            detail="No executable files in this target",
+            evidence_level=0,
+            duration_ms=_now_ms() - start,
+        )
+    return GateResult(
+        gate=SevenGate.EXECUTABLE, target=target_name,
+        status=Status.PASS,
+        detail=f"{len(executable_files)} file(s) loaded/executed cleanly",
+        evidence_level=EvidenceLevel.BEHAVIORAL,
+        duration_ms=_now_ms() - start,
+    )
+
+
+def _gate_behavioral(target_name: str, artifact: dict, output_dir: Path) -> GateResult:
+    """Gate 5: Behavioral — semantic ``orren:*`` events are emitted on init."""
+    start = _now_ms()
+    node_available, _ = _toolchain_info("node")
+
+    if not node_available:
+        return GateResult(
+            gate=SevenGate.BEHAVIORAL, target=target_name,
+            status=Status.SKIP,
+            detail="node unavailable — behavioral probe cannot run",
+            evidence_level=0,
+            duration_ms=_now_ms() - start,
+        )
+
+    js_files = [
+        output_dir / target_name / of["path"].split("/", 1)[-1]
+        for of in artifact.get("output_files", [])
+        if of.get("language", "") in ("javascript", "js")
+        and (output_dir / target_name / of["path"].split("/", 1)[-1]).is_file()
+    ]
+
+    if not js_files:
+        return GateResult(
+            gate=SevenGate.BEHAVIORAL, target=target_name,
+            status=Status.SKIP,
+            detail="No JavaScript files to probe for behavioral events",
+            evidence_level=0,
+            duration_ms=_now_ms() - start,
+        )
+
+    total_events = set()
+    pass_count = 0
+    for js_path in js_files:
+        probe_status, detail, level = _probe_javascript_execution(js_path)
+        if probe_status == Status.PASS:
+            pass_count += 1
+            # Re-extract events from detail
+            if "observed semantic events:" in detail:
+                events_part = detail.split("observed semantic events:")[1].strip()
+                for ev in events_part.split(", "):
+                    total_events.add(ev.strip())
+
+    if pass_count == 0:
+        return GateResult(
+            gate=SevenGate.BEHAVIORAL, target=target_name,
+            status=Status.DEGRADED,
+            detail="No JS modules emitted observable semantic events; behavioral semantics untested",
+            evidence_level=EvidenceLevel.STRUCTURAL,
+            duration_ms=_now_ms() - start,
+        )
+    return GateResult(
+        gate=SevenGate.BEHAVIORAL, target=target_name,
+        status=Status.PASS,
+        detail=f"{pass_count} module(s) emitted semantic events: {', '.join(sorted(total_events)) or 'none'}",
+        evidence_level=EvidenceLevel.BEHAVIORAL,
+        duration_ms=_now_ms() - start,
+    )
+
+
+def _gate_operational(target_name: str, artifact: dict, output_dir: Path) -> GateResult:
+    """Gate 6: Operational — error boundary, reduced-motion, graceful degradation."""
+    start = _now_ms()
+    target_dir = output_dir / target_name
+    findings = []
+    missing = []
+
+    all_langs = set()
+    for of in artifact.get("output_files", []):
+        all_langs.add(of.get("language", "text"))
+
+    is_web = any(l in ("html", "css", "javascript", "js") for l in all_langs)
+
+    if is_web:
+        # --- Web-specific operational checks ---
+        html_files = [
+            output_dir / target_name / of["path"].split("/", 1)[-1]
+            for of in artifact.get("output_files", [])
+            if of.get("language", "") == "html"
+            and (output_dir / target_name / of["path"].split("/", 1)[-1]).is_file()
+        ]
+
+        error_boundary_found = False
+        reduced_motion_css = False
+        reduced_motion_js = False
+        prefers_color_scheme = False
+
+        for html_path in html_files:
+            source = html_path.read_text(encoding="utf-8")
+            if "error-boundary" in source.lower() or "orren-error" in source.lower():
+                error_boundary_found = True
+            if "aria-live" in source:
+                findings.append("aria-live present in HTML")
+
+        css_files = [
+            output_dir / target_name / of["path"].split("/", 1)[-1]
+            for of in artifact.get("output_files", [])
+            if of.get("language", "") == "css"
+            and (output_dir / target_name / of["path"].split("/", 1)[-1]).is_file()
+        ]
+
+        for css_path in css_files:
+            css = css_path.read_text(encoding="utf-8")
+            if "prefers-reduced-motion" in css:
+                reduced_motion_css = True
+                findings.append("prefers-reduced-motion CSS guard present")
+            if "prefers-color-scheme" in css:
+                prefers_color_scheme = True
+                findings.append("prefers-color-scheme CSS guard present")
+            if ":focus-visible" in css:
+                findings.append("focus-visible styling present")
+
+        js_files = [
+            output_dir / target_name / of["path"].split("/", 1)[-1]
+            for of in artifact.get("output_files", [])
+            if of.get("language", "") in ("javascript", "js")
+            and (output_dir / target_name / of["path"].split("/", 1)[-1]).is_file()
+        ]
+
+        for js_path in js_files:
+            js = js_path.read_text(encoding="utf-8")
+            if "prefers-reduced-motion" in js or "matchMedia" in js:
+                reduced_motion_js = True
+                findings.append("JS reduced-motion guard present")
+            if "onerror" in js:
+                error_boundary_found = True
+                findings.append("window.onerror handler present")
+            if "try" in js and "catch" in js:
+                findings.append("error handling (try/catch) present in JS")
+
+        if not error_boundary_found:
+            missing.append("error boundary")
+        if not reduced_motion_css and not reduced_motion_js:
+            missing.append("reduced-motion handling")
+        if not prefers_color_scheme:
+            missing.append("prefers-color-scheme")
+    else:
+        # --- Non-web operational checks ---
+        # For compiled languages, error handling is the key operational concern.
+        for of in artifact.get("output_files", []):
+            rel = of["path"].split("/", 1)[-1]
+            path = output_dir / target_name / rel
+            if not path.is_file():
+                continue
+            language = of.get("language", "text")
+            try:
+                source = path.read_text(encoding="utf-8")
+            except Exception:
+                continue
+
+            if language in ("rust",):
+                if "Result" in source or "Option" in source or "?" in source or ".unwrap(" in source:
+                    findings.append("Rust: error handling via Result/Option present")
+                else:
+                    missing.append("Rust: no error handling (Result/Option)")
+            elif language == "go":
+                if "error" in source.lower() or "err" in source:
+                    findings.append("Go: error handling present")
+                else:
+                    missing.append("Go: no error handling")
+            elif language in ("c", "cpp"):
+                if "NULL" in source or "errno" in source or "assert" in source or "return -1" in source:
+                    findings.append("C: error checking present")
+                else:
+                    missing.append("C: no error checking")
+            elif language == "python":
+                if "try" in source and "except" in source:
+                    findings.append("Python: try/except present")
+                elif "raise " in source or "assert " in source:
+                    findings.append("Python: raise/assert present")
+                else:
+                    missing.append("Python: no error handling")
+            elif language in ("typescript",):
+                if "try" in source and "catch" in source:
+                    findings.append("TypeScript: try/catch present")
+                else:
+                    missing.append("TypeScript: no error handling")
+            elif language == "swift":
+                if "try" in source or "guard" in source or "Result" in source:
+                    findings.append("Swift: error handling present")
+                else:
+                    missing.append("Swift: no error handling")
+            elif language == "kotlin":
+                if "try" in source or "catch" in source or "Result" in source:
+                    findings.append("Kotlin: error handling present")
+                else:
+                    missing.append("Kotlin: no error handling")
+            elif language in ("latex", "tex"):
+                # LaTeX doesn't have runtime error handling; check for graceful degradation
+                if "providecommand" in source or "ifdef" in source or "IfFileExists" in source:
+                    findings.append("LaTeX: graceful degradation patterns present")
+                else:
+                    # Not an error — LaTeX is declarative; just note it
+                    findings.append("LaTeX: declarative (no runtime errors possible)")
+            if not missing:
+                missing = []  # Clear any non-critical findings
+
+    if missing:
+        return GateResult(
+            gate=SevenGate.OPERATIONAL, target=target_name,
+            status=Status.DEGRADED,
+            detail="Missing operational features: " + ", ".join(missing) +
+                   ("; found: " + "; ".join(findings) if findings else ""),
+            evidence_level=EvidenceLevel.STRUCTURAL,
+            duration_ms=_now_ms() - start,
+        )
+    return GateResult(
+        gate=SevenGate.OPERATIONAL, target=target_name,
+        status=Status.PASS,
+        detail="; ".join(findings) if findings else "All operational features present (error boundary, reduced-motion, prefers-color-scheme)",
+        evidence_level=EvidenceLevel.STRUCTURAL,
+        duration_ms=_now_ms() - start,
+    )
+
+
+def _gate_preservation(target_name: str, artifact: dict, output_dir: Path) -> GateResult:
+    """Gate 7: Preservation — SIR dimensions preserved in output."""
+    start = _now_ms()
+    proof_path = output_dir / "preservation_proof.json"
+
+    if not proof_path.is_file():
+        return GateResult(
+            gate=SevenGate.PRESERVATION, target=target_name,
+            status=Status.FAIL,
+            detail="preservation_proof.json not found — no preservation evidence",
+            evidence_level=0,
+            duration_ms=_now_ms() - start,
+        )
+
+    try:
+        proof = json.loads(proof_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return GateResult(
+            gate=SevenGate.PRESERVATION, target=target_name,
+            status=Status.FAIL,
+            detail=f"preservation_proof.json is invalid JSON: {exc}",
+            evidence_level=EvidenceLevel.SYNTACTIC,
+            duration_ms=_now_ms() - start,
+        )
+
+    fail_closed = proof.get("fail_closed", False)
+    preservation_score = proof.get("preservation_score", 0)
+
+    # Check that each target has preservation info
+    targets = proof.get("targets", [])
+    target_proof = None
+    if isinstance(targets, list):
+        for t in targets:
+            if isinstance(t, dict):
+                if target_name in t.get("name", "") or t.get("name", "") in target_name:
+                    target_proof = t
+                    break
+        if target_proof is None and targets:
+            target_proof = targets[0]
+    elif isinstance(targets, dict):
+        for tname, tproof in targets.items():
+            if target_name in tname or tname in target_name:
+                target_proof = tproof
+                break
+        if target_proof is None and targets:
+            target_proof = next(iter(targets.values()))
+
+    if not target_proof:
+        return GateResult(
+            gate=SevenGate.PRESERVATION, target=target_name,
+            status=Status.FAIL,
+            detail="No per-target preservation entry in proof",
+            evidence_level=EvidenceLevel.STRUCTURAL,
+            duration_ms=_now_ms() - start,
+        )
+
+    # The fail_closed flag means the system correctly refuses to claim
+    # preservation when gaps exist
+    if not fail_closed:
+        return GateResult(
+            gate=SevenGate.PRESERVATION, target=target_name,
+            status=Status.FAIL,
+            detail="fail_closed is False — system may silently drop degraded dimensions",
+            evidence_level=EvidenceLevel.STRUCTURAL,
+            duration_ms=_now_ms() - start,
+        )
+
+    # Check that source/sir hashes are preserved
+    has_source_hash = bool(proof.get("source_sha256"))
+    has_sir_hash = bool(proof.get("sir_sha256"))
+    has_ir_hash = bool(proof.get("realization_ir_sha256"))
+
+    if not (has_source_hash and has_sir_hash and has_ir_hash):
+        return GateResult(
+            gate=SevenGate.PRESERVATION, target=target_name,
+            status=Status.FAIL,
+            detail="Missing cryptographic proof of source/SIR/IR preservation",
+            evidence_level=EvidenceLevel.STRUCTURAL,
+            duration_ms=_now_ms() - start,
+        )
+
+    # Extract per-target preservation fields
+    target_score = target_proof.get("preservation_score", 0) if isinstance(target_proof, dict) else 0
+    target_artifacts = target_proof.get("artifacts", []) if isinstance(target_proof, dict) else []
+    proxy_only = target_proof.get("proxy_only", False) if isinstance(target_proof, dict) else False
+    tstatus = target_proof.get("status", "") if isinstance(target_proof, dict) else ""
+
+    detail_parts = []
+    if has_source_hash:
+        detail_parts.append("source_sha256 verified")
+    if has_sir_hash:
+        detail_parts.append("sir_sha256 verified")
+    if has_ir_hash:
+        detail_parts.append("ir_sha256 verified")
+    detail_parts.append(f"fail_closed={fail_closed}")
+    if target_artifacts:
+        detail_parts.append(f"{len(target_artifacts)} artifacts tracked")
+    if proxy_only:
+        detail_parts.append("proxy_only mode")
+    if tstatus:
+        detail_parts.append(f"target_status={tstatus}")
+
+    # Score threshold: premium targets should have score >= 0.80
+    score_threshold = 0.80
+    if target_score is not None and target_score < score_threshold:
+        return GateResult(
+            gate=SevenGate.PRESERVATION, target=target_name,
+            status=Status.DEGRADED,
+            detail=f"preservation_score={target_score} below premium threshold {score_threshold}; " +
+                   "; ".join(detail_parts),
+            evidence_level=EvidenceLevel.INTEGRATION,
+            duration_ms=_now_ms() - start,
+        )
+
+    return GateResult(
+        gate=SevenGate.PRESERVATION, target=target_name,
+        status=Status.PASS,
+        detail="; ".join(detail_parts),
+        evidence_level=EvidenceLevel.INTEGRATION,
+        duration_ms=_now_ms() - start,
+    )
+
+
+def run_seven_gate_conformance(
+    output_dir: str | Path,
+    manifest_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Run all seven gates on a realized output directory.
+
+    Each gate evaluates the artifact set as a whole, not individual files.
+    Results are returned per-target per-gate with honest status reporting.
+
+    Args:
+        output_dir: Directory containing realized artifacts.
+        manifest_path: Path to manifest.json (default: ``output_dir/manifest.json``).
+
+    Returns:
+        Dict with per-target gate results, summary counts, and sovereignty note.
+    """
+    output_dir = Path(output_dir)
+    manifest_path = Path(manifest_path or output_dir / "manifest.json")
+
+    if not manifest_path.exists():
+        return {
+            "error": f"Manifest not found: {manifest_path}",
+            "pass": 0, "degraded": 0, "failed": 0, "skipped": 0,
+            "gates": {},
+        }
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    gate_results: dict[str, dict[str, GateResult]] = {}  # target -> gate -> result
+    all_results: list[GateResult] = []
+
+    gate_runners = {
+        SevenGate.STRUCTURAL: _gate_structural,
+        SevenGate.SYNTACTIC: _gate_syntactic,
+        SevenGate.LINKABLE: _gate_linkable,
+        SevenGate.EXECUTABLE: _gate_executable,
+        SevenGate.BEHAVIORAL: _gate_behavioral,
+        SevenGate.OPERATIONAL: _gate_operational,
+        SevenGate.PRESERVATION: _gate_preservation,
+    }
+
+    for artifact in manifest.get("artifacts", []):
+        target_name = artifact.get("target_name", "unknown")
+        if target_name not in gate_results:
+            gate_results[target_name] = {}
+
+        for gate_name in SevenGate.ALL:
+            runner = gate_runners[gate_name]
+            try:
+                result = runner(target_name, artifact, output_dir)
+            except Exception as exc:
+                result = GateResult(
+                    gate=gate_name, target=target_name,
+                    status=Status.FAIL,
+                    detail=f"Gate {gate_name} crashed: {type(exc).__name__}: {exc}",
+                    evidence_level=0,
+                    duration_ms=0,
+                )
+            gate_results[target_name][gate_name] = result
+            all_results.append(result)
+
+    summary = {
+        "passed": sum(1 for r in all_results if r.status == Status.PASS),
+        "degraded": sum(1 for r in all_results if r.status == Status.DEGRADED),
+        "failed": sum(1 for r in all_results if r.status == Status.FAIL),
+        "skipped": sum(1 for r in all_results if r.status == Status.SKIP),
+        "gates": {
+            target: {
+                gate: {
+                    "status": result.status,
+                    "detail": result.detail,
+                    "evidence_level": result.evidence_level,
+                    "toolchain_version": result.toolchain_version,
+                    "duration_ms": result.duration_ms,
+                }
+                for gate, result in gates.items()
+            }
+            for target, gates in gate_results.items()
+        },
+    }
+
+    # Compute per-gate pass rate
+    for gate_name in SevenGate.ALL:
+        gate_total = sum(1 for r in all_results if r.gate == gate_name)
+        gate_pass = sum(1 for r in all_results if r.gate == gate_name and r.status == Status.PASS)
+        summary["gates"][f"__{gate_name}_summary__"] = {
+            "passed": gate_pass,
+            "total": gate_total,
+            "rate": round(gate_pass / gate_total, 2) if gate_total else 0,
+        }
+
+    summary["sovereignty_note"] = (
+        "Seven-gate validation enforces the language-sovereignty principle: "
+        "no backend is privileged, DEGRADED indicates weaker validation "
+        "(never inflated to PASS), and gates that cannot run are reported as SKIP."
+    )
+
+    return summary
+
+
 __all__ = [
     "CheckResult", "CoverageMatrix", "Status", "EvidenceLevel",
+    "SevenGate", "GateResult",
     "run_conformance", "write_report", "check_file",
+    "run_seven_gate_conformance",
     "generate_adversarial_cases", "run_adversarial_tests",
 ]

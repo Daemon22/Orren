@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .data_model import (
     BehavioralStatement,
@@ -77,6 +77,7 @@ SECTION_KEYWORDS: Tuple[str, ...] = (
     "degrade",
     "equilibrium",
     "realize",
+    "zaryel",
 )
 
 CREATE_RE = re.compile(
@@ -117,6 +118,25 @@ REALIZE_TARGET_RE = re.compile(
 EQUILIBRIUM_RULE_RE = re.compile(
     r"""^\s*(?P<name>[a-z][a-z0-9_]*)\s*:\s*$"""
 )
+
+# ZARYEL block opening:  zaryel {
+ZARYEL_BLOCK_RE = re.compile(r"^\s*zaryel\s*\{\s*$")
+
+# Valid value sets for ZARYEL fields (parse-time validation).
+ZARYEL_CANVASES = {
+    "web_page", "mobile_app", "desktop_app", "embedded_display", "document",
+}
+ZARYEL_LAYOUTS = {"stack", "grid", "split", "float", "tabs", "carousel", "masonry"}
+ZARYEL_FLOWS = {"top_down", "left_right", "radial", "loop", "grid_flow"}
+ZARYEL_VIEWPORTS = {"responsive", "fixed", "fluid", "scrollable"}
+ZARYEL_POSITIONS = {"top", "bottom", "left", "right", "center"}
+ZARYEL_INPUTS = {"touch", "keyboard", "mouse", "voice", "sensor", "gesture", "pen", "camera", "biometric", "button"}
+ZARYEL_OUTPUTS = {"display", "audio", "haptic", "print", "led", "projection"}
+
+
+def _brace_balance(text: str) -> int:
+    """Return the net brace-depth change for a line of text."""
+    return text.count("{") - text.count("}")
 
 
 class LexedLine:
@@ -194,14 +214,36 @@ def split_sections(chunk: List[LexedLine]) -> List[_Section]:
     """
     sections: List[_Section] = []
     current: Optional[_Section] = None
+    zaryel_depth = 0  # brace-depth inside a zaryel { ... } block
     for ln in chunk:
         if ln.is_blank or ln.is_comment:
+            continue
+        # When inside a zaryel brace block, accumulate every line and track
+        # brace balance so nested blocks (regions { }, layers { }, ...) are
+        # captured verbatim until the matching close brace.
+        if zaryel_depth > 0:
+            current.body.append(f"{ln.lineno}:{ln.text.rstrip()}")
+            zaryel_depth += _brace_balance(ln.text)
+            if zaryel_depth <= 0:
+                sections.append(current)
+                current = None
+                zaryel_depth = 0
             continue
         m = SECTION_HEADER_RE.match(ln.text)
         if m:
             if current is not None:
                 sections.append(current)
             current = _Section(m.group("keyword"), ln.lineno, [])
+            continue
+        # Detect zaryel block start: `zaryel {`
+        zm = ZARYEL_BLOCK_RE.match(ln.text)
+        if zm:
+            if current is not None:
+                sections.append(current)
+            current = _Section(
+                "zaryel", ln.lineno, [f"{ln.lineno}:{ln.text.rstrip()}"]
+            )
+            zaryel_depth = _brace_balance(ln.text)
             continue
         # Sub-headers only valid inside certain sections.
         if current is not None and current.keyword == "calibrate":
@@ -1067,6 +1109,202 @@ def _parse_realize(sections: List[_Section]) -> List[RealizationTarget]:
 
 
 # ---------------------------------------------------------------------------
+# ZARYEL form-and-layout blueprint parser
+# ---------------------------------------------------------------------------
+
+
+def _parse_zaryel_array(val: str) -> List[str]:
+    """Parse a ``[a, b, c]`` array literal into a list of strings."""
+    val = val.strip()
+    if val.startswith("[") and val.endswith("]"):
+        val = val[1:-1]
+    if not val.strip():
+        return []
+    return [s.strip() for s in val.split(",") if s.strip()]
+
+
+def _parse_zaryel_breakpoint(val: str) -> Optional[int]:
+    """Parse a breakpoint value like ``320px`` into ``320``.
+
+    Returns ``None`` if the value is not a valid positive integer with an
+    optional ``px`` suffix.
+    """
+    val = val.strip()
+    m = re.match(r"^(\d+)\s*px\s*$", val)
+    if m:
+        return int(m.group(1))
+    # Also accept a bare integer.
+    if val.isdigit():
+        return int(val)
+    return None
+
+
+def _parse_zaryel_region_body(name: str, body: List[str]) -> Dict[str, Any]:
+    """Parse the key:value pairs inside a ``region_name { ... }`` block."""
+    region: Dict[str, Any] = {
+        "name": name,
+        "line": 0,
+        "position": "",
+        "fixed": False,
+        "height": None,
+        "width": None,
+        "scroll": None,
+        "collapsible": False,
+        "breakpoint": None,
+        "contains": [],
+    }
+    for raw in body:
+        ln = _line_no(raw)
+        text = _strip_prefix(raw)
+        if not text or text == "}":
+            continue
+        if ln and not region["line"]:
+            region["line"] = ln
+        kv = re.match(r"^(\w+)\s*:\s*(.+)$", text)
+        if kv:
+            key = kv.group(1)
+            val = kv.group(2).strip()
+            if key == "contains":
+                region["contains"] = _parse_zaryel_array(val)
+            elif key == "line":
+                region["line"] = ln
+            elif key in ("fixed", "collapsible"):
+                region[key] = val.lower() in ("true", "yes", "1")
+            else:
+                region[key] = val
+    return region
+
+
+def _parse_zaryel_regions(body: List[str]) -> List[Dict[str, Any]]:
+    """Parse ``regions { name { ... } ... }`` into a list of region dicts."""
+    regions: List[Dict[str, Any]] = []
+    i = 0
+    while i < len(body):
+        text = _strip_prefix(body[i])
+        i += 1
+        if not text or text == "}":
+            continue
+        rm = re.match(r"^(\w+)\s*\{\s*$", text)
+        if rm:
+            region_name = rm.group(1)
+            depth = 1
+            region_lines: List[str] = []
+            while i < len(body) and depth > 0:
+                rtext = _strip_prefix(body[i])
+                depth += _brace_balance(rtext)
+                if depth > 0:
+                    region_lines.append(body[i])
+                i += 1
+            regions.append(_parse_zaryel_region_body(region_name, region_lines))
+    return regions
+
+
+def _parse_zaryel_layers(body: List[str]) -> Dict[str, List[str]]:
+    """Parse ``layers { name: [a, b, c] }`` into a dict."""
+    layers: Dict[str, List[str]] = {}
+    for raw in body:
+        text = _strip_prefix(raw)
+        if not text or text == "}":
+            continue
+        kv = re.match(r"^(\w+)\s*:\s*(.+)$", text)
+        if kv:
+            layers[kv.group(1)] = _parse_zaryel_array(kv.group(2))
+    return layers
+
+
+def _parse_zaryel_breakpoints_body(body: List[str]) -> Dict[str, int]:
+    """Parse ``breakpoints { name: 320px }`` into a dict of int values.
+
+    Invalid values are stored as their raw string so the parse-time
+    validator can report them (fail-closed: never silently drop).
+    """
+    breakpoints: Dict[str, Any] = {}
+    for raw in body:
+        text = _strip_prefix(raw)
+        if not text or text == "}":
+            continue
+        kv = re.match(r"^(\w+)\s*:\s*(.+)$", text)
+        if kv:
+            parsed = _parse_zaryel_breakpoint(kv.group(2))
+            if parsed is not None:
+                breakpoints[kv.group(1)] = parsed
+            else:
+                # Keep the raw value so _validate_zaryel can flag it.
+                breakpoints[kv.group(1)] = kv.group(2).strip()
+    return breakpoints
+
+
+def _parse_zaryel(body: List[str]) -> Dict[str, Any]:
+    """Parse a ``zaryel { ... }`` body into a structured dict.
+
+    Returns a dict with keys: canvas, viewport, layout, flow, focus, entry,
+    regions, layers, inputs, outputs, breakpoints.  Each region is a dict
+    with keys: name, position, fixed, height, width, scroll, collapsible,
+    breakpoint, contains.
+    """
+    result: Dict[str, Any] = {
+        "canvas": "",
+        "viewport": "",
+        "layout": "",
+        "flow": "",
+        "focus": None,
+        "entry": None,
+        "regions": [],
+        "layers": {},
+        "inputs": [],
+        "outputs": [],
+        "breakpoints": {},
+    }
+    # The first body line is the `zaryel {` opener itself; skip it.
+    i = 0
+    if body and _strip_prefix(body[0]) == "zaryel {":
+        i = 1
+    while i < len(body):
+        text = _strip_prefix(body[i])
+        i += 1
+        if not text or text == "}":
+            continue
+        # Nested brace block:  name { ... }
+        block_m = re.match(r"^(\w+)\s*\{\s*$", text)
+        if block_m:
+            block_name = block_m.group(1)
+            depth = 1
+            block_lines: List[str] = []
+            while i < len(body) and depth > 0:
+                btext = _strip_prefix(body[i])
+                depth += _brace_balance(btext)
+                if depth > 0:
+                    block_lines.append(body[i])
+                i += 1
+            if block_name == "regions":
+                result["regions"] = _parse_zaryel_regions(block_lines)
+            elif block_name == "layers":
+                result["layers"] = _parse_zaryel_layers(block_lines)
+            elif block_name == "breakpoints":
+                result["breakpoints"] = _parse_zaryel_breakpoints_body(
+                    block_lines
+                )
+            else:
+                # Unknown nested block — store raw lines for transparency.
+                result.setdefault(block_name + "_block", block_lines)
+            continue
+        # Top-level key: value pair
+        kv = re.match(r"^(\w+)\s*:\s*(.+)$", text)
+        if kv:
+            key = kv.group(1)
+            val = kv.group(2).strip()
+            if key in ("inputs", "outputs"):
+                result[key] = _parse_zaryel_array(val)
+            elif key in ("canvas", "viewport", "layout", "flow", "focus", "entry"):
+                result[key] = val
+            else:
+                result[key] = val
+        # Lines that don't match are ignored (may be comments stripped
+        # by the lexer, or blank lines).
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Dimension parser registry (9)
 # ---------------------------------------------------------------------------
 
@@ -1141,6 +1379,8 @@ class CoParser:
             expressions.append(expr)
         # Run post-parse error detection for syntax-level issues.
         self._detect_syntax_errors(lines, chunks, expressions)
+        # Validate ZARYEL blueprints (parse-time value checks).
+        self._validate_zaryel(expressions)
         return expressions
 
     # -- internal --------------------------------------------------------
@@ -1198,6 +1438,11 @@ class CoParser:
             elif sec.keyword == "realize":
                 # Handled in batch below.
                 pass
+            elif sec.keyword == "zaryel":
+                # ZARYEL uses brace-delimited blocks, parsed separately.
+                parsed = _parse_zaryel(sec.body)
+                parsed["header_line"] = sec.header_line
+                expr.raw_sections["zaryel"] = [parsed]
         # Batch sections that span multiple sub-headers.
         calibrations = _parse_calibrate(sections)
         if calibrations:
@@ -1385,6 +1630,168 @@ class CoParser:
                     category=ErrorCategory.SYNTAX,
                     line=ln,
                 )
+
+    def _validate_zaryel(self, expressions: List[Expression]) -> None:
+        """Parse-time value validation for ZARYEL blueprints.
+
+        Checks (fail-closed — each violation emits an error with a line
+        number so the caller can suppress downstream generation):
+
+        * ``canvas`` is a valid surface type.
+        * ``viewport`` is a valid view behavior.
+        * ``layout`` is a valid arrangement mode.
+        * ``flow`` is a valid attention path.
+        * Every region declares a valid ``position``.
+        * Every ``fixed`` region declares ``height`` or ``width``.
+        * Breakpoint values are positive integers with ``px`` suffix.
+        * ``focus`` / ``entry`` reference existing regions (or layers).
+        * ``inputs`` / ``outputs`` use valid keywords.
+        """
+        for expr in expressions:
+            zaryel_list = expr.raw_sections.get("zaryel")
+            if not zaryel_list:
+                continue
+            zd: Dict[str, Any] = zaryel_list[0]
+            header_line = zd.get("header_line", 0)
+
+            # --- canvas ---
+            canvas = zd.get("canvas", "")
+            if not canvas:
+                self.errors.add(
+                    ErrorCode.MALFORMED_STATEMENT,
+                    "zaryel block is missing required 'canvas' field",
+                    category=ErrorCategory.INCOMPLETE,
+                    line=header_line,
+                )
+            elif canvas not in ZARYEL_CANVASES:
+                self.errors.add(
+                    ErrorCode.MALFORMED_STATEMENT,
+                    f"invalid canvas '{canvas}'; valid: "
+                    f"{', '.join(sorted(ZARYEL_CANVASES))}",
+                    category=ErrorCategory.UNKNOWN,
+                    line=header_line,
+                )
+
+            # --- viewport ---
+            viewport = zd.get("viewport", "")
+            if viewport and viewport not in ZARYEL_VIEWPORTS:
+                self.errors.add(
+                    ErrorCode.MALFORMED_STATEMENT,
+                    f"invalid viewport '{viewport}'; valid: "
+                    f"{', '.join(sorted(ZARYEL_VIEWPORTS))}",
+                    category=ErrorCategory.UNKNOWN,
+                    line=header_line,
+                )
+
+            # --- layout ---
+            layout = zd.get("layout", "")
+            if layout and layout not in ZARYEL_LAYOUTS:
+                self.errors.add(
+                    ErrorCode.MALFORMED_STATEMENT,
+                    f"invalid layout '{layout}'; valid: "
+                    f"{', '.join(sorted(ZARYEL_LAYOUTS))}",
+                    category=ErrorCategory.UNKNOWN,
+                    line=header_line,
+                )
+
+            # --- flow ---
+            flow = zd.get("flow", "")
+            if flow and flow not in ZARYEL_FLOWS:
+                self.errors.add(
+                    ErrorCode.MALFORMED_STATEMENT,
+                    f"invalid flow '{flow}'; valid: "
+                    f"{', '.join(sorted(ZARYEL_FLOWS))}",
+                    category=ErrorCategory.UNKNOWN,
+                    line=header_line,
+                )
+
+            # --- regions ---
+            region_names: set = set()
+            for region in zd.get("regions", []):
+                rname = region.get("name", "<unnamed>")
+                region_names.add(rname)
+                rline = region.get("line", header_line)
+
+                pos = region.get("position", "")
+                if not pos:
+                    self.errors.add(
+                        ErrorCode.MALFORMED_STATEMENT,
+                        f"region '{rname}' is missing required 'position'",
+                        category=ErrorCategory.INCOMPLETE,
+                        line=rline,
+                    )
+                elif pos not in ZARYEL_POSITIONS:
+                    self.errors.add(
+                        ErrorCode.MALFORMED_STATEMENT,
+                        f"region '{rname}' has invalid position '{pos}'; "
+                        f"valid: {', '.join(sorted(ZARYEL_POSITIONS))}",
+                        category=ErrorCategory.UNKNOWN,
+                        line=rline,
+                    )
+
+                if region.get("fixed"):
+                    if not region.get("height") and not region.get("width"):
+                        self.errors.add(
+                            ErrorCode.MALFORMED_STATEMENT,
+                            f"fixed region '{rname}' must declare "
+                            f"height or width",
+                            category=ErrorCategory.INCOMPLETE,
+                            line=rline,
+                        )
+
+            # --- breakpoints ---
+            for bp_name, bp_val in zd.get("breakpoints", {}).items():
+                if not isinstance(bp_val, int) or bp_val <= 0:
+                    self.errors.add(
+                        ErrorCode.MALFORMED_STATEMENT,
+                        f"breakpoint '{bp_name}' must be a positive "
+                        f"integer with 'px' suffix (got '{bp_val}')",
+                        category=ErrorCategory.SYNTAX,
+                        line=header_line,
+                    )
+
+            # --- focus / entry references ---
+            focus = zd.get("focus")
+            if focus and focus not in region_names:
+                self.errors.add(
+                    ErrorCode.MALFORMED_STATEMENT,
+                    f"focus '{focus}' does not reference a declared region",
+                    category=ErrorCategory.UNKNOWN,
+                    line=header_line,
+                )
+            entry = zd.get("entry")
+            if entry and entry not in region_names:
+                layer_names = set()
+                for layer_regions in zd.get("layers", {}).values():
+                    layer_names.update(layer_regions)
+                if entry not in layer_names:
+                    self.errors.add(
+                        ErrorCode.MALFORMED_STATEMENT,
+                        f"entry '{entry}' does not reference a declared "
+                        f"region or layer",
+                        category=ErrorCategory.UNKNOWN,
+                        line=header_line,
+                    )
+
+            # --- inputs / outputs ---
+            for inp in zd.get("inputs", []):
+                if inp not in ZARYEL_INPUTS:
+                    self.errors.add(
+                        ErrorCode.MALFORMED_STATEMENT,
+                        f"invalid input '{inp}'; valid: "
+                        f"{', '.join(sorted(ZARYEL_INPUTS))}",
+                        category=ErrorCategory.UNKNOWN,
+                        line=header_line,
+                    )
+            for out in zd.get("outputs", []):
+                if out not in ZARYEL_OUTPUTS:
+                    self.errors.add(
+                        ErrorCode.MALFORMED_STATEMENT,
+                        f"invalid output '{out}'; valid: "
+                        f"{', '.join(sorted(ZARYEL_OUTPUTS))}",
+                        category=ErrorCategory.UNKNOWN,
+                        line=header_line,
+                    )
 
 
 def _payload_to_dicts(payload: Any) -> List[Dict[str, object]]:
