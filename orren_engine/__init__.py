@@ -1,15 +1,13 @@
 """Orren Engine — semantic interpretation + realization pipeline.
 
-Public API:
-    CoParser            — file → expressions
-    SIRBuilder          — expressions → SIR graph
-    EquilibriumResolver — conflict detection + resolution
-    RealizationCoordinator — SIR → realization artifacts
-    SemanticEditor      — path-based editing with undo/redo
-    Engine              — orchestrates the whole pipeline
+The canonical language surface is the purified seven-construct syntax:
+  Core: entity, relation, constraint, scope
+  Enrichment: intent, behavior, temporal
+
+The legacy CoParser remains available during migration.
 """
 
-__version__ = "0.3.3"
+__version__ = "0.4.0"
 
 from .data_model import (
     BehavioralStatement,
@@ -44,6 +42,14 @@ from .data_model import (
     VibeStatement,
 )
 from .parser import CoParser
+from .purified_parser import (
+    PurifiedParser,
+    PurifiedProgram,
+    PurifiedEntity,
+    PurifiedRelation,
+    PurifiedConstraint,
+    PurifiedSyntaxError,
+)
 from .sir_builder import SIRBuilder
 from .equilibrium_resolver import EquilibriumResolver
 from .realization_coordinator import RealizationCoordinator
@@ -74,6 +80,12 @@ from .errors import (
 
 __all__ = [
     "CoParser",
+    "PurifiedParser",
+    "PurifiedProgram",
+    "PurifiedEntity",
+    "PurifiedRelation",
+    "PurifiedConstraint",
+    "PurifiedSyntaxError",
     "SIRBuilder",
     "EquilibriumResolver",
     "RealizationCoordinator",
