@@ -1,153 +1,339 @@
 # Orren Purified Language
 
-**Status: canonical language proposal implemented by `PurifiedParser`**
+**Status: foundation specification**
 
-This specification is derived from **Zero-Assumption Orren Purification**. The purpose is to give Orren one authoritative language vocabulary instead of maintaining multiple competing taxonomies.
+This specification is derived from **Zero-Assumption Orren Purification**. It defines the smallest language capable of expressing the purified ontology without recreating the old competing taxonomies.
 
-## 1. Ontological foundation
+## 1. Ontology
 
-Orren's semantic ontology has three layers:
+Orren has three strictly ordered semantic layers:
 
 ### Core
 
-1. **Structure** — graph topology, containment, scope, and nesting.
-2. **Meaning** — what a semantic entity represents.
-3. **Relation** — the semantic role of an edge between entities.
-4. **Constraint** — conditions and boundaries required for validity.
+1. **Structure** — topology, containment, nesting, scope.
+2. **Meaning** — typed semantic content: what a node represents.
+3. **Relation** — semantic significance of connections between nodes.
+4. **Constraint** — conditions and boundaries under which semantics are valid.
 
 ### Enrichment
 
 5. **Intent** — why a construct exists.
-6. **Behavior** — what happens when it is activated or realized.
-7. **Temporal Scope** — when it is valid, active, or relevant.
+6. **Behavior** — what happens when activated or realized.
+7. **Temporal Scope** — when a construct is valid, active, or relevant.
 
 ### Meta
 
 8. **Confidence** — certainty about a semantic assertion.
 9. **Provenance** — origin and derivation history.
 
-Meta information is deliberately not part of the seven core language constructs. It describes the semantic system rather than the modeled domain.
+The purification establishes these as one canonical ontology rather than parallel taxonomies. fileciteturn0file0L371-L376
 
-## 2. Language constructs
+## 2. Constructs are not primitives
 
-The language has exactly seven semantic constructs.
+The language exposes seven primary constructs:
 
-| Layer | Construct | Purpose |
+| Layer | Construct | Role |
 |---|---|---|
-| Core | `entity` | Declare a semantic node with a Meaning. |
-| Core | `relation` | Declare a typed semantic edge between entities. |
-| Core | `constraint` | Declare a condition that must be satisfied. |
-| Core | `scope` | Declare a contextual/visibility boundary. |
-| Enrichment | `intent` | State the purpose or rationale of a construct. |
-| Enrichment | `behavior` | State what the construct does when activated/realized. |
-| Enrichment | `temporal` | State when the construct applies or remains active. |
+| Core | `entity` | Creates a semantic node with typed Meaning. |
+| Core | `relation` | Creates a semantically typed edge. |
+| Core | `constraint` | Creates a validity proposition. |
+| Core | `scope` | Explicit syntax for Structure's contextual boundary. |
+| Enrichment | `intent` | Attaches purpose. |
+| Enrichment | `behavior` | Attaches executable behavior. |
+| Enrichment | `temporal` | Attaches Temporal Scope. |
 
-These are constructs, not dimensions. The language must not reintroduce the old nine-dimensional node model through syntax.
+`scope` is not a fifth Core primitive. It is syntax for Structure. Likewise, `entity` is syntax for creating a node that participates in Structure and has Meaning.
 
-## 3. Canonical syntax
+This distinction is essential: **the number of language keywords is not the number of ontological primitives.**
 
-### Entity
+## 3. The semantic atom
+
+A semantic node is conceptually:
+
+```text
+Node = Identity + Meaning + Position
+```
+
+Identity is a reference mechanism, Position is supplied by Structure, and Meaning is typed semantic content.
+
+A name without Meaning is only a declaration shell. A complete semantic entity therefore requires:
+
+```text
+name + type + meaning
+```
+
+## 4. Meaning is typed
+
+The first purified proposal was too permissive in treating Meaning as nearly free-form text. The ontology itself requires Meaning to be a typed value. fileciteturn0file0L389-L396
+
+Canonical form:
 
 ```orn
-entity sensor: device = "soil moisture sensor" {
-    intent "measure soil moisture"
-    behavior "emit measurement"
-    temporal "active while the controller is running"
+entity sensor: device = "soil moisture sensor"
+entity temperature: quantity = 25 C
+entity controller: device = "irrigation controller"
+```
+
+The value side may be one of these foundational categories:
+
+```text
+literal       concrete scalar or quantity
+reference     another semantic node
+expression    computed/symbolic value
+collection    group of values or references
+```
+
+These are value categories, not additional ontology primitives.
+
+## 5. References
+
+References are required by relations, constraints, behaviors, and expressions.
+
+```text
+reference = identifier | identifier "." identifier { "." identifier }
+```
+
+Examples:
+
+```orn
+sensor
+irrigation.sensor
+system.controller
+```
+
+Resolution is lexical and scope-aware. An unresolved reference is an explicit error; the system must not silently invent a node.
+
+## 6. Scope and Structure
+
+```orn
+scope irrigation {
+    entity controller: device = "irrigation controller"
+
+    scope sensing {
+        entity sensor: device = "soil moisture sensor"
+    }
 }
 ```
 
-An entity always has a name, type, and Meaning. Enrichment annotations are optional unless required by the entity type.
+Scope supplies:
 
-### Relation
+- visibility;
+- containment;
+- lifetime;
+- qualification of references.
+
+This replaces the former universal `context` attribute with explicit structure, consistent with the purification. fileciteturn0file0L499-L511
+
+## 7. Entity
 
 ```orn
-relation sensor -> controller: dependency
+entity NAME: TYPE = MEANING
 ```
 
-The relation type gives semantic significance to the graph edge. Common relation types include `causality`, `dependency`, `sequence`, `containment`, and `equivalence`, while user-defined relation types remain possible.
+Optional enrichment:
 
-A relation may carry a condition:
+```orn
+entity NAME: TYPE = MEANING {
+    intent "..."
+    behavior "..."
+    temporal "..."
+}
+```
+
+`entity` creates a semantic node. Its type constrains which values and enrichments are meaningful; it does not create another ontological layer.
+
+## 8. Relation
+
+```orn
+relation SOURCE -> TARGET: TYPE
+```
+
+Optional condition:
 
 ```orn
 relation sensor -> controller: dependency when controller.active
 ```
 
-### Constraint
+Structure answers whether the edge exists. Relation answers what the edge means. This preserves the distinction established by the purification. fileciteturn0file0L397-L407
+
+Common relation types include:
+
+```text
+causality
+ dependency
+sequence
+containment
+equivalence
+```
+
+User-defined relation types remain permitted.
+
+## 9. Constraint
 
 ```orn
 constraint sensor.value > 0
+constraint controller.active implies sensor.available
 ```
 
-Constraints may apply to an entity, a relation, or the graph as a whole. They are consumed by the Resolve pipeline stage.
+Constraints are propositions over semantic values, entities, relations, or scopes. They are consumed by the Resolve stage and are independent from behavior.
 
-### Scope
+## 10. Enrichment
+
+### Intent
+
+```orn
+intent "maintain safe soil moisture"
+```
+
+Intent answers **why**. It enriches semantics and does not inherently alter topology or execute behavior. The purification collapses the former intent attribute, intent layers, and `intend` cognitive operation into one concept. fileciteturn0file0L421-L429
+
+### Behavior
+
+```orn
+behavior "open or close water flow"
+```
+
+Behavior answers **what happens** and provides the bridge to realization. fileciteturn0file0L430-L440
+
+### Temporal
+
+```orn
+temporal "active during the irrigation cycle"
+```
+
+Temporal Scope unifies ordering, duration, recurrence, validity, and activation without reintroducing multiple temporal dimensions. fileciteturn0file0L441-L448
+
+## 11. Meta
+
+Confidence and Provenance are orthogonal metadata:
+
+```text
+assertion:
+    temperature = 25 C
+
+meta:
+    confidence = 0.82
+    provenance = ...
+```
+
+They describe the assertion rather than changing its domain Meaning. The purified ontology explicitly places them in the Meta layer. fileciteturn0file0L449-L468
+
+Metadata syntax is intentionally left outside the foundation grammar until its semantics and persistence contract are fixed.
+
+## 12. What is outside the foundation language
+
+These are **not** foundation constructs:
+
+```text
+vibe
+cognitive
+spatial-as-a-dimension
+equilibrium
+realize
+degrade
+mediation layers
+cognitive domains
+intent layers
+```
+
+The purification reclassifies them as annotations, operations, pipeline stages, or future extensions. Equilibrium in particular is a graph-level process, not node state. fileciteturn0file0L342-L362
+
+## 13. Foundation grammar
+
+```ebnf
+program        = { declaration } ;
+
+declaration    = entity | relation | constraint | scope ;
+
+entity         = "entity" identifier ":" type "=" meaning [ entity_body ] ;
+entity_body    = "{" { annotation } "}" ;
+
+annotation     = intent | behavior | temporal ;
+intent         = "intent" value ;
+behavior       = "behavior" value ;
+temporal       = "temporal" value ;
+
+relation       = "relation" reference "->" reference ":" relation_type
+                 [ "when" proposition ] ;
+constraint     = "constraint" proposition ;
+scope          = "scope" identifier "{" { declaration } "}" ;
+
+meaning        = value | expression ;
+value          = literal | reference | collection ;
+reference      = identifier { "." identifier } ;
+```
+
+This is the foundation grammar, not the entire eventual programming language. Operators, functions, modules, control flow, standard-library types, and realization policy can be built above it without becoming new semantic primitives.
+
+## 14. Execution boundary
+
+The language must map cleanly onto the five processing stages defined by the purification:
+
+```text
+SOURCE
+  │
+  ▼
+PARSE       syntax → AST
+  │
+  ▼
+CONSTRUCT   entity/relation/constraint/scope → Core SIR
+  │
+  ▼
+ENRICH      intent/behavior/temporal → enriched SIR
+  │
+  ▼
+RESOLVE     reference + constraint + conflict resolution
+  │
+  ▼
+REALIZE     resolved SIR → executable output
+```
+
+The PDF explicitly separates these responsibilities and places equilibrium resolution in the Resolve stage and executable generation in Realize. fileciteturn0file0L599-L628
+
+## 15. Foundation invariants
+
+The foundation is considered sound only when all of these hold:
+
+1. **Ontological uniqueness** — every semantic concept has one canonical home.
+2. **Typed Meaning** — every entity has typed semantic content.
+3. **Reference closure** — every reference resolves or fails explicitly.
+4. **Single Structure model** — scope, nesting, containment, and visibility do not use parallel systems.
+5. **Semantic edges** — every relation has an explicit type.
+6. **Independent constraints** — validity is represented independently of behavior.
+7. **Layered enrichment** — Intent, Behavior, Temporal Scope augment Core but do not redefine it.
+8. **Orthogonal metadata** — Confidence and Provenance describe assertions rather than domain meaning.
+9. **Pipeline separation** — each stage has one responsibility.
+10. **SIR sovereignty** — SIR remains the canonical representation and no backend defines the semantics. fileciteturn0file0L768-L786
+
+## 16. Foundation example
 
 ```orn
 scope irrigation {
-    entity controller: process = "irrigation controller"
+    entity sensor: device = "soil moisture sensor" {
+        intent "measure current soil moisture"
+        behavior "produce a moisture reading"
+        temporal "active while the system is running"
+    }
+
+    entity controller: process = "irrigation controller" {
+        intent "maintain safe soil moisture"
+        behavior "open or close water flow"
+        temporal "active during the irrigation cycle"
+    }
+
+    relation sensor -> controller: dependency
+    relation controller -> sensor: reads
+
+    constraint sensor.reading >= 0
+    constraint sensor.reading <= 100
+    constraint controller.active implies sensor.available
 }
 ```
 
-Scopes provide contextual boundaries, visibility, nesting, and lifetime. They replace the former universal `context` attribute as a first-class language concept.
+This describes a meaningful semantic system without importing the old nine-dimensional SIR taxonomy into the language.
 
-### Enrichment
+## 17. Governing law
 
-```orn
-entity controller: process = "irrigation controller" {
-    intent "maintain irrigation conditions"
-    behavior "regulate water delivery"
-    temporal "active during the irrigation cycle"
-}
-```
+> **Do not create a new primitive when an existing primitive can express the concept without loss of meaning.**
 
-`intent` describes **why**, `behavior` describes **what happens**, and `temporal` describes **when**.
-
-## 4. What is no longer a language-core construct
-
-The following concepts are intentionally removed from the language core:
-
-- `vibe`
-- `cognitive`
-- `equilibrium`
-- `realize`
-- `degrade`
-- the ten cognitive domains
-- the five mediation layers
-- the six intent layers
-- the old eight universal foundation attributes
-- the nine-dimensional SIR node taxonomy
-
-This does not declare those concepts useless. They belong in extensions, libraries, metadata, or pipeline stages where appropriate.
-
-In particular, **Equilibrium is a process, not a node property**. It belongs to Resolve. Cognitive domains belong to processing operations. Mediation layers belong to the pipeline. Domain-specific qualities such as Vibe and Spatial semantics belong to qualified annotations/extensions.
-
-## 5. Processing model
-
-The purified language maps onto a five-stage semantic execution pipeline:
-
-```text
-Source
-  │
-  ▼
-Parse       → AST; syntax only
-  │
-  ▼
-Construct   → Core SIR: Structure, Meaning, Relation, Constraint
-  │
-  ▼
-Enrich      → Intent, Behavior, Temporal Scope
-  │
-  ▼
-Resolve     → constraint satisfaction and conflict resolution
-  │
-  ▼
-Realize     → executable output
-```
-
-The Semantic Intermediate Representation remains the canonical representation. No backend is the reference implementation.
-
-## 6. Migration rule
-
-The old `.orn` syntax remains available through the legacy `CoParser` while migration is underway. New language work must target `PurifiedParser` and the seven-construct vocabulary.
-
-The working Python backend remains the first realization target. Additional backends are extensibility points, not first-class architectural requirements.
+The foundation is therefore not defined by how many keywords exist. It is defined by whether each concept has one home, whether every construct has a clear semantic interpretation, and whether the resulting representation can pass through Parse → Construct → Enrich → Resolve → Realize without ambiguity.
