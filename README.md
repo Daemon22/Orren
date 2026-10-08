@@ -187,13 +187,13 @@ These surfaced two real engine bugs (both fixed in v0.3.2):
 
 ## Visual Hub prototype
 
-The first visual proof for the [Visual Hub architecture](docs/VISUAL_HUB.md) is a self-contained, dependency-free browser prototype in [`visual-hub/`](visual-hub/). It demonstrates the living semantic tree, behavior enrichment, derived web realization paths, drag-to-restructure, and five views over one in-memory field.
+The visual workspace for the [Visual Hub architecture](docs/VISUAL_HUB.md) is in [`visual-hub/`](visual-hub/). It loads the committed `visual-hub/MyApp.orn` through the Python Engine and shows live SIR structure, typed relations, nine-dimension payload counts, coordinator plans, and session provenance. Producer actions edit the in-memory SIR graph.
 
 ```bash
-python3 -m http.server 4173 --directory visual-hub
+python3 visual-hub/server.py
 ```
 
-The prototype is intentionally not yet connected to the SIR engine or artifact backend; see [`visual-hub/README.md`](visual-hub/README.md) for the acceptance walk-through and boundary.
+Open <http://127.0.0.1:4173>. Edits are session-only; target entries are coordinator plans and are not emitted source files. The optional `orren_engine.backends.web_layout` source-emission module is absent in this revision. See [`visual-hub/README.md`](visual-hub/README.md) for details and `pytest tests/test_visual_hub_runtime.py -q` for the bridge regression check.
 
 ## Displayable previews
 

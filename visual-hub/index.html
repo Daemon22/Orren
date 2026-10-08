@@ -3,128 +3,150 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#071522">
-  <meta name="description" content="Orren Visual Hub — see the structure, shape the meaning.">
+  <meta name="theme-color" content="#08121e">
+  <meta name="description" content="Orren Visual Hub — a semantic workspace for seeing and shaping the living field.">
   <link rel="icon" href="assets/orren-emblem.webp" type="image/webp">
-  <link rel="stylesheet" href="styles.css">
-  <title>Orren — The Visual Hub</title>
+  <link rel="stylesheet" href="styles.css?v=engine-20261008">
+  <title>Orren — Visual Hub</title>
 </head>
 <body>
-  <main class="sanctuary" id="top">
-    <div class="sanctuary-art" aria-hidden="true"></div>
-    <div class="sanctuary-shade" aria-hidden="true"></div>
-
-    <aside class="brand-panel" aria-label="Orren brand">
-      <a class="brand-large" href="#top" aria-label="Orren — Language for Intelligence">
-        <img src="assets/orren-emblem.webp" alt="" class="brand-large-emblem">
-        <strong>ORREN</strong>
-        <span class="brand-rule"><i></i></span>
-        <small>LANGUAGE FOR INTELLIGENCE</small>
-        <span class="brand-motto">MEANING · CONTEXT · EXPRESSION</span>
+  <div class="app-shell" id="top">
+    <header class="app-header">
+      <button class="header-icon sidebar-toggle" id="sidebar-toggle" type="button" aria-label="Toggle structure panel" aria-expanded="true" title="Toggle structure panel">☰</button>
+      <a class="brand-lockup" href="#top" aria-label="Orren — Language for Intelligence">
+        <span class="brand-emblem"><img src="assets/orren-emblem.webp" alt=""></span>
+        <span class="brand-type"><strong>ORREN</strong><small>LANGUAGE FOR INTELLIGENCE</small><em>MEANING · CONTEXT · EXPRESSION</em></span>
       </a>
-      <div class="brand-build-label">BUILD<br>WITH MEANING</div>
-      <nav class="brand-nav" aria-label="Visual Hub views">
-        <button type="button" data-shell-view="tree"><span class="brand-nav-icon">♧</span><span>Explore<br>Structure</span></button>
-        <button type="button" data-shell-view="flow"><span class="brand-nav-icon">⌘</span><span>Follow<br>Flow</span></button>
-        <button type="button" data-shell-view="lens"><span class="brand-nav-icon">✥</span><span>See<br>Dimensions</span></button>
-        <button type="button" data-shell-view="realizations"><span class="brand-nav-icon">◇</span><span>Track<br>Realization</span></button>
-        <button type="button" data-shell-view="provenance"><span class="brand-nav-icon">◷</span><span>Trace<br>Provenance</span></button>
-      </nav>
-    </aside>
-
-    <section class="phone-stage" aria-label="Interactive Orren Visual Hub">
-      <div class="phone-aura" aria-hidden="true"></div>
-      <div class="phone-shell">
-        <div class="phone-glass">
-          <div class="phone-status-bar"><span>9:41</span><span class="status-island" aria-hidden="true"></span><span class="status-glyphs" aria-label="Signal, Wi-Fi, battery">▮▮▮ ◔ ▰</span></div>
-          <header class="phone-brandbar">
-            <button class="phone-menu" aria-label="Workspace menu">☰</button>
-            <a class="phone-wordmark" href="#top"><img src="assets/orren-emblem.webp" alt=""><span>ORREN</span></a>
-            <span class="phone-live-dot" aria-label="Live"></span>
-            <button class="phone-seal" aria-label="Orren workspace">✥</button>
-          </header>
-          <div class="phone-screen">
-            <div class="app-frame">
-              <aside class="sidebar" aria-label="Workspace navigation">
-                <a class="brand" href="#top" aria-label="Orren Visual Hub home">
-                  <span class="brand-mark"><img src="assets/orren-emblem.webp" alt=""></span>
-                  <span class="brand-copy"><strong>ORREN</strong><small>LANGUAGE FOR INTELLIGENCE</small></span>
-                </a>
-                <div class="workspace-switcher">
-                  <span class="workspace-glyph" aria-hidden="true">✳</span>
-                  <span class="workspace-label"><small>ACTIVE FIELD</small><strong id="workspace-name">MyApp</strong></span>
-                  <span class="switcher-chevron" aria-hidden="true">⌄</span>
-                </div>
-                <div class="nav-caption">THE FIELD</div>
-                <nav class="view-nav" aria-label="Semantic views" role="tablist">
-                  <button class="view-link is-active" id="tab-tree" role="tab" aria-selected="true" aria-controls="field-view" data-view="tree"><span class="nav-icon">◈</span><span>Semantic tree</span><span class="nav-count" id="node-count">08</span></button>
-                  <button class="view-link" id="tab-flow" role="tab" aria-selected="false" aria-controls="field-view" data-view="flow"><span class="nav-icon">⌁</span><span>Flow graph</span></button>
-                  <button class="view-link" id="tab-lens" role="tab" aria-selected="false" aria-controls="field-view" data-view="lens"><span class="nav-icon">◉</span><span>Dimension lens</span></button>
-                  <button class="view-link" id="tab-realizations" role="tab" aria-selected="false" aria-controls="field-view" data-view="realizations"><span class="nav-icon">◇</span><span>Realizations</span><span class="nav-count" id="artifact-count">01</span></button>
-                  <button class="view-link" id="tab-provenance" role="tab" aria-selected="false" aria-controls="field-view" data-view="provenance"><span class="nav-icon">◷</span><span>Provenance</span></button>
-                </nav>
-                <div class="sidebar-rule"></div>
-                <div class="nav-caption">SURFACES</div>
-                <div class="surface-item"><span class="surface-dot speech-dot"></span><span>Speech</span><span class="surface-state">ready</span></div>
-                <div class="surface-item"><span class="surface-dot cli-dot"></span><span>CLI</span><span class="surface-state">connected</span></div>
-                <div class="sidebar-spacer"></div>
-                <section class="agent-card" aria-label="Visual agents">
-                  <div class="agent-card-top"><span class="agent-orbit" aria-hidden="true">✳</span><span class="agent-heading">VISUAL AGENTS</span><span class="live-indicator"><i></i>LIVE</span></div>
-                  <div class="agent-row"><span class="agent-avatar producer-avatar">P</span><span><strong>Producer</strong><small>Capturing your moves</small></span><span class="agent-check">●</span></div>
-                  <div class="agent-row"><span class="agent-avatar observer-avatar">O</span><span><strong>Observer</strong><small>Reading the field</small></span><span class="agent-check">●</span></div>
-                </section>
-                <div class="sidebar-foot"><span class="foot-avatar">OM</span><span><strong>Orren workspace</strong><small>Visual Hub</small></span><button class="more-button" aria-label="Workspace options">···</button></div>
-              </aside>
-
-              <section class="main-area" id="workspace">
-                <header class="topbar">
-                  <div class="breadcrumbs"><span>Orren</span><span class="crumb-sep">/</span><strong>Visual Hub</strong><span class="prototype-tag">LIVE FIELD</span></div>
-                  <div class="topbar-actions"><span class="connection-status"><i></i><span>Field in balance</span></span><button class="icon-button" id="empty-field" title="Start with an empty field" aria-label="Start with an empty field">＋</button><span class="top-avatar" title="Workspace owner">OM</span></div>
-                </header>
-                <section class="page-heading">
-                  <div><div class="eyebrow"><span class="eyebrow-line"></span>THE LIVING SIR FIELD <span class="eyebrow-index">/ 01</span></div><h1>Visual Hub</h1><p>Semantic Tree <span>·</span> Live</p></div>
-                  <div class="heading-actions"><button class="button button-quiet" id="load-example">Load example field</button><button class="button button-gold" id="focus-create"><span aria-hidden="true">＋</span> New node</button></div>
-                </section>
-                <div class="view-toolbar">
-                  <div class="toolbar-left"><span class="view-indicator" id="current-view-icon">◈</span><div><strong id="current-view-title">Semantic Tree</strong><small id="current-view-subtitle">See the structure · Shape the meaning</small></div></div>
-                  <div class="toolbar-right"><span class="field-live"><i></i> LIVE</span><span class="toolbar-divider"></span><button class="icon-button subtle" id="connect-mode" title="Draw a relationship" aria-label="Draw a relationship">⌁</button></div>
-                </div>
-                <div class="work-area">
-                  <section class="field-panel" aria-label="Semantic field view">
-                    <div class="field-tools">
-                      <form id="node-form" class="create-form" autocomplete="off"><span class="input-spark" aria-hidden="true">✳</span><label class="sr-only" for="node-name">Name a semantic node</label><input id="node-name" name="nodeName" maxlength="48" placeholder="Name a semantic node…" required><span class="create-context" id="create-context">inside Button</span><button type="submit" class="create-submit" aria-label="Create semantic node">Add <span aria-hidden="true">↗</span></button></form>
-                      <button class="filter-toggle" id="filter-toggle" aria-expanded="false"><span class="filter-glyph">☷</span><span>Dimensions</span><span class="filter-chevron">⌄</span></button>
-                    </div>
-                    <div class="dimension-filter" id="dimension-filter" hidden><span class="filter-label">Focus the field</span><button class="dimension-chip selected" data-filter="all">All meaning</button><button class="dimension-chip" data-filter="behavioral">Behavioral</button><button class="dimension-chip" data-filter="relational">Relational</button><button class="dimension-chip" data-filter="realization">Realization</button></div>
-                    <div class="connect-hint" id="connect-hint" hidden>Choose a starting node, then choose the node it connects to. <button id="cancel-connect">Cancel</button></div>
-                    <div id="field-view" class="field-view" role="tabpanel" aria-labelledby="tab-tree" tabindex="0"></div>
-                    <footer class="field-footer"><span><span class="footer-mark">✳</span> Structure is visible. Paths are derived.</span><span id="field-summary">8 nodes · 7 relationships</span></footer>
-                  </section>
-                  <aside class="inspector" aria-label="Selection and observer">
-                    <div class="inspector-heading"><div><span class="inspector-kicker">FIELD INSPECTOR</span><h2>In focus</h2></div><button class="icon-button subtle" id="inspector-menu" aria-label="Inspector options">···</button></div>
-                    <div id="inspector-content"></div>
-                    <div class="inspector-separator"></div>
-                    <section class="observer-panel" aria-label="Visual Observer status"><div class="observer-heading"><span class="observer-glyph">◉</span><span><small>VISUAL OBSERVER</small><strong>Field readout</strong></span><span class="observer-pulse" aria-label="Active"></span></div><p id="observer-readout">The Observer is watching for new meaning, focus, and realization state.</p><div class="observer-meta"><span><i></i>READ-ONLY</span><span id="observer-time">JUST NOW</span></div></section>
-                    <div class="inspector-note"><span class="note-star">✦</span><p>Nothing is lost in the act of building.<br><strong>The field remembers.</strong></p></div>
-                  </aside>
-                </div>
-                <div class="prototype-footer"><span>ORREN · LANGUAGE FOR INTELLIGENCE</span><span>LOCAL DEMO FIELD <b>·</b> NOT CONNECTED TO THE ENGINE</span></div>
-              </section>
-            </div>
-          </div>
-          <div class="phone-home-indicator" aria-hidden="true"><span></span></div>
-        </div>
+      <span class="header-separator" aria-hidden="true"></span>
+      <div class="header-field">
+        <span class="field-glyph" aria-hidden="true">✳</span>
+        <span class="header-field-copy"><small>ACTIVE FIELD</small><strong id="workspace-name">MyApp</strong></span>
       </div>
-    </section>
+      <div class="header-status" id="engine-status" title="Connecting to the Orren Engine session…">
+        <i aria-hidden="true"></i><span>Connecting to Orren Engine…</span>
+      </div>
+      <div class="header-actions">
+        <button class="header-icon" id="load-example" type="button" title="Load the MyApp example" aria-label="Load the MyApp example">↺</button>
+        <button class="header-icon" id="empty-field" type="button" title="Start with an empty field" aria-label="Start with an empty field">＋</button>
+        <span class="header-avatar" title="Orren workspace">O</span>
+      </div>
+    </header>
 
-    <aside class="manifesto-panel" aria-label="Orren Visual Hub statement">
-      <div class="manifesto-kicker">THE VISUAL HUB</div>
-      <span class="manifesto-rule"><i>◆</i></span>
-      <h2>SEE THE STRUCTURE.<br>SHAPE THE MEANING.</h2>
-      <div class="manifesto-foot"><span class="manifesto-star">✦</span><span>A living map of<br>everything you create.</span></div>
-    </aside>
-  </main>
+    <div class="workspace-grid" id="workspace-grid">
+      <aside class="sidebar" aria-label="Structure and navigation">
+        <div class="workspace-switcher">
+          <span class="workspace-glyph" aria-hidden="true">✳</span>
+          <span class="workspace-label"><small>WORKSPACE</small><strong id="sidebar-workspace-name">MyApp</strong></span>
+          <span class="switcher-chevron" aria-hidden="true">⌄</span>
+        </div>
+
+        <section class="structure-section" aria-label="Semantic hierarchy">
+          <div class="sidebar-section-heading"><span>STRUCTURE</span><button id="collapse-structure" type="button" aria-expanded="true" aria-label="Collapse semantic hierarchy">−</button></div>
+          <div id="sidebar-tree" class="structure-tree" role="tree" aria-label="Semantic hierarchy"></div>
+          <p class="structure-hint">Drag here to propose a hierarchy change.</p>
+        </section>
+
+        <div class="sidebar-divider"></div>
+        <div class="nav-caption">FIELD VIEWS</div>
+        <nav class="view-nav" aria-label="Semantic field views" role="tablist">
+          <button class="view-link is-active" id="tab-tree" role="tab" aria-selected="true" aria-controls="field-view" data-view="tree"><span class="nav-icon">◈</span><span>Semantic tree</span><span class="nav-count" id="node-count">08</span></button>
+          <button class="view-link" id="tab-flow" role="tab" aria-selected="false" aria-controls="field-view" data-view="flow"><span class="nav-icon">⌁</span><span>Flow graph</span></button>
+          <button class="view-link" id="tab-lens" role="tab" aria-selected="false" aria-controls="field-view" data-view="lens"><span class="nav-icon">◉</span><span>Dimension lens</span></button>
+          <button class="view-link" id="tab-realizations" role="tab" aria-selected="false" aria-controls="field-view" data-view="realizations"><span class="nav-icon">◇</span><span>Realizations</span><span class="nav-count" id="artifact-count">01</span></button>
+          <button class="view-link" id="tab-provenance" role="tab" aria-selected="false" aria-controls="field-view" data-view="provenance"><span class="nav-icon">◷</span><span>Provenance</span></button>
+        </nav>
+
+        <section class="surface-section" aria-label="Orren surfaces">
+          <div class="nav-caption">SURFACES <span class="surface-note">ONE FIELD · THREE FORMS</span></div>
+          <div class="surface-item"><span class="surface-dot speech-dot"></span><span>Speech</span><span class="surface-state">Not linked</span></div>
+          <div class="surface-item"><span class="surface-dot cli-dot"></span><span>CLI</span><span class="surface-state">Terminal</span></div>
+          <div class="surface-item is-current"><span class="surface-dot visual-dot"></span><span>Visual</span><span class="surface-state">Preview active</span></div>
+        </section>
+
+        <section class="agent-card" aria-label="Visual agents">
+          <div class="agent-card-top"><span class="agent-orbit" aria-hidden="true">✳</span><span class="agent-heading">VISUAL AGENTS</span><span class="preview-tag">LOCAL</span></div>
+          <div class="agent-row"><span class="agent-avatar producer-avatar">P</span><span><strong>Producer</strong><small>Proposes builder actions</small></span><span class="agent-check" aria-label="Active">●</span></div>
+          <div class="agent-row"><span class="agent-avatar observer-avatar">O</span><span><strong>Observer</strong><small>Reads the preview field</small></span><span class="agent-check" aria-label="Read only">●</span></div>
+        </section>
+        <div class="sidebar-foot"><span class="foot-avatar">O</span><span><strong>Orren workspace</strong><small>Visual Hub · local preview</small></span></div>
+      </aside>
+
+      <main class="main-area" id="workspace">
+        <section class="page-heading">
+          <div>
+            <div class="eyebrow"><span class="eyebrow-line"></span>THE LIVING SIR FIELD <span class="eyebrow-index">/ 01</span></div>
+            <h1 id="field-title">MyApp <span class="field-title-kind">semantic field</span></h1>
+            <p id="field-caption">See the structure. Shape the meaning. Paths follow semantic placement.</p>
+          </div>
+          <div class="heading-actions"><button class="button button-quiet" id="show-inspector" type="button" hidden>Show inspector</button><button class="button button-gold" id="focus-create" type="button"><span aria-hidden="true">＋</span> Create node</button></div>
+        </section>
+
+        <div class="view-toolbar">
+          <div class="toolbar-left"><span class="view-indicator" id="current-view-icon">◈</span><div><strong id="current-view-title">Semantic tree</strong><small id="current-view-subtitle">Place meaning, not files or folders</small></div></div>
+          <div class="toolbar-right"><span class="field-mode"><i></i>CONNECTING TO ENGINE</span><span class="toolbar-divider"></span><button class="icon-button subtle" id="connect-mode" type="button" title="Propose a relationship" aria-label="Propose a relationship">⌁</button></div>
+        </div>
+
+        <div class="work-area">
+          <section class="field-panel" aria-label="Semantic field">
+            <div class="field-tools">
+              <form id="node-form" class="create-form" autocomplete="off"><span class="input-spark" aria-hidden="true">✳</span><label class="sr-only" for="node-name">Name a semantic node</label><input id="node-name" name="nodeName" maxlength="48" placeholder="Name a semantic node…" required><span class="create-context" id="create-context">inside Button</span><button type="submit" class="create-submit">Add <span aria-hidden="true">↗</span></button></form>
+              <button class="filter-toggle" id="filter-toggle" type="button" aria-expanded="false"><span class="filter-glyph">☷</span><span>Dimensions</span><span class="filter-chevron">⌄</span></button>
+            </div>
+            <div class="dimension-filter" id="dimension-filter" hidden><span class="filter-label">Focus the field</span><button class="dimension-chip selected" data-filter="all" type="button">All meaning</button><button class="dimension-chip" data-filter="behavioral" type="button">Behavioral</button><button class="dimension-chip" data-filter="relational" type="button">Relational</button><button class="dimension-chip" data-filter="realization" type="button">Realization</button></div>
+            <div class="search-panel" id="search-panel" hidden><label for="field-search">Find a semantic node</label><input id="field-search" type="search" placeholder="Search names or intent…" autocomplete="off"><button id="search-clear" type="button" aria-label="Clear search">×</button><div id="search-results" class="search-results" role="listbox" aria-label="Search results"></div></div>
+            <div class="connect-hint" id="connect-hint" hidden>Choose a source node, then a destination. A relationship is only added after you review its type. <button id="cancel-connect" type="button">Cancel</button></div>
+            <div id="field-view" class="field-view" role="tabpanel" aria-labelledby="tab-tree" tabindex="0"></div>
+            <footer class="field-footer"><span><span class="footer-mark">✳</span>Structure is visible. Paths are derived.</span><span id="field-summary">8 nodes · 9 relationships</span></footer>
+          </section>
+
+          <aside class="inspector" id="inspector" aria-label="Meaning inspector">
+            <div class="inspector-heading"><div><span class="inspector-kicker">MEANING INSPECTOR</span><h2>In focus</h2></div><button class="icon-button subtle" id="inspector-menu" type="button" aria-label="Inspector options">···</button></div>
+            <div id="inspector-content"></div>
+            <div class="inspector-separator"></div>
+            <section class="observer-panel" aria-label="Visual Observer status"><div class="observer-heading"><span class="observer-glyph">◉</span><span><small>VISUAL OBSERVER</small><strong>Field readout</strong></span><span class="observer-pulse" aria-label="Active in preview"></span></div><p id="observer-readout">The Observer is reading the current preview field.</p><div class="observer-meta"><span><i></i>READ-ONLY</span><span id="observer-time">JUST NOW</span></div></section>
+            <div class="inspector-note"><span class="note-star">✦</span><p>Meaning remains primary.<br><strong>Vision makes it navigable.</strong></p></div>
+          </aside>
+        </div>
+        <div class="prototype-footer"><span>ORREN · LANGUAGE FOR INTELLIGENCE</span><span id="prototype-runtime-status">CONNECTING TO ORREN ENGINE</span></div>
+      </main>
+    </div>
+
+    <footer class="action-bar" aria-label="Primary actions">
+      <span class="action-bar-label">BUILD WITH MEANING</span>
+      <div class="action-group">
+        <button type="button" id="action-create" data-action="create"><span>＋</span><b>Create node</b></button>
+        <button type="button" id="action-connect" data-action="connect"><span>⌁</span><b>Connect</b></button>
+        <button type="button" id="action-speak" data-action="speak"><span>◖</span><b>Speak</b></button>
+        <button type="button" id="action-search" data-action="search"><span>⌕</span><b>Search</b></button>
+        <button type="button" id="action-realize" data-action="realize"><span>◇</span><b>Realize</b></button>
+      </div>
+      <span class="action-status"><i></i><span id="action-status-text">Connecting to Engine…</span></span>
+    </footer>
+    <nav class="mobile-view-nav" aria-label="Mobile field views">
+      <button type="button" data-mobile-view="tree" class="is-active"><span>◈</span><small>Tree</small></button>
+      <button type="button" data-mobile-view="flow"><span>⌁</span><small>Flow</small></button>
+      <button type="button" data-mobile-view="lens"><span>◉</span><small>Lens</small></button>
+      <button type="button" data-mobile-view="realizations"><span>◇</span><small>Realize</small></button>
+      <button type="button" data-mobile-view="provenance"><span>◷</span><small>History</small></button>
+    </nav>
+    <div id="inspector-backdrop" class="inspector-backdrop" hidden></div>
+  </div>
+
+  <dialog id="relation-dialog" class="relation-dialog" aria-labelledby="relation-title">
+    <form id="relation-form" method="dialog">
+      <span class="dialog-eyebrow">VISUAL PRODUCER · RELATIONSHIP PROPOSAL</span>
+      <h2 id="relation-title">Make the connection meaningful.</h2>
+      <p id="relation-summary">Review the two nodes and choose the relationship Orren should propose.</p>
+      <label for="relation-type">Relationship type</label>
+      <select id="relation-type" required><option value="feeds">Feeds</option><option value="triggers">Triggers</option><option value="produces">Produces</option><option value="depends_on">Depends on</option></select>
+      <label for="relation-note">Intent <span>optional</span></label>
+      <input id="relation-note" maxlength="120" placeholder="Add context for the proposed relationship">
+      <div class="dialog-actions"><button type="button" id="cancel-relation" class="button button-quiet">Cancel</button><button type="submit" class="button button-gold">Propose relationship</button></div>
+    </form>
+  </dialog>
+
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="app.js" defer></script>
+  <script src="app.js?v=engine-20261008" defer></script>
+  <script src="runtime.js?v=engine-20261008" defer></script>
 </body>
 </html>

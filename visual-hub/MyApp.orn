@@ -1,0 +1,78 @@
+create myapp : Application
+
+    context:
+        purpose: a living semantic field for the Orren Visual Hub
+        audience: builders shaping meaningful interfaces
+
+    structure:
+        ui
+            dashboard
+                button
+                card
+                chart
+        logic
+            weather_service
+
+    spatial:
+        dashboard located_in ui
+        button located_in dashboard
+        card located_in dashboard
+        chart located_in dashboard
+        weather_service located_in logic
+
+    cognitive:
+        dashboard.refresh = show_current_conditions
+        button.invoke = fetch_weather
+        card.display = summarize_weather
+        chart.render = plot_temperature_across_the_day
+
+    vibe:
+        dashboard.tone = luminous
+        dashboard.motion = measured
+        button.color_character = electric_blue
+        card.form_character = crystalline
+
+    temporal:
+        idle → loading on weather_requested
+        loading → ready on weather_received
+
+    relational:
+        button triggers weather_service
+        weather_service feeds card
+        weather_service feeds chart
+
+    conditional:
+        dashboard refreshes on user_request
+        card retained while weather_service is available
+
+    behavior:
+        button behaves_as refresh_control
+        button responds_to click with request_weather
+        weather_service behaves_as weather_provider
+        weather_service lifecycle: idle -> fetching -> ready -> idle
+
+    calibrate:
+        calibrate measured for vibe:
+            maps_to motion_intensity
+            threshold: animation_duration <= 240ms
+            signal: transition_timing_function
+
+    degrade:
+        require full       for behavioral on refresh_control
+        require faithful   for vibe       on color_character
+        tolerate proxy     for temporal  on external_weather_feed
+
+    realize:
+        target: web_interface (HTML/CSS/JS)
+            capabilities: layout, color, motion, event_handling, typography
+            can_express: conditional, behavioral, temporal
+            needs_bridge: weather_provider
+            cannot_express: none
+            preservation_score: 0.92
+        target: android_app (Kotlin)
+            capabilities: layout, event_handling, temporal
+            needs_bridge: weather_provider
+            preservation_score: 0.72
+        target: rust_core (Rust)
+            capabilities: data_processing, relational_logic
+            preservation_score: 0.81

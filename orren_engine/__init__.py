@@ -48,7 +48,6 @@ from .sir_builder import SIRBuilder
 from .equilibrium_resolver import EquilibriumResolver
 from .realization_coordinator import RealizationCoordinator
 from .semantic_editor import SemanticEditor
-from .codegen import generate as generate_code
 from .design_tokens import DesignTokens, extract_design_tokens
 from .preview import generate_preview, write_preview
 from .engine import Engine
@@ -71,6 +70,20 @@ from .errors import (
     OrrenRecoverableWarning,
     OrrenUnrecoverableError,
 )
+
+
+def __getattr__(name):
+    """Load optional code generation only when its public API is requested.
+
+    The core Engine and SIR APIs do not need the premium web generator. Keeping
+    this export lazy lets them load independently; requesting ``generate_code``
+    still imports the complete implementation and exposes its backend errors.
+    """
+    if name == "generate_code":
+        from .codegen import generate
+        return generate
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "CoParser",

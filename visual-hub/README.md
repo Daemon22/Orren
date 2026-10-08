@@ -1,23 +1,36 @@
-# Orren Visual Hub — first visual proof
+# Orren Visual Hub
 
-A dependency-free, browser-runnable prototype of the **Living SIR Field + Semantic Tree** milestone from [`docs/VISUAL_HUB.md`](../docs/VISUAL_HUB.md). It follows the supplied reference: a cinematic Orren landscape around a gold-edged glass phone, a glowing branching field, and the focused node's dimension/realization inspector. The supplied Orren emblem and blue / violet / luminous-gold identity are carried through the interface.
+The Visual Hub is Orren's desktop-first, three-pane SIR workspace: a navigable semantic hierarchy, a spatial field/flow/lens, and a meaning inspector. Its supplied emblem and blue-violet/gold visual identity remain intact while the reference MyApp graph now comes from Orren's **real Python Engine**, not hard-coded UI sample state.
 
-## Run it
+## Run locally
 
-From the repository root:
+From the repository root, with the Orren package dependencies installed:
 
 ```bash
-python3 -m http.server 4173 --directory visual-hub
+python3 visual-hub/server.py
 ```
 
-Then open <http://localhost:4173>.
+Open <http://127.0.0.1:4173>. The server defaults to loopback. To expose a temporary hosted sandbox preview, set the host and port explicitly, for example:
 
-## Try the milestone
+```bash
+HOST=0.0.0.0 PORT=4173 python3 visual-hub/server.py
+```
 
-1. The default field shows `MyApp` branching to `UI` and `Logic`, `Dashboard` and `WeatherService`, and `Button`, `Card`, and `Chart`.
-2. `Button` is selected with the behavior “Triggers weather data fetch and updates the dashboard.” Its Web realization is current at a derived path.
-3. Choose **Start with an empty field** (the plus button at the top right) to create your own structure.
-4. Add nodes, behavior, and a web target, then drag nodes to restructure and observe derived paths update.
-5. Explore the Flow Graph, Dimension Lens, Realization View, and Provenance Trail. They all render the same in-memory field.
+## What is connected
 
-**Prototype boundary:** state lives in memory in this browser tab. The Visual Producer and Observer are UI-level demonstrations; no SIR engine, persistence, voice input, compiler, or artifact backend is connected yet. Realization marks a derived artifact as current in the prototype; it does not generate a source file.
+- `visual-hub/MyApp.orn` is parsed by `Engine.run()` and becomes the live SIR graph shown in the tree, field, Flow Graph, Dimension Lens, inspector, and Provenance view.
+- Nine-dimension bars and the radar are derived from actual SIR payload counts. Their heat/radius is normalized within the current field and is **not a confidence score**. The current SIR schema does not model confidence.
+- Create-node, add-behavior, reparent, typed relationship, target add/remove, and refresh-plan actions update the in-memory SIR session using the Engine's semantic editor / realization coordinator.
+- Relationship connections are written only after the builder explicitly chooses a type and confirms.
+- Provenance lists actions from this server process and uses the Engine's SIR-graph signature. It is not a source-file hash or durable audit log.
+- Target cards show the coordinator's real target plan, output-file paths, preservation assessment, and declared bridge needs. These are plans, **not emitted source files**.
+
+## Current boundary
+
+The session is in memory. Restarting the server restores the `.orn` fixture and discards edits; this workbench does not configure persistence or authentication. Source emission remains unavailable because the optional `orren_engine.backends.web_layout` module is absent from this repository revision. The Visual Hub reports that capability gap explicitly and never presents coordinator plans as generated artifacts. The core Engine/SIR editing path remains live.
+
+Run the bridge regression tests with:
+
+```bash
+pytest tests/test_visual_hub_runtime.py -q
+```
