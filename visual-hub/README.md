@@ -1,6 +1,6 @@
 # Orren Visual Hub — first visual proof
 
-A dependency-free, browser-runnable prototype of the **Living SIR Field + Semantic Tree** milestone from [`docs/VISUAL_HUB.md`](../docs/VISUAL_HUB.md). The supplied Orren artwork informs the emblem and the blue / violet / luminous-gold interface palette.
+A dependency-free, browser-runnable prototype of the **Living SIR Field + Semantic Tree** milestone from [`docs/VISUAL_HUB.md`](../docs/VISUAL_HUB.md). It follows the supplied reference: a cinematic Orren landscape around a gold-edged glass phone, a glowing branching field, and the focused node's dimension/realization inspector. The supplied Orren emblem and blue / violet / luminous-gold identity are carried through the interface.
 
 ## Run it
 
@@ -14,11 +14,10 @@ Then open <http://localhost:4173>.
 
 ## Try the milestone
 
-1. Choose **Start with an empty field** (the plus button at the top right).
-2. Add `MyApp`, then add `UI` and `Button` beneath the selected node.
-3. Select `Button`; in **Add meaning**, enter `Make it fetch the weather` and choose **Add behavior**.
-4. Choose **Add web target**, then **Realize**. The path is derived as `src/ui/Button.tsx`.
-5. Add `Controls` under `MyApp`, drag `Button` onto it, and observe the path update to `src/controls/Button.tsx`.
-6. Explore the Flow Graph, Dimension Lens, Realization View, and Provenance Trail. They all render the same in-memory field.
+1. The default field shows `MyApp` branching to `UI` and `Logic`, `Dashboard` and `WeatherService`, and `Button`, `Card`, and `Chart`.
+2. `Button` is selected with the behavior “Triggers weather data fetch and updates the dashboard.” Its Web realization is current at a derived path.
+3. Choose **Start with an empty field** (the plus button at the top right) to create your own structure.
+4. Add nodes, behavior, and a web target, then drag nodes to restructure and observe derived paths update.
+5. Explore the Flow Graph, Dimension Lens, Realization View, and Provenance Trail. They all render the same in-memory field.
 
 **Prototype boundary:** state lives in memory in this browser tab. The Visual Producer and Observer are UI-level demonstrations; no SIR engine, persistence, voice input, compiler, or artifact backend is connected yet. Realization marks a derived artifact as current in the prototype; it does not generate a source file.

@@ -4,13 +4,20 @@
     nodes: [
       { id: "myapp", name: "MyApp", parentId: null, kind: "Semantic root", confidence: 0.98, behavior: "", webTarget: false, realization: "missing", profile: { Expression: .94, Cognitive: .86, Vibe: .82, Spatial: .38, Temporal: .21, Relational: .57, Conditional: .18, Behavioral: .22, Equilibrium: .71 } },
       { id: "ui", name: "UI", parentId: "myapp", kind: "Structure", confidence: 0.93, behavior: "", webTarget: false, realization: "missing", profile: { Expression: .82, Cognitive: .72, Vibe: .88, Spatial: .75, Temporal: .25, Relational: .59, Conditional: .18, Behavioral: .29, Equilibrium: .66 } },
-      { id: "button", name: "Button", parentId: "ui", kind: "Component", confidence: 0.89, behavior: "", webTarget: false, realization: "missing", profile: { Expression: .88, Cognitive: .79, Vibe: .77, Spatial: .62, Temporal: .18, Relational: .48, Conditional: .25, Behavioral: .19, Equilibrium: .61 } }
+      { id: "logic", name: "Logic", parentId: "myapp", kind: "Structure", confidence: 0.91, behavior: "", webTarget: false, realization: "missing", profile: { Expression: .77, Cognitive: .88, Vibe: .65, Spatial: .43, Temporal: .58, Relational: .82, Conditional: .62, Behavioral: .68, Equilibrium: .7 } },
+      { id: "dashboard", name: "Dashboard", parentId: "ui", kind: "Interface", confidence: 0.91, behavior: "", webTarget: false, realization: "missing", profile: { Expression: .88, Cognitive: .75, Vibe: .76, Spatial: .82, Temporal: .63, Relational: .78, Conditional: .3, Behavioral: .51, Equilibrium: .69 } },
+      { id: "weather", name: "WeatherService", parentId: "logic", kind: "Service", confidence: 0.95, behavior: "Fetches the latest weather conditions.", webTarget: false, realization: "missing", profile: { Expression: .78, Cognitive: .89, Vibe: .7, Spatial: .43, Temporal: .85, Relational: .88, Conditional: .71, Behavioral: .91, Equilibrium: .74 } },
+      { id: "button", name: "Button", parentId: "dashboard", kind: "Component", confidence: 0.94, behavior: "Triggers weather data fetch and updates the dashboard.", webTarget: true, realization: "current", profile: { Expression: .82, Behavioral: .91, Cognitive: .68, Vibe: .76, Spatial: .62, Relational: .58, Temporal: .71, Conditional: .63, Equilibrium: .69 } },
+      { id: "card", name: "Card", parentId: "dashboard", kind: "Component", confidence: 0.91, behavior: "Presents the latest weather summary.", webTarget: false, realization: "missing", profile: { Expression: .85, Cognitive: .72, Vibe: .78, Spatial: .81, Temporal: .52, Relational: .69, Conditional: .28, Behavioral: .6, Equilibrium: .68 } },
+      { id: "chart", name: "Chart", parentId: "dashboard", kind: "Component", confidence: 0.89, behavior: "Visualizes temperature across the day.", webTarget: false, realization: "missing", profile: { Expression: .81, Cognitive: .8, Vibe: .72, Spatial: .83, Temporal: .91, Relational: .74, Conditional: .24, Behavioral: .67, Equilibrium: .65 } }
     ],
     relations: [],
     events: [
-      { title: "Button placed inside UI", description: "The Visual Producer mapped a child component to its semantic parent.", nodeId: "button", time: "just now", source: "Producer" },
-      { title: "UI added to MyApp", description: "A structural node joined the living field.", nodeId: "ui", time: "1 min ago", source: "Producer" },
-      { title: "MyApp entered the field", description: "Root meaning established · paths will be derived from structure.", nodeId: "myapp", time: "2 min ago", source: "Producer" }
+      { title: "Button realized for web", description: "Current artifact at src/ui/dashboard/Button.tsx.", nodeId: "button", time: "just now", source: "Realizer" },
+      { title: "Button gained behavioral meaning", description: "Triggers weather data fetch and updates the dashboard.", nodeId: "button", time: "2 min ago", source: "Producer" },
+      { title: "WeatherService joined Logic", description: "A service now carries the weather flow.", nodeId: "weather", time: "5 min ago", source: "Producer" },
+      { title: "Dashboard joined UI", description: "The semantic surface now contains Button, Card, and Chart.", nodeId: "dashboard", time: "7 min ago", source: "Producer" },
+      { title: "MyApp entered the field", description: "The root meaning opened into interface and logic branches.", nodeId: "myapp", time: "10 min ago", source: "Producer" }
     ],
     selectedId: "button",
     view: "tree",
@@ -182,16 +189,28 @@
     const present = ["Expression", "Cognitive", "Vibe"].filter(name => node.profile?.[name] >= .6);
     if (node.behavior) present.push("Behavioral");
     if (state.relations.some(edge => edge.from === node.id || edge.to === node.id)) present.push("Relational");
-    const dims = dimensionNames.map(name => {
-      const isPresent = (node.profile?.[name] || 0) >= .58 || (name === "Behavioral" && Boolean(node.behavior)) || (name === "Relational" && state.relations.some(edge => edge.from === node.id || edge.to === node.id));
-      const extraClass = name === "Behavioral" ? " behavior" : "";
-      return `<span class="dimension-item ${isPresent ? "is-present" : ""}${extraClass}">${name}</span>`;
+    const point = (index, radius) => {
+      const angle = (Math.PI * 2 * index) / dimensionNames.length - Math.PI / 2;
+      return `${(48 + Math.cos(angle) * radius).toFixed(1)},${(43 + Math.sin(angle) * radius).toFixed(1)}`;
+    };
+    const radarAxes = dimensionNames.map((name, index) => `<line x1="48" y1="43" x2="${point(index, 38).split(",")[0]}" y2="${point(index, 38).split(",")[1]}" />`).join("");
+    const radarGrid = [.33, .66, 1].map(scale => `<polygon points="${dimensionNames.map((_, index) => point(index, 38 * scale)).join(" ")}" />`).join("");
+    const radarData = dimensionNames.map((name, index) => point(index, 38 * Math.max(.09, node.profile?.[name] || 0))).join(" ");
+    const radar = `<svg class="radar-svg" viewBox="0 0 96 86" role="img" aria-label="Nine-dimension profile radar"><g class="radar-grid">${radarGrid}${radarAxes}</g><polygon class="radar-fill" points="${radarData}"/><polygon class="radar-outline" points="${radarData}"/>${dimensionNames.map((name, index) => `<circle class="radar-point" cx="${point(index, 38 * Math.max(.09, node.profile?.[name] || 0)).split(",")[0]}" cy="${point(index, 38 * Math.max(.09, node.profile?.[name] || 0)).split(",")[1]}" r="1.7"/>`).join("")}</svg>`;
+    const dims = dimensionNames.map((name, index) => {
+      const value = Math.round((node.profile?.[name] || 0) * 100);
+      return `<div class="dimension-bar-row"><span class="dimension-swatch swatch-${index}"></span><span class="dimension-bar-name">${name}</span><span class="dimension-bar-track"><i class="bar-${index}" style="width:${value}%"></i></span><span class="dimension-bar-value">${(value / 100).toFixed(2)}</span></div>`;
     }).join("");
     const path = derivedPath(node);
-    content.innerHTML = `<section class="inspector-node"><div class="inspector-node-head"><span class="node-glyph ${node.behavior ? "behavioral" : ""} ${node.webTarget ? "target" : ""}">${glyphFor(node)}</span><span class="inspector-node-name"><strong>${escapeHTML(node.name)}</strong><small>${escapeHTML(node.kind)}${node.parentId ? ` · inside ${escapeHTML(nodeById(node.parentId)?.name || "Field")}` : " · field root"}</small></span></div><div class="confidence"><span>Intent confidence</span><strong>${confidence}%</strong></div><div class="confidence-track"><span style="width:${confidence}%"></span></div></section>
-      <section class="inspector-section"><div class="section-head"><strong>DIMENSIONAL PROFILE</strong><button id="toggle-dimensions">${$("#dimension-list")?.hidden ? "Reveal all 9" : "Inspect all 9"}</button></div><div class="profile-rings"><span class="profile-orb"><span>✳</span></span><span class="profile-summary"><strong>${present.length || 1} dimensions in focus</strong><small>Expression, Vibe, and structure at a glance.<br>Full detail on demand.</small></span></div><div class="dimension-list" id="dimension-list" hidden>${dims}</div></section>
-      <section class="inspector-section"><div class="section-head"><strong>DERIVED REALIZATION PATH</strong>${node.webTarget ? '<span style="color:#e8c36d;font-size:8px">WEB</span>' : ""}</div><div class="path-card"><span class="path-icon">⌘</span><span class="path-copy"><small>${node.webTarget ? "FOLLOWS SEMANTIC PLACEMENT" : "NO TARGET · NO PATH REQUIRED"}</small><code class="${path ? "" : "path-missing"}">${escapeHTML(path || "Add a web target to derive this path")}</code></span></div></section>
-      <section class="inspector-section"><div class="section-head"><strong>ADD MEANING</strong><span style="color:#77869c;font-size:8px">Visual Producer</span></div><form class="intent-form" id="intent-form"><label class="sr-only" for="intent-input">Describe a behavior for ${escapeHTML(node.name)}</label><textarea id="intent-input" maxlength="180" placeholder="Describe a behavior… e.g. Make it fetch the weather"></textarea><div class="intent-actions"><button class="small-action" type="submit">+ Add behavior</button><button class="small-action target-action" type="button" id="add-target">◇ ${node.webTarget ? "Target added" : "Add web target"}</button>${node.webTarget ? `<button class="small-action realize-action" type="button" id="realize">${node.realization === "current" ? "✓ Current" : "Realize"}</button>` : ""}</div></form>${node.behavior ? `<p class="behavior-note">“${escapeHTML(node.behavior)}”</p>` : ""}</section>`;
+    const statuses = [
+      { name: "Web", state: node.webTarget ? node.realization : "Not realized", icon: "◉", path: node.webTarget ? path : "src/ui/dashboard/Button.tsx", className: node.webTarget && node.realization === "current" ? "current" : "waiting" },
+      { name: "Android", state: "Degraded", icon: "♙", path: "app/src/main/java/…/Button.kt", className: "degraded" },
+      { name: "Rust", state: "Not realized", icon: "◌", path: "src/button.rs", className: "waiting" }
+    ].map(target => `<div class="target-row"><span class="target-icon ${target.className}">${target.icon}</span><span class="target-copy"><strong>${target.name}</strong><small>${escapeHTML(target.path)}</small></span><span class="target-state ${target.className}">${target.className === "current" ? "✓ " : target.className === "degraded" ? "⚠ " : "○ "}${escapeHTML(target.state)}</span></div>`).join("");
+    content.innerHTML = `<section class="selected-node-card"><div class="selected-node-head"><span class="selected-node-seal"><img src="assets/orren-emblem.webp" alt=""></span><span class="selected-node-name"><strong>${escapeHTML(node.name)}</strong><small>${escapeHTML(node.kind)} · ${node.parentId ? `inside ${escapeHTML(nodeById(node.parentId)?.name || "Field")}` : "field root"}</small></span><span class="active-badge"><i></i>Active</span><button class="icon-button subtle selected-menu" aria-label="Node options">···</button><button class="close-inspector" aria-label="Close detail" title="Close detail">×</button></div>${node.behavior ? `<p class="selected-behavior">${escapeHTML(node.behavior)}</p>` : '<p class="selected-behavior muted-behavior">Add a behavior to give this node intent.</p>'}<div class="node-tags"><span>Behavioral</span><span>${escapeHTML(node.name === "Button" ? "UI" : node.kind)}</span><span>Interactive</span></div>
+      <div class="detail-grid"><section class="dimension-card"><div class="detail-title">Dimensions <button id="toggle-dimensions" aria-expanded="true">9 in view</button></div><div class="dimension-visual">${radar}<div class="dimension-bars" id="dimension-list">${dims}</div></div></section><section class="realization-card"><div class="detail-title">Realization Status</div><div class="target-list">${statuses}</div></section></div>
+      <div class="derived-path-card"><span>Path <span>(derived)</span></span><code class="${path ? "" : "path-missing"}">${escapeHTML(path || "Add a web target to derive this path")}</code><button class="copy-path" id="copy-path" title="Copy derived path" ${path ? "" : "disabled"}>▢</button></div>
+      <details class="inspector-section behavior-editor"><summary><strong>REFINE MEANING</strong><span>Visual Producer</span></summary><form class="intent-form" id="intent-form"><label class="sr-only" for="intent-input">Describe a behavior for ${escapeHTML(node.name)}</label><textarea id="intent-input" maxlength="180" placeholder="Describe a behavior… e.g. Make it fetch the weather"></textarea><div class="intent-actions"><button class="small-action" type="submit">+ Add behavior</button><button class="small-action target-action" type="button" id="add-target">◇ ${node.webTarget ? "Target added" : "Add web target"}</button>${node.webTarget ? `<button class="small-action realize-action" type="button" id="realize">${node.realization === "current" ? "✓ Current" : "Realize"}</button>` : ""}</div></form></details>`;
     $("#observer-readout").textContent = observerText(node);
     $("#observer-time").textContent = latest()?.time?.toUpperCase() || "JUST NOW";
     $("#create-context").textContent = node ? `inside ${node.name}` : "new root node";
@@ -307,6 +326,10 @@
     const button = event.target.closest("[data-view]");
     if (button) changeView(button.dataset.view);
   });
+  $(".brand-nav").addEventListener("click", event => {
+    const button = event.target.closest("[data-shell-view]");
+    if (button) changeView(button.dataset.shellView);
+  });
   $(".view-nav").addEventListener("keydown", event => {
     if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
@@ -417,6 +440,11 @@
     addBehavior(state.selectedId, $("#intent-input").value);
   });
   $("#inspector-content").addEventListener("click", event => {
+    if (event.target.closest("#copy-path")) {
+      const currentPath = derivedPath(selectedNode());
+      if (currentPath && navigator.clipboard?.writeText) navigator.clipboard.writeText(currentPath).then(() => showToast("Derived path copied."), () => showToast(currentPath));
+      return;
+    }
     if (event.target.closest("#toggle-dimensions")) {
       const list = $("#dimension-list");
       list.hidden = !list.hidden;
