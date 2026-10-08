@@ -185,6 +185,16 @@ These surfaced two real engine bugs (both fixed in v0.3.2):
   `never displays timer` were silently dropped. Fixed: the parser now
   accepts any verb + `on`/`when`, plus `never` and `blocked when` forms.
 
+## Visual Hub prototype
+
+The first visual proof for the [Visual Hub architecture](docs/VISUAL_HUB.md) is a self-contained, dependency-free browser prototype in [`visual-hub/`](visual-hub/). It demonstrates the living semantic tree, behavior enrichment, derived web realization paths, drag-to-restructure, and five views over one in-memory field.
+
+```bash
+python3 -m http.server 4173 --directory visual-hub
+```
+
+The prototype is intentionally not yet connected to the SIR engine or artifact backend; see [`visual-hub/README.md`](visual-hub/README.md) for the acceptance walk-through and boundary.
+
 ## Displayable previews
 
 `orren preview FILE` generates a single self-contained HTML file with
