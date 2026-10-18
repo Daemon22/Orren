@@ -456,9 +456,11 @@ class Handler(SimpleHTTPRequestHandler):
             return hmac.compare_digest(provided, f"Bearer {configured}")
         try:
             client_is_local = ipaddress.ip_address(self.client_address[0]).is_loopback
+            server_is_local = ipaddress.ip_address(self.server.server_address[0]).is_loopback
         except ValueError:
             client_is_local = False
-        return client_is_local
+            server_is_local = False
+        return client_is_local and server_is_local
 
     def _require_service_auth(self) -> bool:
         if self._service_authorized():
@@ -554,6 +556,9 @@ class Handler(SimpleHTTPRequestHandler):
 def main() -> None:
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "4173"))
+    service_token = os.environ.get("ORREN_SERVICE_TOKEN", "").strip()
+    if service_token and (len(service_token) < 32 or service_token.startswith("replace-with-")):
+        raise RuntimeError("ORREN_SERVICE_TOKEN must contain at least 32 non-placeholder characters.")
     server = ThreadingHTTPServer((host, port), Handler)
     server.session = SESSION
     print(f"Orren Visual Hub + Engine listening on http://{host}:{port}", flush=True)
