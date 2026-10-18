@@ -65,10 +65,16 @@ class ProjectSessionManager:
             """)
             connection.commit()
             rows = connection.execute(
-                "SELECT revision, action_json FROM api_commands ORDER BY revision"
+                "SELECT revision, action_json, result_json FROM api_commands ORDER BY revision"
             ).fetchall()
             for row in rows:
                 session.apply(json.loads(row["action_json"]))
+                persisted = json.loads(row["result_json"]).get("field", {})
+                if isinstance(persisted.get("events"), list):
+                    session.events = persisted["events"]
+                runtime = persisted.get("runtime", {})
+                if isinstance(runtime, dict) and isinstance(runtime.get("lastPlanAt"), str):
+                    session.last_realization = runtime["lastPlanAt"]
             current_revision = int(rows[-1]["revision"]) if rows else 0
             self._sessions[project_id] = session
             self._revisions[project_id] = current_revision
