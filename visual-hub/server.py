@@ -133,6 +133,9 @@ class RuntimeSession:
 
     def reset(self, mode: str) -> dict:
         with self.lock:
+            previous_database = getattr(getattr(self, "engine", None), "database", None)
+            if previous_database is not None:
+                previous_database.close()
             if mode == "empty":
                 source = "create workspace : Application\n\n    context:\n        purpose: an empty Orren Visual Hub field\n"
                 source_name = "New in-memory field"
