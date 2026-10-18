@@ -517,8 +517,6 @@ class Handler(SimpleHTTPRequestHandler):
                 result, created = PROJECT_SESSIONS.execute(
                     match.group(1), int(revision_header), idempotency_key, data["action"]
                 )
-                if not created:
-                    self.send_header("Idempotency-Replayed", "true")
                 self._json(200, result)
             except ProjectRevisionConflict as exc:
                 self._json(409, {"error": str(exc), "code": "revision_conflict", "currentRevision": exc.current_revision})
