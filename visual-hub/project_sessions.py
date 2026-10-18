@@ -107,6 +107,7 @@ class ProjectSessionManager:
             field = session.apply(action)
             # A reset replaces the Engine handle; persist through its new project DB.
             database = session.engine.database
+            connection = database.connection
             # Save the materialized SIR revision and all derived realization plans.
             database.save_run(
                 session.source_name,
