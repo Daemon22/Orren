@@ -105,6 +105,8 @@ class ProjectSessionManager:
                 raise ProjectRevisionConflict(current_revision)
 
             field = session.apply(action)
+            # A reset replaces the Engine handle; persist through its new project DB.
+            database = session.engine.database
             # Save the materialized SIR revision and all derived realization plans.
             database.save_run(
                 session.source_name,
