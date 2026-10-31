@@ -30,6 +30,8 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from orren_engine import (  # noqa: E402
     BehavioralStatement,
+    CognitiveStatement,
+    ConditionalStatement,
     Dimension,
     Engine,
     RealizationTarget,
@@ -181,6 +183,8 @@ class RuntimeSession:
     def _node_kind(self, node) -> str:
         if node.parent is None or node.kind == "root":
             return "Semantic root"
+        if node.kind in {"variable", "rule"}:
+            return node.kind.title()
         name = node.name.lower()
         if name in {"ui", "logic", "structure"}:
             return "Structure"
@@ -366,6 +370,46 @@ class RuntimeSession:
                 self.graph.nodes.append(node)
                 self.display_names[node.node_id] = name
                 self.record(f"{name} added to the live SIR", f"Created {node.path} beneath {parent.path} in the in-memory semantic graph.", node.node_id)
+                self._replan()
+            elif action == "variable":
+                name = " ".join(str(data.get("name", "")).strip().split())[:48]
+                value_type = str(data.get("valueType", "")).strip().lower()
+                if not name or value_type not in {"text", "number", "boolean", "date", "list", "object"}:
+                    raise ValueError("Give the variable a name and a supported type: text, number, boolean, date, list, or object.")
+                parent = self._node_by_id(data.get("parentId")) or self.graph.root
+                if parent is None:
+                    raise ValueError("Create a program element before adding a variable.")
+                segment = _identifier(name)
+                sibling_names = {child.name.casefold() for child in parent.children}
+                base, suffix = segment, 2
+                while segment.casefold() in sibling_names:
+                    segment = f"{base}_{suffix}"
+                    suffix += 1
+                node = SIRNode(path=f"{parent.path}.{segment}", name=segment, kind="variable", parent=parent)
+                parent.children.append(node)
+                self.graph.nodes.append(node)
+                self.display_names[node.node_id] = name
+                self.editor.add(node.path, Dimension.COGNITIVE, CognitiveStatement(subject=node.name, predicate="type", value=value_type), rationale="Typed variable defined through HAEL Studio.")
+                self.record(f"Variable {name} defined", f"Added {value_type} variable {node.path} to the cognitive dimension.", node.node_id)
+                self._replan()
+            elif action == "rule":
+                name = " ".join(str(data.get("name", "")).strip().split())[:48]
+                condition = " ".join(str(data.get("condition", "")).strip().split())[:180]
+                parent = self._node_by_id(data.get("parentId")) or self.graph.root
+                if not name or not condition or parent is None:
+                    raise ValueError("Give the rule a name and describe the condition that activates it.")
+                segment = _identifier(name)
+                sibling_names = {child.name.casefold() for child in parent.children}
+                base, suffix = segment, 2
+                while segment.casefold() in sibling_names:
+                    segment = f"{base}_{suffix}"
+                    suffix += 1
+                node = SIRNode(path=f"{parent.path}.{segment}", name=segment, kind="rule", parent=parent)
+                parent.children.append(node)
+                self.graph.nodes.append(node)
+                self.display_names[node.node_id] = name
+                self.editor.add(node.path, Dimension.CONDITIONAL, ConditionalStatement(subject=node.name, action="activates", condition=condition), rationale="Declarative rule defined through HAEL Studio.")
+                self.record(f"Rule {name} defined", f"Added an activation condition to {node.path}; realization remains an Orren plan.", node.node_id)
                 self._replan()
             elif action == "behavior":
                 node = self._node_by_id(data.get("nodeId"))

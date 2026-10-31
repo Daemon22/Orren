@@ -31,6 +31,7 @@ Set `ORREN_SERVICE_TOKEN` to a random secret of at least 32 characters when conn
 
 - `GET /v1/projects/{projectId}/snapshot` returns `projectId`, monotonically increasing `revision`, and the current `field`.
 - `POST /v1/projects/{projectId}/commands` accepts `{"action": {...}}`, requires `If-Match: "<revision>"` and an `Idempotency-Key`, and returns the updated envelope.
+- The command contract includes named elements, typed variables (`text`, `number`, `boolean`, `date`, `list`, `object`), declarative activation rules, behaviors, relationships, realization planning, and target management. Variables are represented in SIR's cognitive dimension; rule conditions use its conditional dimension.
 - Revision mismatches return HTTP 409 with `currentRevision`. Reusing a key with the same action returns its saved result; using it with another action returns HTTP 409.
 - Project IDs are hashed before becoming SQLite filenames. SQLite stores each materialized Orren SIR revision and a replayable command log so the live graph and event timestamps recover after restart.
 - Keep one Orren server process as the writer for a project data directory. The in-process session locks do not coordinate multiple Orren worker processes; multi-process deployment needs a shared transactional store and distributed locking.
