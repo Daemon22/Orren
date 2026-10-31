@@ -12,6 +12,8 @@ from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from hashlib import sha256
+import hmac
+import ipaddress
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -28,12 +30,20 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from orren_engine import (  # noqa: E402
     BehavioralStatement,
+    CognitiveStatement,
+    ConditionalStatement,
     Dimension,
     Engine,
     RealizationTarget,
     RelationalStatement,
     SIRNode,
     __version__ as ENGINE_VERSION,
+)
+
+from project_sessions import (  # noqa: E402
+    ProjectIdempotencyConflict,
+    ProjectRevisionConflict,
+    ProjectSessionManager,
 )
 
 DIMENSION_NAMES = {
@@ -99,7 +109,11 @@ def _display_name(name: str) -> str:
 class RuntimeSession:
     """One volatile Engine/SIR workspace and its action provenance."""
 
-    def __init__(self) -> None:
+    def __init__(self, db_path: str | None = None, project_id: str | None = None) -> None:
+        self.db_path = db_path
+        self.project_id = project_id
+        self.engine_version = ENGINE_VERSION
+        self.source_text = ""
         self.lock = RLock()
         self.engine: Engine | None = None
         self.result = None
@@ -121,13 +135,16 @@ class RuntimeSession:
 
     def reset(self, mode: str) -> dict:
         with self.lock:
+            previous_database = getattr(getattr(self, "engine", None), "database", None)
+            if previous_database is not None:
+                previous_database.close()
             if mode == "empty":
                 source = "create workspace : Application\n\n    context:\n        purpose: an empty Orren Visual Hub field\n"
                 source_name = "New in-memory field"
             else:
                 source = FIXTURE.read_text(encoding="utf-8")
                 source_name = "visual-hub/MyApp.orn"
-            engine = Engine()
+            engine = Engine(db_path=self.db_path, project_name=self.project_id or "orren-visual-hub")
             result = engine.run(source)
             if result.graph is None:
                 raise RuntimeError("Engine did not produce a SIR graph")
@@ -138,6 +155,8 @@ class RuntimeSession:
             self.last_realization = datetime.now(timezone.utc).isoformat()
             self.events = []
             self.source_name = source_name
+            self.source_text = source
+            self.engine_version = ENGINE_VERSION
             self.record("Field loaded into the Orren Engine", f"Parsed {result.expressions_count} expression(s); built {result.sir_node_count} SIR nodes and {len(result.artifacts)} realization plans.", None, "Engine · .orn")
             return self.snapshot()
 
@@ -164,6 +183,8 @@ class RuntimeSession:
     def _node_kind(self, node) -> str:
         if node.parent is None or node.kind == "root":
             return "Semantic root"
+        if node.kind in {"variable", "rule"}:
+            return node.kind.title()
         name = node.name.lower()
         if name in {"ui", "logic", "structure"}:
             return "Structure"
@@ -292,14 +313,14 @@ class RuntimeSession:
                 "runtime": {
                     "connected": True,
                     "engineVersion": ENGINE_VERSION,
-                    "mode": "in-memory SIR session",
+                    "mode": "persistent project SIR session" if self.db_path else "in-memory SIR session",
                     "sourceFile": self.source_name,
                     "fingerprint": f"sha256:{fingerprint}",
                     "fingerprintType": "SIR semantic graph signature; not the source-file hash",
                     "codegenAvailable": self.codegen_available,
                     "codegenMessage": self.codegen_message,
                     "zaryelValid": bool(zaryel and zaryel.valid),
-                    "sessionOnly": True,
+                    "sessionOnly": not bool(self.db_path),
                     "lastPlanAt": self.last_realization,
                 },
                 "rootId": root.node_id if root else None,
@@ -349,6 +370,46 @@ class RuntimeSession:
                 self.graph.nodes.append(node)
                 self.display_names[node.node_id] = name
                 self.record(f"{name} added to the live SIR", f"Created {node.path} beneath {parent.path} in the in-memory semantic graph.", node.node_id)
+                self._replan()
+            elif action == "variable":
+                name = " ".join(str(data.get("name", "")).strip().split())[:48]
+                value_type = str(data.get("valueType", "")).strip().lower()
+                if not name or value_type not in {"text", "number", "boolean", "date", "list", "object"}:
+                    raise ValueError("Give the variable a name and a supported type: text, number, boolean, date, list, or object.")
+                parent = self._node_by_id(data.get("parentId")) or self.graph.root
+                if parent is None:
+                    raise ValueError("Create a program element before adding a variable.")
+                segment = _identifier(name)
+                sibling_names = {child.name.casefold() for child in parent.children}
+                base, suffix = segment, 2
+                while segment.casefold() in sibling_names:
+                    segment = f"{base}_{suffix}"
+                    suffix += 1
+                node = SIRNode(path=f"{parent.path}.{segment}", name=segment, kind="variable", parent=parent)
+                parent.children.append(node)
+                self.graph.nodes.append(node)
+                self.display_names[node.node_id] = name
+                self.editor.add(node.path, Dimension.COGNITIVE, CognitiveStatement(subject=node.name, predicate="type", value=value_type), rationale="Typed variable defined through HAEL Studio.")
+                self.record(f"Variable {name} defined", f"Added {value_type} variable {node.path} to the cognitive dimension.", node.node_id)
+                self._replan()
+            elif action == "rule":
+                name = " ".join(str(data.get("name", "")).strip().split())[:48]
+                condition = " ".join(str(data.get("condition", "")).strip().split())[:180]
+                parent = self._node_by_id(data.get("parentId")) or self.graph.root
+                if not name or not condition or parent is None:
+                    raise ValueError("Give the rule a name and describe the condition that activates it.")
+                segment = _identifier(name)
+                sibling_names = {child.name.casefold() for child in parent.children}
+                base, suffix = segment, 2
+                while segment.casefold() in sibling_names:
+                    segment = f"{base}_{suffix}"
+                    suffix += 1
+                node = SIRNode(path=f"{parent.path}.{segment}", name=segment, kind="rule", parent=parent)
+                parent.children.append(node)
+                self.graph.nodes.append(node)
+                self.display_names[node.node_id] = name
+                self.editor.add(node.path, Dimension.CONDITIONAL, ConditionalStatement(subject=node.name, action="activates", condition=condition), rationale="Declarative rule defined through HAEL Studio.")
+                self.record(f"Rule {name} defined", f"Added an activation condition to {node.path}; realization remains an Orren plan.", node.node_id)
                 self._replan()
             elif action == "behavior":
                 node = self._node_by_id(data.get("nodeId"))
@@ -422,11 +483,34 @@ class RuntimeSession:
 
 
 SESSION = RuntimeSession()
+PROJECT_SESSIONS = ProjectSessionManager(
+    os.environ.get("ORREN_PROJECT_DATA_DIR", str(Path.home() / ".orren" / "projects")),
+    lambda database_path: RuntimeSession(db_path=database_path),
+)
 
 
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(WEB_ROOT), **kwargs)
+
+    def _service_authorized(self) -> bool:
+        configured = os.environ.get("ORREN_SERVICE_TOKEN", "").strip()
+        provided = self.headers.get("Authorization", "")
+        if configured:
+            return hmac.compare_digest(provided, f"Bearer {configured}")
+        try:
+            client_is_local = ipaddress.ip_address(self.client_address[0]).is_loopback
+            server_is_local = ipaddress.ip_address(self.server.server_address[0]).is_loopback
+        except ValueError:
+            client_is_local = False
+            server_is_local = False
+        return client_is_local and server_is_local
+
+    def _require_service_auth(self) -> bool:
+        if self._service_authorized():
+            return True
+        self._json(401, {"error": "A valid Orren service credential is required.", "code": "service_auth_required"})
+        return False
 
     def _json(self, status: int, payload: dict) -> None:
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -440,6 +524,16 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         route = urlparse(self.path).path
+        if route.startswith("/api/") or route.startswith("/v1/"):
+            if not self._require_service_auth():
+                return
+        match = re.fullmatch(r"/v1/projects/([A-Za-z0-9_-]{1,128})/snapshot", route)
+        if match:
+            try:
+                self._json(200, PROJECT_SESSIONS.snapshot(match.group(1)))
+            except Exception as exc:
+                self._json(500, {"error": f"Could not load Orren project: {exc}", "code": "project_snapshot_failed"})
+            return
         if route == "/api/health":
             state = SESSION.snapshot()
             self._json(200, {"ok": True, "runtime": state["runtime"]})
@@ -450,7 +544,39 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self):
-        if urlparse(self.path).path != "/api/action":
+        route = urlparse(self.path).path
+        if route.startswith("/api/") or route.startswith("/v1/"):
+            if not self._require_service_auth():
+                return
+        match = re.fullmatch(r"/v1/projects/([A-Za-z0-9_-]{1,128})/commands", route)
+        if match:
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length < 1 or length > 32768:
+                    raise ValueError("Request size must be between 1 byte and 32 KB.")
+                data = json.loads(self.rfile.read(length))
+                if not isinstance(data, dict) or set(data) != {"action"} or not isinstance(data["action"], dict):
+                    raise ValueError("Expected an action object with no extra fields.")
+                idempotency_key = self.headers.get("Idempotency-Key", "").strip()
+                if not re.fullmatch(r"[A-Za-z0-9._:-]{8,128}", idempotency_key):
+                    raise ValueError("A valid Idempotency-Key header is required.")
+                revision_header = self.headers.get("If-Match", "").strip().strip('"')
+                if not revision_header.isdigit():
+                    raise ValueError("A numeric If-Match revision is required.")
+                result, created = PROJECT_SESSIONS.execute(
+                    match.group(1), int(revision_header), idempotency_key, data["action"]
+                )
+                self._json(200, result)
+            except ProjectRevisionConflict as exc:
+                self._json(409, {"error": str(exc), "code": "revision_conflict", "currentRevision": exc.current_revision})
+            except ProjectIdempotencyConflict as exc:
+                self._json(409, {"error": str(exc), "code": "idempotency_conflict"})
+            except (ValueError, KeyError, json.JSONDecodeError) as exc:
+                self._json(400, {"error": str(exc), "code": "invalid_command"})
+            except Exception as exc:
+                self._json(500, {"error": f"Orren Engine command failed: {exc}", "code": "command_failed"})
+            return
+        if route != "/api/action":
             self._json(404, {"error": "Unknown Orren API route."})
             return
         try:
@@ -474,6 +600,9 @@ class Handler(SimpleHTTPRequestHandler):
 def main() -> None:
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "4173"))
+    service_token = os.environ.get("ORREN_SERVICE_TOKEN", "").strip()
+    if service_token and (len(service_token) < 32 or service_token.startswith("replace-with-")):
+        raise RuntimeError("ORREN_SERVICE_TOKEN must contain at least 32 non-placeholder characters.")
     server = ThreadingHTTPServer((host, port), Handler)
     server.session = SESSION
     print(f"Orren Visual Hub + Engine listening on http://{host}:{port}", flush=True)
